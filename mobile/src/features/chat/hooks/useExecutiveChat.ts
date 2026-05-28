@@ -9,6 +9,7 @@ import {
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
+import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import {
   executiveChatThread,
   executiveChatMessages,
@@ -226,43 +227,34 @@ export function useExecutiveChat() {
   }, []);
 
   const buildAgentSystemMessages = useCallback(
-    async (conversationMessages: ChatMessage[]) => {
-    const orchestrator = await createExecutiveAgentOrchestrator({
-      locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
-      chatMessages: conversationMessages,
-    });
-    const referenceNow = new Date(orchestrator.context.now);
-    const calendarEvents = getAssistantVisibleCalendarEvents(orchestrator.snapshot, referenceNow);
-    const latestUserMessage = [...conversationMessages]
-      .reverse()
-      .find((message) => message.role === 'user');
+    (orchestrator: Awaited<ReturnType<typeof createExecutiveAgentOrchestrator>>) => {
+      const referenceNow = new Date(orchestrator.context.now);
+      const calendarEvents = getAssistantVisibleCalendarEvents(orchestrator.snapshot, referenceNow);
+      const runtimeContext = buildAgentRuntimeContext(orchestrator, voiceLanguage);
 
-    if (latestUserMessage?.content.trim()) {
-      console.log('[Voice Test] transcript', latestUserMessage.content.trim());
-    }
+      console.log(
+        '[Voice Test] assistantPayload.calendarEvents',
+        calendarEvents.map((event) => ({
+          title: event.title,
+          startsAt: event.startsAt,
+          location: event.location ?? null,
+        })),
+      );
 
-    console.log(
-      '[Voice Test] assistantPayload.calendarEvents',
-      calendarEvents.map((event) => ({
-        title: event.title,
-        startsAt: event.startsAt,
-        location: event.location ?? null,
-      })),
-    );
-    const runtimeContext = buildAgentRuntimeContext(orchestrator);
+      if (!runtimeContext) {
+        return [] as ChatMessage[];
+      }
 
-    if (!runtimeContext) {
-      return [] as ChatMessage[];
-    }
-
-    return [
-      createMessage(
-        'system',
-        `Executive runtime context: ${runtimeContext} Use it subtly and only when it genuinely sharpens the reply.`,
-        getCurrentTimeLabel(),
-      ),
-    ];
-  }, [voiceLanguage]);
+      return [
+        createMessage(
+          'system',
+          `Executive runtime context: ${runtimeContext} Use it subtly and only when it genuinely sharpens the reply.`,
+          getCurrentTimeLabel(),
+        ),
+      ];
+    },
+    [voiceLanguage],
+  );
 
   const chatMutation = useMutation({
     mutationFn: async ({
@@ -272,8 +264,31 @@ export function useExecutiveChat() {
       nextMessages: ChatMessage[];
       assistantMessageId: string;
     }) => {
+      const latestUserMessage = [...nextMessages].reverse().find((message) => message.role === 'user');
+      const orchestrator = await createExecutiveAgentOrchestrator({
+        locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
+        chatMessages: nextMessages,
+      });
+      const referenceNow = new Date(orchestrator.context.now);
+      const calendarEvents = getAssistantVisibleCalendarEvents(orchestrator.snapshot, referenceNow);
+
+      if (latestUserMessage?.content.trim()) {
+        console.log('[Voice Test] transcript', latestUserMessage.content.trim());
+
+        const humanizedReply = tryBuildHumanizedCalendarReply({
+          transcript: latestUserMessage.content.trim(),
+          visibleEvents: calendarEvents,
+          languageCode: voiceLanguage,
+          referenceNow,
+        });
+
+        if (humanizedReply) {
+          return humanizedReply.responseText;
+        }
+      }
+
       const memoryContext = await prepareMemoryPromptContext(nextMessages);
-      const agentSystemMessages = await buildAgentSystemMessages(nextMessages);
+      const agentSystemMessages = buildAgentSystemMessages(orchestrator);
 
       return streamExecutiveChatMessage({
         messages: nextMessages,

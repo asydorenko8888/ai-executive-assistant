@@ -9,6 +9,7 @@ import {
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
+import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
 import { sendExecutiveChatMessage } from '@/src/features/chat/services/chatProxyService';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
@@ -178,7 +179,25 @@ export function useHomeVoiceAssistant() {
             location: event.location ?? null,
           })),
         );
-        const runtimeContext = buildAgentRuntimeContext(orchestrator);
+
+        const humanizedReply = tryBuildHumanizedCalendarReply({
+          transcript: transcript.trim(),
+          visibleEvents: calendarEvents,
+          languageCode: languageCodeRef.current,
+          referenceNow,
+        });
+
+        if (humanizedReply) {
+          console.log('[Voice Test] responseText', humanizedReply.responseText);
+          setAssistantResponse(humanizedReply.responseText);
+          playAssistantResponse(humanizedReply.responseText);
+          return;
+        }
+
+        const runtimeContext = buildAgentRuntimeContext(
+          orchestrator,
+          languageCodeRef.current,
+        );
         const systemMessages = runtimeContext
           ? [
               createChatMessage(

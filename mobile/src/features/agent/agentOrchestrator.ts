@@ -15,10 +15,8 @@ import type {
   MorningBriefing,
   ResolvedExecutiveUserPreferences,
 } from '@/src/features/agent/types';
-import {
-  buildAssistantVisibleCalendarEventsLine,
-  getAssistantVisibleCalendarEvents,
-} from '@/src/features/agent/calendar/calendarAssistantContext';
+import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import { buildAssistantCalendarContextLines } from '@/src/features/agent/calendar/calendarAssistantContext';
 import { areCalendarPhrasesEquivalent } from '@/src/features/agent/calendar/calendarNaturalLanguage';
 import { loadResolvedExecutiveUserPreferences } from '@/src/features/agent/userPreferences';
 
@@ -129,15 +127,18 @@ export function buildAgentPreferenceContext(preferences: ResolvedExecutiveUserPr
 export function buildAgentCalendarContext(
   snapshot: ExecutiveAgentSnapshot,
   referenceNow: Date = new Date(),
+  languageCode?: VoiceLanguageCode,
 ) {
   if (!snapshot.calendarConnection || snapshot.calendarConnection.status !== 'connected' || !snapshot.calendarSummary) {
     return '';
   }
 
-  const segments: string[] = [];
-  const visibleEvents = getAssistantVisibleCalendarEvents(snapshot, referenceNow);
+  const segments: string[] = buildAssistantCalendarContextLines({
+    snapshot,
+    referenceNow,
+    languageCode,
+  });
 
-  segments.push(buildAssistantVisibleCalendarEventsLine(visibleEvents));
   segments.push(snapshot.calendarSummary.transitionSummary);
 
   const availability = snapshot.calendarSummary.availabilitySummary;
@@ -152,12 +153,15 @@ export function buildAgentCalendarContext(
   return segments.join(' ');
 }
 
-export function buildAgentRuntimeContext(orchestrator: ExecutiveAgentOrchestrator) {
+export function buildAgentRuntimeContext(
+  orchestrator: ExecutiveAgentOrchestrator,
+  languageCode?: VoiceLanguageCode,
+) {
   const referenceNow = new Date(orchestrator.context.now);
 
   return [
     buildAgentPreferenceContext(orchestrator.context.preferences),
-    buildAgentCalendarContext(orchestrator.snapshot, referenceNow),
+    buildAgentCalendarContext(orchestrator.snapshot, referenceNow, languageCode),
   ]
     .filter(Boolean)
     .join(' ');
