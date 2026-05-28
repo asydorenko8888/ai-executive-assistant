@@ -228,10 +228,13 @@ export function useExecutiveChat() {
   }, []);
 
   const buildAgentSystemMessages = useCallback(
-    (orchestrator: Awaited<ReturnType<typeof createExecutiveAgentOrchestrator>>) => {
+    (
+      orchestrator: Awaited<ReturnType<typeof createExecutiveAgentOrchestrator>>,
+      userTranscript?: string,
+    ) => {
       const referenceNow = new Date(orchestrator.context.now);
       const calendarEvents = getAssistantVisibleCalendarEvents(orchestrator.snapshot, referenceNow);
-      const runtimeContext = buildAgentRuntimeContext(orchestrator, voiceLanguage);
+      const runtimeContext = buildAgentRuntimeContext(orchestrator, voiceLanguage, userTranscript);
 
       console.log(
         '[Voice Test] assistantPayload.calendarEvents',
@@ -289,7 +292,10 @@ export function useExecutiveChat() {
       }
 
       const memoryContext = await prepareMemoryPromptContext(nextMessages);
-      const agentSystemMessages = buildAgentSystemMessages(orchestrator);
+      const agentSystemMessages = buildAgentSystemMessages(
+        orchestrator,
+        latestUserMessage?.content.trim(),
+      );
 
       return streamExecutiveChatMessage({
         messages: nextMessages,

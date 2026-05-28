@@ -128,6 +128,7 @@ export function buildAgentCalendarContext(
   snapshot: ExecutiveAgentSnapshot,
   referenceNow: Date = new Date(),
   languageCode?: VoiceLanguageCode,
+  userTranscript?: string,
 ) {
   if (!snapshot.calendarConnection || snapshot.calendarConnection.status !== 'connected' || !snapshot.calendarSummary) {
     return '';
@@ -137,6 +138,7 @@ export function buildAgentCalendarContext(
     snapshot,
     referenceNow,
     languageCode,
+    userTranscript,
   });
 
   segments.push(snapshot.calendarSummary.transitionSummary);
@@ -156,12 +158,13 @@ export function buildAgentCalendarContext(
 export function buildAgentRuntimeContext(
   orchestrator: ExecutiveAgentOrchestrator,
   languageCode?: VoiceLanguageCode,
+  userTranscript?: string,
 ) {
   const referenceNow = new Date(orchestrator.context.now);
 
   return [
     buildAgentPreferenceContext(orchestrator.context.preferences),
-    buildAgentCalendarContext(orchestrator.snapshot, referenceNow, languageCode),
+    buildAgentCalendarContext(orchestrator.snapshot, referenceNow, languageCode, userTranscript),
   ]
     .filter(Boolean)
     .join(' ');

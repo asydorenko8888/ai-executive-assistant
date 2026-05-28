@@ -217,6 +217,7 @@ export function useHomeVoiceAssistant() {
         const runtimeContext = buildAgentRuntimeContext(
           orchestrator,
           languageCodeRef.current,
+          transcript.trim(),
         );
         const systemMessages = runtimeContext
           ? [

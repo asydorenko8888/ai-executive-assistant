@@ -37,6 +37,7 @@ export function buildAssistantCalendarContextLines(params: {
   snapshot: ExecutiveAgentSnapshot;
   referenceNow: Date;
   languageCode?: VoiceLanguageCode;
+  userTranscript?: string;
 }): string[] {
   const visibleEvents = getAssistantVisibleCalendarEvents(params.snapshot, params.referenceNow);
   const lines = [buildAssistantVisibleCalendarEventsLine(visibleEvents)];
@@ -46,6 +47,7 @@ export function buildAssistantCalendarContextLines(params: {
       visibleEvents,
       languageCode: params.languageCode,
       referenceNow: params.referenceNow,
+      transcript: params.userTranscript,
     });
 
     if (guidance) {

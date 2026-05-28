@@ -1,7 +1,13 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
+import {
+  analyzeCalendarSituation,
+  buildSituationContextForLlm,
+  isCalendarAwareQuestion,
+} from '@/src/features/agent/calendar/calendarSituationalReasoning';
 import { getMinutesUntilEvent, parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
 import type { VoiceLanguageChatLocale, VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import { buildSituationalSpeechDraft } from '@/src/features/voice/speech/calendarSituationalSpeech';
 import {
   formatSpokenMinutesUntil,
   formatVoiceResponse,
@@ -33,32 +39,7 @@ export type HumanizedCalendarReplyResult = {
   minutesUntilNextEvent: number | null;
 };
 
-const CALENDAR_SCHEDULE_QUESTION_PATTERNS = [
-  /\bwhat do i have planned\b/i,
-  /\bwhat(?:'s| is) on my (?:calendar|schedule)\b/i,
-  /\b(?:my )?(?:next|nearest|upcoming)\s+(?:event|meeting)\b/i,
-  /\bplanned(?: for)? today\b/i,
-  /\bschedule(?: for)? today\b/i,
-  /\bmeetings? today\b/i,
-  /найближч/i,
-  /поді[яіє]/i,
-  /зустріч/i,
-  /сьогодні/i,
-  /запланован/i,
-  /розклад/i,
-  /календар/i,
-  /ближайш/i,
-  /событи/i,
-  /встреч/i,
-  /сегодня/i,
-  /расписан/i,
-];
-
-const REMINDER_QUESTION_PATTERNS = [
-  /\bremind(?: me)?\b/i,
-  /\bнагад/i,
-  /\bнапомни/i,
-];
+export { isCalendarAwareQuestion, isCalendarScheduleQuestion } from '@/src/features/agent/calendar/calendarSituationalReasoning';
 
 function formatSpokenTimeForVoice(isoValue: string) {
   const parsed = parseGoogleCalendarInstant(isoValue);
@@ -215,21 +196,13 @@ function buildSpokenScheduleDraft(params: {
   ]);
 }
 
-export function isCalendarScheduleQuestion(transcript: string) {
-  const normalized = transcript.trim();
-
-  if (!normalized) {
-    return false;
+function logSpokenCalendarDiagnostics(
+  result: SpokenCalendarReplyResult,
+  situationCategory?: string,
+) {
+  if (situationCategory) {
+    console.log('[Calendar Situation] responseCategory', situationCategory);
   }
-
-  if (REMINDER_QUESTION_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return false;
-  }
-
-  return CALENDAR_SCHEDULE_QUESTION_PATTERNS.some((pattern) => pattern.test(normalized));
-}
-
-function logSpokenCalendarDiagnostics(result: SpokenCalendarReplyResult) {
   console.log(
     '[Voice Humanized] nextEvent',
     result.nextEvent
@@ -252,15 +225,21 @@ export function tryBuildSpokenCalendarReply(params: {
   languageCode: VoiceLanguageCode;
   referenceNow: Date;
 }): SpokenCalendarReplyResult | null {
-  if (!isCalendarScheduleQuestion(params.transcript)) {
+  if (!isCalendarAwareQuestion(params.transcript)) {
     return null;
   }
 
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
-  const dayLoad = resolveSpokenDayLoad(params.visibleEvents.length);
+  const situation = analyzeCalendarSituation({
+    transcript: params.transcript,
+    visibleEvents: params.visibleEvents,
+    referenceNow: params.referenceNow,
+  });
+  const dayLoad = situation.dayLoad;
 
   if (params.visibleEvents.length === 0) {
-    const draft = buildSpokenEmptyDay(locale);
+    const situationalDraft = buildSituationalSpeechDraft(situation, locale);
+    const draft = situationalDraft ?? buildSpokenEmptyDay(locale);
     const result: SpokenCalendarReplyResult = {
       responseText: formatVoiceResponse(draft, {
         urgency: 'free',
@@ -273,20 +252,26 @@ export function tryBuildSpokenCalendarReply(params: {
       minutesUntilNextEvent: null,
     };
 
-    logSpokenCalendarDiagnostics(result);
+    logSpokenCalendarDiagnostics(result, situation.category);
     return result;
   }
 
-  const nextEvent = params.visibleEvents[0];
-  const minutesUntilNextEvent = getMinutesUntilEvent(nextEvent.startsAt, params.referenceNow);
-  const responseTone = resolveSpokenUrgency(minutesUntilNextEvent);
-  const draft = buildSpokenScheduleDraft({
-    visibleEvents: params.visibleEvents,
-    locale,
-    urgency: responseTone,
-    dayLoad,
-    minutesUntilNextEvent,
-  });
+  const nextEvent = situation.nextEvent ?? params.visibleEvents[0];
+  const minutesUntilNextEvent = situation.minutesUntilNextEvent;
+  const responseTone = situation.urgency;
+  const situationalDraft =
+    situation.category !== 'simple_schedule'
+      ? buildSituationalSpeechDraft(situation, locale)
+      : null;
+  const draft =
+    situationalDraft ??
+    buildSpokenScheduleDraft({
+      visibleEvents: params.visibleEvents,
+      locale,
+      urgency: responseTone,
+      dayLoad,
+      minutesUntilNextEvent,
+    });
   const responseText = formatVoiceResponse(draft, {
     urgency: responseTone,
     locale,
@@ -301,7 +286,7 @@ export function tryBuildSpokenCalendarReply(params: {
     minutesUntilNextEvent,
   };
 
-  logSpokenCalendarDiagnostics(result);
+  logSpokenCalendarDiagnostics(result, situation.category);
   return result;
 }
 
@@ -338,34 +323,21 @@ export function buildHumanizedCalendarGuidanceLine(params: {
   visibleEvents: CalendarEvent[];
   languageCode: VoiceLanguageCode;
   referenceNow: Date;
+  transcript?: string;
 }): string {
   if (params.visibleEvents.length === 0) {
     return '';
   }
 
-  const nextEvent = params.visibleEvents[0];
-  const minutesUntilNextEvent = getMinutesUntilEvent(nextEvent.startsAt, params.referenceNow);
-  const urgency = resolveSpokenUrgency(minutesUntilNextEvent);
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
+  const situation = analyzeCalendarSituation({
+    transcript: params.transcript ?? 'What is on my schedule?',
+    visibleEvents: params.visibleEvents,
+    referenceNow: params.referenceNow,
+  });
 
   const banned =
-    'Voice-first reply: max 2 short spoken sentences, use natural pauses (...), never say "your next event", "upcoming event", or "calendar summary".';
+    'Voice-first: max 2 short sentences, natural pauses, no robotic calendar phrasing, no identical templates.';
 
-  if (locale === 'uk') {
-    if (urgency === 'immediate') {
-      return `${banned} Ukrainian: warm, urgent, like a friend — e.g. "Тобі вже пора збиратись... за кілька хвилин починається."`;
-    }
-
-    if (urgency === 'soon') {
-      return `${banned} Ukrainian: calm — e.g. "У тебе ще є трохи часу... наступна о 2:30."`;
-    }
-
-    return `${banned} Ukrainian: relaxed concierge tone. Mention only listed events.`;
-  }
-
-  if (locale === 'ru') {
-    return `${banned} Russian: 1-2 short warm spoken sentences. Mention only listed events.`;
-  }
-
-  return `${banned} English: e.g. "You still have some time... next is around 2:30." No robotic calendar wording.`;
+  return `${banned} ${buildSituationContextForLlm(situation)} Respond in ${locale === 'uk' ? 'Ukrainian' : locale === 'ru' ? 'Russian' : 'English'} with real-life reasoning.`;
 }

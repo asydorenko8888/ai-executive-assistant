@@ -1,5 +1,6 @@
 export {
   buildHumanizedCalendarGuidanceLine,
+  isCalendarAwareQuestion,
   isCalendarScheduleQuestion,
   tryBuildHumanizedCalendarReply,
   tryBuildSpokenCalendarReply,
@@ -9,6 +10,13 @@ export {
   type SpokenDayLoad,
   type SpokenUrgency,
 } from '@/src/features/voice/speech/calendarSpokenReply';
+
+export {
+  analyzeCalendarSituation,
+  buildSituationContextForLlm,
+  type CalendarSituationAnalysis,
+  type SituationalReasonCategory,
+} from '@/src/features/agent/calendar/calendarSituationalReasoning';
 
 export {
   formatVoiceResponse,
