@@ -59,6 +59,8 @@ export type AssistantTurnResolution = {
   requiresCalendarAuth?: boolean;
   operationalUxPhase?: CalendarOperationalUxPhase;
   pendingActionId?: string;
+  spokenReply?: string;
+  calendarVerified?: boolean;
 };
 
 export type ResolveAssistantTurnParams = {
@@ -327,6 +329,8 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       requiresCalendarAuth: operationalResult.requiresCalendarAuth,
       operationalUxPhase: operationalResult.operationalUxPhase,
       pendingActionId: operationalResult.pendingActionId,
+      spokenReply: operationalResult.spokenReply,
+      calendarVerified: operationalResult.verified,
       ...modeDefaults,
     };
   }

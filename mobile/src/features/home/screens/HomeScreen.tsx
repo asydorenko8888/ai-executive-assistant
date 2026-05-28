@@ -102,12 +102,19 @@ export default function HomeScreen() {
           ? {
               ...stat,
               text: formatEventsTodayLabel(
-                visibleCalendarAgenda.visibleCalendarAgendaItems.length,
+                isCalendarConnected
+                  ? visibleCalendarAgenda.visibleEvents.length
+                  : visibleCalendarAgenda.visibleCalendarAgendaItems.length,
               ),
             }
           : stat,
       ),
-    [homeDashboard.quickStats, visibleCalendarAgenda.visibleCalendarAgendaItems.length],
+    [
+      homeDashboard.quickStats,
+      isCalendarConnected,
+      visibleCalendarAgenda.visibleEvents.length,
+      visibleCalendarAgenda.visibleCalendarAgendaItems.length,
+    ],
   );
 
   return (

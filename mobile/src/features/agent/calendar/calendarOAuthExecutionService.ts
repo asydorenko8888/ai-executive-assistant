@@ -20,6 +20,7 @@ export type CalendarOperationalUxPhase =
   | 'authorized'
   | 'retrying'
   | 'creating_event'
+  | 'verifying_event'
   | 'event_created'
   | 'failed';
 
@@ -120,11 +121,18 @@ export async function runCalendarAuthAndResume(languageCode: VoiceLanguageCode) 
     return null;
   }
 
-  const { buildSuccessReplyFromVerifiedEvent } = await import(
+  const { buildOutcomeFromVerifiedBackendEvent } = await import(
     '@/src/features/agent/execution/calendarCreateEventExecutor'
   );
 
-  return buildSuccessReplyFromVerifiedEvent(languageCode, resumed.event);
+  return buildOutcomeFromVerifiedBackendEvent(languageCode, {
+    id: resumed.event.id,
+    summary: resumed.event.summary,
+    location: resumed.event.location,
+    startsAt: resumed.event.startsAt,
+    endsAt: resumed.event.endsAt,
+    htmlLink: resumed.event.htmlLink,
+  });
 }
 
 export async function resumePendingCalendarActionAfterAuth(languageCode: VoiceLanguageCode) {

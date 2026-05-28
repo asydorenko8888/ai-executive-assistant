@@ -393,12 +393,17 @@ googleCalendarRouter.post('/google-calendar/events', async (request, response) =
     return response.status(result.httpStatus ?? 502).json({
       message: result.errorMessage,
       code: result.errorCode,
+      executionState: result.executionState,
+      verified: result.verified,
+      verificationFetched: result.verificationFetched,
     });
   }
 
   return response.status(201).json({
     event: result.event,
-    verified: true,
+    verified: result.verified,
+    verificationFetched: result.verificationFetched,
+    executionState: result.executionState,
   });
 });
 
@@ -493,6 +498,9 @@ googleCalendarRouter.post('/google-calendar/pending-actions/resume', async (requ
       message: result.errorMessage,
       code: result.errorCode,
       actionId: pending.id,
+      executionState: result.executionState,
+      verified: result.verified,
+      verificationFetched: result.verificationFetched,
     });
   }
 
@@ -502,6 +510,8 @@ googleCalendarRouter.post('/google-calendar/pending-actions/resume', async (requ
     transcript: pending.transcript,
     languageCode: pending.languageCode,
     event: result.event,
-    verified: true,
+    verified: result.verified,
+    verificationFetched: result.verificationFetched,
+    executionState: result.executionState,
   });
 });

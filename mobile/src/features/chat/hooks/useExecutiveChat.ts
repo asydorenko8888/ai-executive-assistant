@@ -60,10 +60,12 @@ type ChatMutationVariables = {
 
 type ChatMutationResult = {
   reply: string;
+  spokenReply?: string;
   requestId: string;
   route: AssistantTurnRoute;
   executionState: AssistantExecutionState;
   responseMode: AssistantResponseMode;
+  calendarVerified?: boolean;
 };
 
 export function useExecutiveChat() {
@@ -282,11 +284,13 @@ export function useExecutiveChat() {
               setCalendarOperationalLabel(null);
 
               return {
-                reply: resumedReply,
+                reply: resumedReply.reply,
+                spokenReply: resumedReply.spokenReply,
                 requestId,
                 route: turn.route,
                 executionState: 'tool_success',
                 responseMode: 'operational',
+                calendarVerified: resumedReply.verified,
               };
             }
 
@@ -304,10 +308,12 @@ export function useExecutiveChat() {
 
         return {
           reply: turn.reply,
+          spokenReply: turn.spokenReply,
           requestId,
           route: turn.route,
           executionState: turn.executionState,
           responseMode: turn.responseMode,
+          calendarVerified: turn.calendarVerified,
         };
       }
 
@@ -389,12 +395,19 @@ export function useExecutiveChat() {
         assistantReply = coordinator.buildRecoveryForRequest(variables.assistantMessageId, 'empty');
       }
 
-      const displayReply = shouldFormatReplyForVoice(result.executionState, result.responseMode)
-        ? formatVoiceResponse(assistantReply, {
-            maxSentences: 4,
-            locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
-          })
-        : assistantReply;
+      const operationalVoiceReply =
+        result.responseMode === 'operational' && result.spokenReply?.trim()
+          ? result.spokenReply.trim()
+          : null;
+
+      const displayReply = operationalVoiceReply
+        ? operationalVoiceReply
+        : shouldFormatReplyForVoice(result.executionState, result.responseMode)
+          ? formatVoiceResponse(assistantReply, {
+              maxSentences: 2,
+              locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
+            })
+          : assistantReply;
       const freshMessages = readFreshConversationMessages();
       const orchestrator = await createExecutiveAgentOrchestrator({
         locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
@@ -409,7 +422,7 @@ export function useExecutiveChat() {
         candidateReply: displayReply || assistantReply,
       });
 
-      warnIfFalseExecutionClaim(committed, 'drafted');
+      warnIfFalseExecutionClaim(committed, result.calendarVerified ? 'executed' : 'drafted');
       console.log('[Voice Test] responseText', committed);
       finalizeAssistantMessage(variables.assistantMessageId, committed, 'completed');
       coordinator.finalizeRequest(result.requestId);
@@ -649,10 +662,10 @@ export function useExecutiveChat() {
     setIsCalendarOAuthInFlight(true);
     setCalendarOperationalUx('connecting');
 
-    const resumedReply = await runCalendarAuthAndResume(voiceLanguage);
+    const resumedOutcome = await runCalendarAuthAndResume(voiceLanguage);
     setIsCalendarOAuthInFlight(false);
 
-    if (!resumedReply) {
+    if (!resumedOutcome) {
       setCalendarOperationalUx('auth_required');
       return null;
     }
@@ -660,11 +673,11 @@ export function useExecutiveChat() {
     setCalendarOperationalUx('event_created');
     setCalendarOperationalLabel(null);
 
-    const assistantMessage = createConversationMessage('assistant', resumedReply);
-    upsertAssistantMessage(assistantMessage.id, resumedReply);
+    const assistantMessage = createConversationMessage('assistant', resumedOutcome.reply);
+    upsertAssistantMessage(assistantMessage.id, resumedOutcome.reply);
     await persistConversation();
 
-    return resumedReply;
+    return resumedOutcome.spokenReply;
   }, [persistConversation, upsertAssistantMessage, voiceLanguage]);
 
   const resetChatHistory = useCallback(async () => {

@@ -26,6 +26,9 @@ export type CalendarPlannerFailureReason =
 export type CalendarOperationalPlannerResult = {
   state: AssistantExecutionState;
   reply: string;
+  spokenReply: string;
+  executionState: import('@/src/features/agent/execution/calendarExecutionStates').CalendarExecutionState;
+  verified: boolean;
   failureReason?: CalendarPlannerFailureReason;
   scheduleLabel?: string | null;
   scheduleIso?: string | null;
@@ -128,9 +131,12 @@ export async function executeCalendarOperationalPlanner(
       state: execution.requiresCalendarAuth ? 'tool_call' : state,
       failureReason: mapErrorCodeToFailureReason(execution.result.errorCode),
       reply: execution.reply,
+      spokenReply: execution.spokenReply,
       scheduleLabel: null,
       scheduleIso: execution.scheduleIso ?? null,
       actionStatus: execution.result.status,
+      executionState: execution.executionState,
+      verified: execution.verified,
       requiresCalendarAuth: execution.requiresCalendarAuth,
       operationalUxPhase: execution.operationalUxPhase,
       pendingActionId: execution.pendingActionId,
@@ -139,15 +145,20 @@ export async function executeCalendarOperationalPlanner(
     logPlannerFailure('planner_exception', error);
     state = 'tool_failure';
 
+    const failureReply =
+      params.languageCode === 'ru-RU'
+        ? 'Не удалось подтвердить создание события в Google Calendar.'
+        : params.languageCode === 'uk-UA'
+          ? 'Не вдалося підтвердити створення події в Google Calendar.'
+          : "I couldn't confirm event creation.";
+
     return {
       state,
       failureReason: 'planner_exception',
-      reply:
-        params.languageCode === 'ru-RU'
-          ? 'Не удалось создать встречу:\nошибка выполнения.'
-          : params.languageCode === 'uk-UA'
-            ? 'Не вдалося створити подію:\nпомилка виконання.'
-            : 'Could not create the meeting:\nexecution error.',
+      reply: failureReply,
+      spokenReply: failureReply,
+      executionState: 'failed',
+      verified: false,
       scheduleLabel: null,
       scheduleIso: null,
       actionStatus: 'failed',

@@ -15,8 +15,8 @@ function resolveBannerTitle(phase: CalendarOperationalUxPhase) {
     return 'Connecting Google Calendar';
   }
 
-  if (phase === 'authorized' || phase === 'retrying') {
-    return 'Retrying your calendar action';
+  if (phase === 'authorized' || phase === 'retrying' || phase === 'verifying_event') {
+    return 'Verifying with Google Calendar';
   }
 
   if (phase === 'creating_event') {
@@ -36,7 +36,7 @@ export function ChatCalendarAuthBanner({
   onConnectPress,
   isConnecting,
 }: ChatCalendarAuthBannerProps) {
-  if (phase === 'idle' || phase === 'failed') {
+  if (phase === 'idle' || phase === 'failed' || phase === 'event_created') {
     return null;
   }
 

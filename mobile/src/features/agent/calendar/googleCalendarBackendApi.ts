@@ -1,4 +1,5 @@
 import type { CalendarCreateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
+import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
 import type { GoogleCalendarSession } from '@/src/features/agent/calendar/googleCalendarStorage';
 import { apiClient } from '@/src/shared/api';
 
@@ -17,6 +18,13 @@ export type GoogleCalendarBackendEvent = {
   startsAt: string;
   endsAt: string;
   htmlLink?: string;
+};
+
+export type GoogleCalendarCreateApiResponse = {
+  event: GoogleCalendarBackendEvent;
+  verified: boolean;
+  verificationFetched: boolean;
+  executionState: CalendarExecutionState;
 };
 
 export type PendingCalendarCreateAction = {
@@ -56,7 +64,7 @@ export async function syncGoogleCalendarSessionToBackend(session: GoogleCalendar
 }
 
 export async function createGoogleCalendarEventOnBackend(payload: CalendarCreateEventPayload) {
-  return apiClient.post<{ event: GoogleCalendarBackendEvent; verified: boolean }, CalendarCreateEventPayload>({
+  return apiClient.post<GoogleCalendarCreateApiResponse, CalendarCreateEventPayload>({
     path: '/google-calendar/events',
     body: payload,
   });
@@ -84,11 +92,13 @@ export async function resumeGoogleCalendarPendingActions() {
     languageCode?: string;
     event?: GoogleCalendarBackendEvent;
     verified?: boolean;
+    verificationFetched?: boolean;
+    executionState?: CalendarExecutionState;
   }>({
     path: '/google-calendar/pending-actions/resume',
   });
 
-  if (!response.resumed || !response.event) {
+  if (!response.resumed || !response.event || !response.verified || !response.verificationFetched) {
     return null;
   }
 
@@ -97,7 +107,9 @@ export async function resumeGoogleCalendarPendingActions() {
     transcript: response.transcript ?? '',
     languageCode: response.languageCode ?? 'en-US',
     event: response.event,
-    verified: Boolean(response.verified),
+    verified: true,
+    verificationFetched: true,
+    executionState: response.executionState ?? 'success',
   };
 }
 

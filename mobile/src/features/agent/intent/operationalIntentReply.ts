@@ -19,7 +19,10 @@ export type OperationalIntentReplyParams = {
 
 export type OperationalIntentResult = {
   reply: string;
+  spokenReply: string;
   executionState: AssistantExecutionState;
+  calendarExecutionState?: import('@/src/features/agent/execution/calendarExecutionStates').CalendarExecutionState;
+  verified?: boolean;
   requiresCalendarAuth?: boolean;
   operationalUxPhase?: CalendarOperationalUxPhase;
   pendingActionId?: string;
@@ -72,7 +75,10 @@ export async function tryBuildOperationalIntentReply(
   if (plannerResult) {
     return {
       reply: plannerResult.reply,
+      spokenReply: plannerResult.spokenReply,
       executionState: plannerResult.state,
+      calendarExecutionState: plannerResult.executionState,
+      verified: plannerResult.verified,
       requiresCalendarAuth: plannerResult.requiresCalendarAuth,
       operationalUxPhase: plannerResult.operationalUxPhase,
       pendingActionId: plannerResult.pendingActionId,
@@ -80,21 +86,27 @@ export async function tryBuildOperationalIntentReply(
   }
 
   if (isOperationalCalendarWriteRequest(params.transcript)) {
+    const reply = buildGenericOperationalReply(params, analysis);
     return {
-      reply: buildGenericOperationalReply(params, analysis),
+      reply,
+      spokenReply: reply,
       executionState: 'tool_failure',
     };
   }
 
   if (analysis.operationalSubtype === 'message_draft') {
+    const reply = buildMessageDraftReply(params);
     return {
-      reply: buildMessageDraftReply(params),
+      reply,
+      spokenReply: reply,
       executionState: 'conversational',
     };
   }
 
+  const reply = buildGenericOperationalReply(params, analysis);
   return {
-    reply: buildGenericOperationalReply(params, analysis),
+    reply,
+    spokenReply: reply,
     executionState: 'planning',
   };
 }

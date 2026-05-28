@@ -1,5 +1,5 @@
 import { resumePendingCalendarActionAfterAuth } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
-import { buildSuccessReplyFromVerifiedEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
+import { buildOutcomeFromVerifiedBackendEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import { loadLocalPendingCalendarAction } from '@/src/features/agent/execution/pendingActionQueue';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import {
@@ -16,7 +16,15 @@ export async function appendResumedCalendarActionReply(languageCode?: VoiceLangu
     return null;
   }
 
-  const reply = buildSuccessReplyFromVerifiedEvent(resolvedLanguage, resumed.event);
+  const outcome = buildOutcomeFromVerifiedBackendEvent(resolvedLanguage, {
+    id: resumed.event.id,
+    summary: resumed.event.summary,
+    location: resumed.event.location,
+    startsAt: resumed.event.startsAt,
+    endsAt: resumed.event.endsAt,
+    htmlLink: resumed.event.htmlLink,
+  });
+  const reply = outcome.reply;
   const assistantMessage = createConversationMessage('assistant', reply);
   useExecutiveConversationStore.getState().upsertAssistantMessage(assistantMessage.id, reply);
   await useExecutiveConversationStore.getState().persist();
