@@ -8,6 +8,7 @@ import {
   buildAgentRuntimeContext,
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
+import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
 import { sendExecutiveChatMessage } from '@/src/features/chat/services/chatProxyService';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
@@ -136,6 +137,7 @@ export function useHomeVoiceAssistant() {
 
       isSendingRef.current = true;
       stopSpeech();
+      console.log('[Voice Test] transcript', transcript.trim());
       console.log('[Voice] Sending to assistant');
 
       try {
@@ -163,6 +165,19 @@ export function useHomeVoiceAssistant() {
           locale: getChatLocaleFromVoiceLanguage(languageCodeRef.current),
           chatMessages: [userMessage],
         });
+        const referenceNow = new Date(orchestrator.context.now);
+        const calendarEvents = getAssistantVisibleCalendarEvents(
+          orchestrator.snapshot,
+          referenceNow,
+        );
+        console.log(
+          '[Voice Test] assistantPayload.calendarEvents',
+          calendarEvents.map((event) => ({
+            title: event.title,
+            startsAt: event.startsAt,
+            location: event.location ?? null,
+          })),
+        );
         const runtimeContext = buildAgentRuntimeContext(orchestrator);
         const systemMessages = runtimeContext
           ? [
@@ -174,6 +189,7 @@ export function useHomeVoiceAssistant() {
           : [];
         const reply = await sendExecutiveChatMessage([userMessage], systemMessages);
 
+        console.log('[Voice Test] responseText', reply);
         console.log('[Voice] Assistant response', reply);
         setAssistantResponse(reply);
         playAssistantResponse(reply);
@@ -234,8 +250,18 @@ export function useHomeVoiceAssistant() {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         microphoneStreamRef.current = stream;
         setMicrophoneStream(stream);
-      } catch {
-        // Orb visualization is optional on web.
+      } catch (error) {
+        const permissionDenied =
+          error instanceof DOMException &&
+          (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError');
+
+        if (permissionDenied) {
+          setVoiceStatus('error');
+          setStatusText(
+            'Microphone access was denied. Allow microphone permission in your browser settings and try again.',
+          );
+          return;
+        }
       }
     }
 

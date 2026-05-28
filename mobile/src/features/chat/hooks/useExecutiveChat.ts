@@ -8,6 +8,7 @@ import {
   buildAgentRuntimeContext,
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
+import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
 import {
   executiveChatThread,
   executiveChatMessages,
@@ -230,6 +231,24 @@ export function useExecutiveChat() {
       locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
       chatMessages: conversationMessages,
     });
+    const referenceNow = new Date(orchestrator.context.now);
+    const calendarEvents = getAssistantVisibleCalendarEvents(orchestrator.snapshot, referenceNow);
+    const latestUserMessage = [...conversationMessages]
+      .reverse()
+      .find((message) => message.role === 'user');
+
+    if (latestUserMessage?.content.trim()) {
+      console.log('[Voice Test] transcript', latestUserMessage.content.trim());
+    }
+
+    console.log(
+      '[Voice Test] assistantPayload.calendarEvents',
+      calendarEvents.map((event) => ({
+        title: event.title,
+        startsAt: event.startsAt,
+        location: event.location ?? null,
+      })),
+    );
     const runtimeContext = buildAgentRuntimeContext(orchestrator);
 
     if (!runtimeContext) {
@@ -271,6 +290,7 @@ export function useExecutiveChat() {
       });
     },
     onSuccess: (assistantReply, variables) => {
+      console.log('[Voice Test] responseText', assistantReply);
       finalizeAssistantMessage(variables.assistantMessageId, assistantReply);
       resetStreamingState();
       void syncLongTermMemory([

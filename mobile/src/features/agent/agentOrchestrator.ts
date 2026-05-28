@@ -15,6 +15,10 @@ import type {
   MorningBriefing,
   ResolvedExecutiveUserPreferences,
 } from '@/src/features/agent/types';
+import {
+  buildAssistantVisibleCalendarEventsLine,
+  getAssistantVisibleCalendarEvents,
+} from '@/src/features/agent/calendar/calendarAssistantContext';
 import { areCalendarPhrasesEquivalent } from '@/src/features/agent/calendar/calendarNaturalLanguage';
 import { loadResolvedExecutiveUserPreferences } from '@/src/features/agent/userPreferences';
 
@@ -122,13 +126,18 @@ export function buildAgentPreferenceContext(preferences: ResolvedExecutiveUserPr
   return segments.join(' ');
 }
 
-export function buildAgentCalendarContext(snapshot: ExecutiveAgentSnapshot) {
+export function buildAgentCalendarContext(
+  snapshot: ExecutiveAgentSnapshot,
+  referenceNow: Date = new Date(),
+) {
   if (!snapshot.calendarConnection || snapshot.calendarConnection.status !== 'connected' || !snapshot.calendarSummary) {
     return '';
   }
 
   const segments: string[] = [];
+  const visibleEvents = getAssistantVisibleCalendarEvents(snapshot, referenceNow);
 
+  segments.push(buildAssistantVisibleCalendarEventsLine(visibleEvents));
   segments.push(snapshot.calendarSummary.transitionSummary);
 
   const availability = snapshot.calendarSummary.availabilitySummary;
@@ -144,7 +153,12 @@ export function buildAgentCalendarContext(snapshot: ExecutiveAgentSnapshot) {
 }
 
 export function buildAgentRuntimeContext(orchestrator: ExecutiveAgentOrchestrator) {
-  return [buildAgentPreferenceContext(orchestrator.context.preferences), buildAgentCalendarContext(orchestrator.snapshot)]
+  const referenceNow = new Date(orchestrator.context.now);
+
+  return [
+    buildAgentPreferenceContext(orchestrator.context.preferences),
+    buildAgentCalendarContext(orchestrator.snapshot, referenceNow),
+  ]
     .filter(Boolean)
     .join(' ');
 }

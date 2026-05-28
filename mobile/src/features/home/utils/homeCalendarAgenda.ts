@@ -1,14 +1,10 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import type { AgendaItem } from '@/src/entities/home/types';
 import { formatLocationShort } from '@/src/features/agent/calendar/calendarLocation';
-import {
-  filterUpcomingTimedEvents,
-  getEventEndTimestamp,
-  getEventStartTimestamp,
-  isCancelledCalendarEvent,
-  isTimedCalendarEvent,
-} from '@/src/features/agent/calendar/calendarSchedule';
 import { formatTimeInLocalTimezone } from '@/src/features/agent/calendar/calendarTime';
+import { filterVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarVisibleEvents';
+
+export { filterVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarVisibleEvents';
 
 export const CALENDAR_SUMMARY_EVENT_LIMIT = 3;
 
@@ -20,36 +16,6 @@ export type VisibleCalendarAgendaResult = {
   visibleEvents: CalendarEvent[];
   visibleCalendarAgendaItems: AgendaItem[];
 };
-
-function isVisibleCalendarEvent(event: CalendarEvent): boolean {
-  if (isCancelledCalendarEvent(event)) {
-    return false;
-  }
-
-  if (!isTimedCalendarEvent(event)) {
-    return false;
-  }
-
-  if (getEventStartTimestamp(event) === null || getEventEndTimestamp(event) === null) {
-    return false;
-  }
-
-  if (!event.title.trim()) {
-    return false;
-  }
-
-  return true;
-}
-
-export function filterVisibleCalendarEvents(
-  events: CalendarEvent[],
-  referenceNow: Date,
-): CalendarEvent[] {
-  return filterUpcomingTimedEvents(
-    events.filter(isVisibleCalendarEvent),
-    referenceNow,
-  );
-}
 
 export function mapCalendarEventsToAgenda(
   events: CalendarEvent[],
