@@ -18,7 +18,6 @@ import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voi
 import {
   createConversationMessage,
   getConversationPayloadMessages,
-  selectConversationMessages,
   useExecutiveConversationStore,
 } from '@/src/features/chat/store/executiveConversationStore';
 import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
@@ -53,8 +52,10 @@ export function useHomeVoiceAssistant() {
   const queryClient = useQueryClient();
   useHydrateExecutiveConversation();
 
-  const conversationMessages = useExecutiveConversationStore((state) =>
-    selectConversationMessages(state.messages),
+  const storeMessages = useExecutiveConversationStore((state) => state.messages);
+  const conversationMessages = useMemo(
+    () => storeMessages.filter((message) => message.role === 'user' || message.role === 'assistant'),
+    [storeMessages],
   );
   const appendUserMessage = useExecutiveConversationStore((state) => state.appendUserMessage);
   const appendAssistantMessage = useExecutiveConversationStore((state) => state.appendAssistantMessage);

@@ -258,6 +258,12 @@ export function useExecutiveChat() {
     },
   });
 
+  const messageCount = messages.length;
+  const lastMessageSignature =
+    messages.length > 0
+      ? `${messages[messages.length - 1]?.id}:${messages[messages.length - 1]?.content.length}`
+      : 'empty';
+
   useEffect(() => {
     if (!isHistoryHydrated) {
       return;
@@ -268,7 +274,15 @@ export function useExecutiveChat() {
     }
 
     void persistConversation();
-  }, [chatMutation.isPending, isHistoryHydrated, isStreamingAssistant, messages, persistConversation, typingState.isActive]);
+  }, [
+    chatMutation.isPending,
+    isHistoryHydrated,
+    isStreamingAssistant,
+    lastMessageSignature,
+    messageCount,
+    persistConversation,
+    typingState.isActive,
+  ]);
 
   useEffect(() => {
     if (!isHistoryHydrated || hasHydratedMemoryRef.current) {
@@ -308,7 +322,7 @@ export function useExecutiveChat() {
       nextMessages,
       assistantMessageId,
     });
-  }, [chatMutation, clearTimers, isStreamingAssistant, messages]);
+  }, [appendUserMessage, chatMutation, clearTimers, isStreamingAssistant, persistConversation]);
 
   const sendDraft = useCallback(() => {
     const nextDraft = draft.trim();

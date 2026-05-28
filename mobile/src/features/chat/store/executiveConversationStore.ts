@@ -72,14 +72,34 @@ export const useExecutiveConversationStore = create<ExecutiveConversationState>(
   },
 
   appendUserMessage: (content) => {
-    const message = createConversationMessage('user', content.trim(), 'sent');
-    set((state) => ({ messages: [...state.messages, message] }));
+    const trimmed = content.trim();
+    const state = get();
+    const lastMessage = state.messages[state.messages.length - 1];
+
+    if (lastMessage?.role === 'user' && lastMessage.content === trimmed) {
+      return lastMessage;
+    }
+
+    const message = createConversationMessage('user', trimmed, 'sent');
+    set({ messages: [...state.messages, message] });
     return message;
   },
 
   appendAssistantMessage: (content, status = 'read') => {
-    const message = createConversationMessage('assistant', content.trim(), status);
-    set((state) => ({ messages: [...state.messages, message] }));
+    const trimmed = content.trim();
+    const state = get();
+    const lastMessage = state.messages[state.messages.length - 1];
+
+    if (
+      lastMessage?.role === 'assistant' &&
+      lastMessage.content === trimmed &&
+      lastMessage.status === status
+    ) {
+      return lastMessage;
+    }
+
+    const message = createConversationMessage('assistant', trimmed, status);
+    set({ messages: [...state.messages, message] });
     return message;
   },
 

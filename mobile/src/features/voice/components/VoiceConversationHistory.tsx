@@ -37,14 +37,15 @@ export function VoiceConversationHistory({
   canClear = false,
 }: VoiceConversationHistoryProps) {
   const listRef = useRef<FlatList<ChatMessage> | null>(null);
+  const scrollToLatest = useCallback(() => {
+    listRef.current?.scrollToEnd({ animated: true });
+  }, []);
+
+  const messageSignature = `${messages.length}:${messages.at(-1)?.id ?? ''}:${messages.at(-1)?.content.length ?? 0}`;
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
-      listRef.current?.scrollToEnd({ animated: true });
-    }, 80);
-
-    return () => clearTimeout(timeout);
-  }, [highlightedMessageId, isProcessing, messages, pendingUserTranscript]);
+    scrollToLatest();
+  }, [messageSignature, pendingUserTranscript, isProcessing, highlightedMessageId, scrollToLatest]);
 
   if (messages.length === 0 && !pendingUserTranscript && !isProcessing) {
     return (
@@ -77,9 +78,7 @@ export function VoiceConversationHistory({
         style={styles.list}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator
-        onContentSizeChange={() => {
-          listRef.current?.scrollToEnd({ animated: true });
-        }}
+        onContentSizeChange={scrollToLatest}
         renderItem={({ item }) => (
           <View
             style={
