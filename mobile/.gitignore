@@ -5,6 +5,8 @@ node_modules/
 
 # Expo
 .expo/
+.expo-route-verify/
+.expo-web-export-test/
 dist/
 web-build/
 expo-env.d.ts

@@ -2,8 +2,15 @@ import { useEffect, useState } from 'react';
 
 import { useRouter } from 'expo-router';
 
-import { completeGoogleCalendarWebOAuthRedirect } from '@/src/features/agent/calendar';
+import {
+  completeGoogleCalendarWebOAuthRedirect,
+  GOOGLE_CALENDAR_WEB_CALLBACK_PATH,
+} from '@/src/features/agent/calendar';
 import { LoadingScreen } from '@/src/shared/ui';
+
+/** Expo Router path: `/` + {@link GOOGLE_CALENDAR_WEB_CALLBACK_PATH} → `/google-calendar-callback` */
+export const GOOGLE_CALENDAR_WEB_CALLBACK_ROUTE =
+  `/${GOOGLE_CALENDAR_WEB_CALLBACK_PATH}` as const;
 
 export default function GoogleCalendarCallbackScreen() {
   const router = useRouter();

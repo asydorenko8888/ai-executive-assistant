@@ -17,14 +17,8 @@ export default function RootLayout() {
 
   return (
     <AppProviders>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen
-          name="google-calendar-callback"
-          options={{ title: 'Connecting calendar' }}
-        />
-        <Stack.Screen name="+not-found" />
-      </Stack>
+      {/* File-based routes under app/ are auto-registered (including google-calendar-callback). */}
+      <Stack screenOptions={{ headerShown: false }} />
       <StatusBar style="light" />
     </AppProviders>
   );
