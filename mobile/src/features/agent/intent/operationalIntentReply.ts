@@ -40,19 +40,19 @@ function buildGenericOperationalReply(params: OperationalIntentReplyParams, anal
   const subtype = analysis.operationalSubtype ?? 'action';
 
   if (locale === 'uk') {
-    return `Зрозумів запит (${subtype}) — зараз зроблю наступний практичний крок і скажу, якщо чогось не вистачає.`;
+    return `Зрозумів запит (${subtype}) — підготую наступний крок; автоматично виконаю, коли канал буде підключений.`;
   }
 
   if (locale === 'ru') {
-    return `Понял запрос (${subtype}) — сейчас сделаю следующий практический шаг и скажу, если чего-то не хватает.`;
+    return `Понял запрос (${subtype}) — подготовлю следующий шаг; автоматически выполню, когда канал будет подключён.`;
   }
 
-  return `Got the ${subtype} request — I will take the next practical step and tell you if anything is still missing.`;
+  return `Got the ${subtype} request — I will prepare the next step; automatic execution waits on the channel being connected.`;
 }
 
-export function tryBuildOperationalIntentReply(
+export async function tryBuildOperationalIntentReply(
   params: OperationalIntentReplyParams,
-): OperationalIntentResult | null {
+): Promise<OperationalIntentResult | null> {
   const analysis = classifyAssistantIntent(params.transcript);
 
   if (!analysis.shouldBypassEmotionalRouting && !detectHardOperationalIntent(params.transcript)) {
@@ -63,7 +63,7 @@ export function tryBuildOperationalIntentReply(
     return null;
   }
 
-  const plannerResult = executeCalendarOperationalPlanner(params);
+  const plannerResult = await executeCalendarOperationalPlanner(params);
 
   if (plannerResult) {
     return {
@@ -82,7 +82,7 @@ export function tryBuildOperationalIntentReply(
   if (analysis.operationalSubtype === 'message_draft') {
     return {
       reply: buildMessageDraftReply(params),
-      executionState: 'tool_success',
+      executionState: 'conversational',
     };
   }
 

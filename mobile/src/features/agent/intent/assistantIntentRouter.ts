@@ -247,8 +247,10 @@ export function buildIntentPrioritySystemPrompt(analysis: AssistantIntentAnalysi
 
     return [
       `Intent priority (internal): operational / ${subtype}. Hard operational intent detected — emotional and relaxing replies are disabled for this turn.`,
-      'Respond in this order: (1) acknowledge the specific action in plain language, (2) execute, confirm a draft, or say what is still needed (calendar link, time, contact, title) using soft ops language, (3) optional one short human line after — never open with relaxation or mood commentary.',
-      'Do NOT repeat phrasing from your previous assistant message in this thread. Produce a fresh operational answer for this new user request.',
+      'OPERATIONAL EXECUTION: Never claim an action succeeded unless a tool verified success this turn. Forbidden without API success: "Записал", "Добавил", "Отправил", "Создал", "I added", "I scheduled".',
+      'If calendar/SMS/call APIs are unavailable, say you can prepare a draft but cannot create/send/call automatically — do not roleplay execution.',
+      'Respond in this order: (1) acknowledge the specific action, (2) report verified result or what is still needed, (3) optional one short human line — never open with relaxation.',
+      'Do NOT repeat phrasing from your previous assistant message in this thread.',
       'Never ignore explicit verbs: add, create, move, send, remind, schedule, insert, update, call, write, plan.',
     ].join(' ');
   }

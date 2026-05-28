@@ -1,4 +1,5 @@
 import type { AgentCapabilitySnapshot, ExecutiveAgentSnapshot } from '@/src/features/agent/types';
+import { containsFakeOperationalSuccessClaim } from '@/src/features/agent/execution/operationalExecutionHonesty';
 
 /** How the assistant should frame an offered or completed action in conversation. */
 export type ConversationExecutionState =
@@ -21,7 +22,7 @@ function describeOpsSnapshot(
 ) {
   if (connectedOverride !== undefined) {
     return connectedOverride
-      ? `${label}: connected (read/summarize; schedule changes only after user confirms in app)`
+      ? `${label}: connected (read + create events when write scope granted; never claim create/send without verified tool success)`
       : `${label}: not connected yet`;
   }
 
@@ -58,7 +59,7 @@ export function buildCapabilityHonestySystemPrompt(context: CapabilityHonestyCon
     'Outbound phone: not connected yet',
     'Outbound SMS/iMessage/WhatsApp/Telegram: not connected yet — drafts only',
     'Outbound email send: not connected yet',
-    'Calendar edits from chat/voice: only after in-app confirmation this turn',
+    'Calendar create from chat/voice: only when Google Calendar write scope is granted and tool returns verified event id',
     'Client directory: only what the user shares in conversation',
   ];
 
@@ -102,6 +103,13 @@ export function warnIfFalseExecutionClaim(text: string, executionState: Conversa
 
   if (ROBOTIC_DISCLAIMER_SPEECH.test(text)) {
     console.warn('[Companion Voice] Robotic disclaimer phrasing detected', {
+      executionState,
+      preview: text.slice(0, 120),
+    });
+  }
+
+  if (containsFakeOperationalSuccessClaim(text)) {
+    console.warn('[ActionExecution] Unverified operational success claim in reply', {
       executionState,
       preview: text.slice(0, 120),
     });

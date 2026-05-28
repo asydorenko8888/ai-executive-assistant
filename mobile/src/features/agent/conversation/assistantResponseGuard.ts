@@ -4,8 +4,8 @@ import {
   logFallbackActivation,
 } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
-import { tryBuildOperationalIntentReply } from '@/src/features/agent/intent/operationalIntentReply';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 
 function normalizeReply(value: string) {
   return value.trim().replace(/\s+/g, ' ');
@@ -66,14 +66,17 @@ export function blockEmotionalFallbackAfterOperational(params: {
     blockedPreview: params.candidateReply.slice(0, 120),
   });
 
-  const operational = tryBuildOperationalIntentReply({
-    transcript: latestUser.content.trim(),
-    languageCode: params.languageCode,
-    calendarConnected: params.calendarConnected,
-    referenceNow: params.referenceNow,
-  });
+  const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
 
-  return operational?.reply ?? params.candidateReply;
+  if (locale === 'uk') {
+    return 'Зрозумів календарний запит — без емоційного опису дня. Уточни час і назву зустрічі, якщо потрібно.';
+  }
+
+  if (locale === 'ru') {
+    return 'Понял календарный запрос — без эмоционального описания дня. Уточни время и название встречи, если нужно.';
+  }
+
+  return 'Understood the calendar request — skipping the emotional day summary. Share the time and title if needed.';
 }
 
 export function forceRegenerateOperationalReply(params: {
@@ -82,13 +85,17 @@ export function forceRegenerateOperationalReply(params: {
   calendarConnected: boolean;
   referenceNow: Date;
 }) {
-  const operational = tryBuildOperationalIntentReply(params);
+  const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
 
-  if (operational) {
-    return operational.reply;
+  if (locale === 'uk') {
+    return 'Зрозумів — уточни, будь ласка, час і назву події для календаря.';
   }
 
-  return 'Got it — let me handle that request directly. What time and title should I use?';
+  if (locale === 'ru') {
+    return 'Понял — уточни, пожалуйста, время и название события для календаря.';
+  }
+
+  return 'Got it — what time and title should I use for the calendar event?';
 }
 
 export function guardAgainstRepeatedAssistantResponse(params: {

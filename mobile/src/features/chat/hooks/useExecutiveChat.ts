@@ -242,7 +242,7 @@ export function useExecutiveChat() {
       coordinator.touch(requestId);
 
       const referenceNow = new Date(orchestrator.context.now);
-      const turn = resolveAssistantTurn({
+      const turn = await resolveAssistantTurn({
         messages: nextMessages,
         orchestrator,
         languageCode: voiceLanguage,

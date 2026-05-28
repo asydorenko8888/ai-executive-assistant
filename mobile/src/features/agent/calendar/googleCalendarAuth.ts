@@ -23,6 +23,7 @@ export const googleCalendarScopes = [
   'profile',
   'email',
   'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/calendar.events',
 ] as const;
 
 const GOOGLE_CALENDAR_WEB_PENDING_AUTH_STORAGE_KEY =

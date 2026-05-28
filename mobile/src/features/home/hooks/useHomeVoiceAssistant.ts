@@ -240,7 +240,7 @@ export function useHomeVoiceAssistant() {
           chatMessages: payloadMessages,
         });
         const referenceNow = new Date(orchestrator.context.now);
-        const turn = resolveAssistantTurn({
+        const turn = await resolveAssistantTurn({
           messages: payloadMessages,
           orchestrator,
           languageCode: languageCodeRef.current,

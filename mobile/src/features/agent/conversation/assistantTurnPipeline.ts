@@ -255,7 +255,7 @@ function resolutionDefaults(
   };
 }
 
-export function resolveAssistantTurn(params: ResolveAssistantTurnParams): AssistantTurnResolution {
+export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): Promise<AssistantTurnResolution> {
   const userMessage = getLatestUserMessage(params.messages);
   const userTranscript = userMessage?.content.trim() ?? '';
   const intent = classifyAssistantIntent(userTranscript);
@@ -288,7 +288,7 @@ export function resolveAssistantTurn(params: ResolveAssistantTurnParams): Assist
   const calendarConnected =
     params.orchestrator.snapshot.calendarConnection?.status === 'connected';
 
-  const operationalResult = tryBuildOperationalIntentReply({
+  const operationalResult = await tryBuildOperationalIntentReply({
     transcript: userTranscript,
     languageCode: params.languageCode,
     calendarConnected,

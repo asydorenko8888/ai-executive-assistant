@@ -12,6 +12,8 @@ export * from './intent/operationalIntentReply';
 export * from './conversation/assistantExecutionObservability';
 export * from './factual/factualTimeGrounding';
 export * from './factual/factualTimeReply';
+export * from './execution/actionExecutionTypes';
+export * from './execution/calendarCreateEventExecutor';
 export * from './conversation/assistantResponseGuard';
 export * from './conversation/assistantTurnPipeline';
 export * from './morningBriefingPipeline';
