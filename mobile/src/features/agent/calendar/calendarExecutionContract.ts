@@ -33,6 +33,12 @@ export function isTerminalCalendarToolReply(text: string) {
   return (
     normalized.startsWith('FAILURE:') ||
     normalized.startsWith('PENDING:') ||
+    normalized.startsWith('Event created successfully:') ||
+    normalized.startsWith('Событие создано успешно:') ||
+    normalized.startsWith('Подію створено успішно:') ||
+    normalized.startsWith('Event removed successfully:') ||
+    normalized.startsWith('Событие удалено успешно:') ||
+    normalized.startsWith('Подію видалено успішно:') ||
     normalized.startsWith('Готово.') ||
     normalized.startsWith('Done.') ||
     normalized.includes('Я додав:') ||
@@ -78,7 +84,14 @@ export function isFakeCalendarAssistantReply(text: string, tool: CalendarToolRes
   }
 
   if (
-    (normalized.startsWith('Готово.') || normalized.startsWith('Done.')) &&
+    (normalized.startsWith('Готово.') ||
+      normalized.startsWith('Done.') ||
+      normalized.startsWith('Event created successfully:') ||
+      normalized.startsWith('Событие создано успешно:') ||
+      normalized.startsWith('Подію створено успішно:') ||
+      normalized.startsWith('Event removed successfully:') ||
+      normalized.startsWith('Событие удалено успешно:') ||
+      normalized.startsWith('Подію видалено успішно:')) &&
     !isVerifiedCalendarCreateSuccess(tool) &&
     !isVerifiedCalendarDeleteSuccess(tool)
   ) {

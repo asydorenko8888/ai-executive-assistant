@@ -11,7 +11,7 @@ import {
 } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import { getLastCalendarCommandOutcome } from '@/src/features/agent/execution/calendarExecutionSession';
-import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { requiresCalendarToolExecution, enforceCalendarToolReply } from '@/src/features/agent/calendar/calendarToolExecutionGate';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 
@@ -65,7 +65,7 @@ export function blockEmotionalFallbackAfterOperational(params: {
     return params.candidateReply;
   }
 
-  if (!isOperationalCalendarWriteRequest(latestUser.content)) {
+  if (!requiresCalendarToolExecution(latestUser.content)) {
     return params.candidateReply;
   }
 
@@ -81,7 +81,7 @@ export function forceRegenerateOperationalReply(params: {
   calendarConnected: boolean;
   referenceNow: Date;
 }) {
-  if (isOperationalCalendarWriteRequest(params.transcript)) {
+  if (requiresCalendarToolExecution(params.transcript)) {
     return (
       getCalendarCommandTerminalReply(params.transcript) ??
       buildFailureTerminalReply('CALENDAR_EXECUTION_CONTRACT', 'missing terminal tool reply')
@@ -105,6 +105,12 @@ function isFactualOperationalReply(reply: string) {
   const normalized = reply.trim();
 
   return (
+    normalized.startsWith('Event created successfully:') ||
+    normalized.startsWith('Событие создано успешно:') ||
+    normalized.startsWith('Подію створено успішно:') ||
+    normalized.startsWith('Event removed successfully:') ||
+    normalized.startsWith('Событие удалено успешно:') ||
+    normalized.startsWith('Подію видалено успішно:') ||
     normalized.startsWith('Готово.') ||
     normalized.includes('Я додав:') ||
     normalized.includes('Я добавил:') ||
@@ -126,7 +132,7 @@ export function guardAgainstRepeatedAssistantResponse(params: {
 }) {
   const latestUser = getLatestUserMessage(params.messages);
   const userTranscript = latestUser?.content.trim() ?? '';
-  const isCalendarWrite = isOperationalCalendarWriteRequest(userTranscript);
+  const isCalendarWrite = requiresCalendarToolExecution(userTranscript);
   const calendarIntent = detectCalendarCommandIntent(userTranscript);
 
   if (isCalendarWrite) {

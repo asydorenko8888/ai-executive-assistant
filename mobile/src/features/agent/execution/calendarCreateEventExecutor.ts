@@ -19,6 +19,7 @@ import {
 import { refreshCalendarStateAfterCreate } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
 import { markCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
+import { logCalendarToolPayload, logCalendarGoogleApiResponse } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import { logExecutionAudit, logCalendarExecutionStateTransition } from '@/src/features/agent/execution/executionAuditLogger';
 import { enqueueCalendarCreateAction } from '@/src/features/agent/execution/pendingActionQueue';
@@ -136,6 +137,13 @@ export async function executeCalendarCreateEvent(
       null,
     );
   }
+
+  logCalendarToolPayload({
+    summary: payloadResult.payload.summary,
+    start: payloadResult.payload.start,
+    end: payloadResult.payload.end,
+    scheduleIso: payloadResult.scheduleIso ?? null,
+  });
 
   const access = await resolveCalendarWriteAccessState();
 

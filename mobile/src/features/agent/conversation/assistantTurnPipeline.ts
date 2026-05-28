@@ -22,7 +22,7 @@ import {
 } from '@/src/features/agent/factual/factualTimeGrounding';
 import { tryBuildFactualTimeReply } from '@/src/features/agent/factual/factualTimeReply';
 import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
-import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
+import { detectCalendarCommandIntent, requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
 import { executeCalendarCommand } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import { assertCalendarReplyMatchesTool } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { getLastCalendarCommandOutcome } from '@/src/features/agent/execution/calendarExecutionSession';
@@ -276,7 +276,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const userTranscript = userMessage?.content.trim() ?? '';
   const intent = classifyAssistantIntent(userTranscript);
   const calendarCommandIntent = detectCalendarCommandIntent(userTranscript);
-  const operationalStarted = calendarCommandIntent !== 'none';
+  const operationalStarted = requiresCalendarCommandExecution(userTranscript);
   const factualGrounding = buildFactualGroundingContext({
     orchestrator: params.orchestrator,
     languageCode: params.languageCode,

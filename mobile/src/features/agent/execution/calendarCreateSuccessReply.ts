@@ -119,11 +119,11 @@ export function buildNaturalCalendarCreateSuccessReply(params: {
   let reply = '';
 
   if (locale === 'uk') {
-    reply = `Готово. Я додав: ${exactTitle} — ${scheduleLabel}.`;
+    reply = `Подію створено успішно:\nНазва: ${exactTitle}\nЧас: ${scheduleLabel}`;
   } else if (locale === 'ru') {
-    reply = `Готово. Я добавил: ${exactTitle} — ${scheduleLabel}.`;
+    reply = `Событие создано успешно:\nНазвание: ${exactTitle}\nВремя: ${scheduleLabel}`;
   } else {
-    reply = `Done. I added: ${exactTitle} — ${scheduleLabel}.`;
+    reply = `Event created successfully:\nTitle: ${exactTitle}\nTime: ${scheduleLabel}`;
   }
 
   logCalendarCreate('success reply', {

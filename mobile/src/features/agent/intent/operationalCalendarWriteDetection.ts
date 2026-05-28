@@ -3,7 +3,10 @@
  */
 
 const CREATE_WRITE_VERBS =
-  /(?:add|put|create|book|set\s*up|insert|update|move|reschedule|shift|schedule|внеси|внести|добав(?:ь|ьте|ить)|создай|создать|перенеси|перенести|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|заплануй)/iu;
+  /(?:add|put|create|book|set\s*up|insert|schedule|внеси|внести|добав(?:ь|ьте|ить)|создай|создать|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|заплануй)/iu;
+
+const UPDATE_WRITE_VERBS =
+  /(?:update|move|reschedule|shift|перенеси|перенести|перенес(?:ь|ьте)|перенос)/iu;
 
 const DELETE_WRITE_VERBS =
   /(?:delete|remove|cancel|clear|удали|удалить|убери|отмени|отменить|прибери|скасуй|скасувати|видали|видалити)/iu;
@@ -31,6 +34,9 @@ const REMIND_INTO_CALENDAR =
 
 const WRITE_VERB_AT_START =
   /^(?:please\s+)?(?:внеси|внести|добав(?:ь|ьте|ить)|создай|создать|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|перенеси|заплануй|add|create|schedule|book|put|insert)(?:[\s,:-]|$)/iu;
+
+const IMPLICIT_SCHEDULE_AT_START =
+  /^(?:please\s+)?(?:schedule|book|запланируй|запланировать|заплануй|поставь|поставить|запиши|записать)(?:[\s,:-]|$)/iu;
 
 const DELETE_VERB_AT_START =
   /^(?:please\s+)?(?:удали|удалить|убери|отмени|отменить|прибери|скасуй|скасувати|видали|видалити|delete|remove|cancel)(?:[\s,:-]|$)/iu;
@@ -62,10 +68,32 @@ export function isOperationalCalendarDeleteRequest(transcript: string) {
   return DELETE_WRITE_VERBS.test(normalized) && CALENDAR_DOMAIN.test(normalized);
 }
 
-export function isOperationalCalendarCreateRequest(transcript: string) {
+export function isOperationalCalendarUpdateRequest(transcript: string) {
   const normalized = transcript.trim();
 
   if (!normalized || isOperationalCalendarDeleteRequest(normalized)) {
+    return false;
+  }
+
+  if (!UPDATE_WRITE_VERBS.test(normalized)) {
+    return false;
+  }
+
+  return (
+    CALENDAR_DOMAIN.test(normalized) ||
+    SCHEDULE_TIME_HINT.test(normalized) ||
+    WEEKDAY_HINT.test(normalized)
+  );
+}
+
+export function isOperationalCalendarCreateRequest(transcript: string) {
+  const normalized = transcript.trim();
+
+  if (
+    !normalized ||
+    isOperationalCalendarDeleteRequest(normalized) ||
+    isOperationalCalendarUpdateRequest(normalized)
+  ) {
     return false;
   }
 
@@ -82,13 +110,21 @@ export function isOperationalCalendarCreateRequest(transcript: string) {
     return true;
   }
 
+  if (
+    IMPLICIT_SCHEDULE_AT_START.test(normalized) &&
+    (SCHEDULE_TIME_HINT.test(normalized) || WEEKDAY_HINT.test(normalized))
+  ) {
+    return true;
+  }
+
   return CREATE_WRITE_VERBS.test(normalized) && CALENDAR_DOMAIN.test(normalized);
 }
 
-/** Create or delete — routes to operational executor (never LLM). */
+/** Create, update, or delete — routes to operational executor (never LLM). */
 export function isOperationalCalendarWriteRequest(transcript: string) {
   return (
     isOperationalCalendarCreateRequest(transcript) ||
+    isOperationalCalendarUpdateRequest(transcript) ||
     isOperationalCalendarDeleteRequest(transcript)
   );
 }

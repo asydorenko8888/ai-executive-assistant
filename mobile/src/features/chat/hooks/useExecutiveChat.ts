@@ -9,7 +9,7 @@ import {
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
-import { warnIfFalseExecutionClaim } from '@/src/features/agent/capabilityHonesty';
+import { warnIfFalseExecutionClaim, enforceCalendarReplyIfNeeded } from '@/src/features/agent/capabilityHonesty';
 import {
   finalizeTurnReply,
   readFreshConversationMessages,
@@ -42,9 +42,12 @@ import {
   isAbortError,
   logAssistantConversation,
 } from '@/src/features/chat/services/assistantConversationLifecycle';
-import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
-import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
+import {
+  blockLlmForCalendarMutation,
+  requiresCalendarToolExecution,
+} from '@/src/features/agent/calendar/calendarToolExecutionGate';
 import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
+import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import { refreshHomeBriefing } from '@/src/features/home/services/refreshHomeBriefing';
 import { streamExecutiveChatMessage } from '@/src/features/chat/services/chatProxyService';
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
@@ -346,9 +349,12 @@ export function useExecutiveChat() {
         };
       }
 
-      if (detectCalendarCommandIntent(turn.userTranscript) !== 'none') {
+      if (requiresCalendarToolExecution(turn.userTranscript)) {
         const forced =
-          getCalendarCommandTerminalReply(turn.userTranscript) ??
+          blockLlmForCalendarMutation({
+            transcript: turn.userTranscript,
+            reason: 'operational route missing tool reply',
+          }) ??
           buildFailureTerminalReply(
             'CALENDAR_EXECUTION_CONTRACT',
             'calendar command blocked LLM — no tool result',
@@ -382,9 +388,12 @@ export function useExecutiveChat() {
       const memoryContext = await prepareMemoryPromptContext(nextMessages);
       coordinator.touch(requestId);
 
-      if (detectCalendarCommandIntent(turn.userTranscript) !== 'none') {
+      if (requiresCalendarToolExecution(turn.userTranscript)) {
         const forced =
-          getCalendarCommandTerminalReply(turn.userTranscript) ??
+          blockLlmForCalendarMutation({
+            transcript: turn.userTranscript,
+            reason: 'pre-stream guard',
+          }) ??
           buildFailureTerminalReply(
             'CALENDAR_EXECUTION_CONTRACT',
             'calendar command blocked LLM stream',
@@ -418,6 +427,10 @@ export function useExecutiveChat() {
         signal,
         requestId,
         onToken: (token) => {
+          if (requiresCalendarToolExecution(turn.userTranscript)) {
+            return;
+          }
+
           coordinator.touch(requestId);
           hasReceivedStreamTokenRef.current = true;
           setTypingState({
@@ -499,15 +512,6 @@ export function useExecutiveChat() {
       const latestUserTranscript = latestUser?.content.trim() ?? '';
       let candidateReply = displayReply || assistantReply;
 
-      if (detectCalendarCommandIntent(latestUserTranscript) !== 'none') {
-        candidateReply =
-          getCalendarCommandTerminalReply(latestUserTranscript) ??
-          buildFailureTerminalReply(
-            'CALENDAR_EXECUTION_CONTRACT',
-            'calendar command blocked post-LLM reply',
-          );
-      }
-
       let committed = finalizeTurnReply({
         messages: freshMessages,
         orchestrator,
@@ -522,6 +526,11 @@ export function useExecutiveChat() {
       });
 
       warnIfFalseExecutionClaim(committed, result.calendarVerified ? 'executed' : 'drafted');
+      committed = enforceCalendarReplyIfNeeded({
+        userTranscript: latestUserTranscript,
+        candidateReply: committed,
+        executionState: result.calendarVerified ? 'executed' : 'drafted',
+      });
 
       if (result.calendarVerified && result.executionState === 'tool_success') {
         void refreshHomeBriefing(queryClient);

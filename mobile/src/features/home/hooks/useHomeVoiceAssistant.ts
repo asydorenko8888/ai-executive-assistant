@@ -10,7 +10,7 @@ import {
   buildAgentSystemContextSegments,
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
-import { warnIfFalseExecutionClaim } from '@/src/features/agent/capabilityHonesty';
+import { warnIfFalseExecutionClaim, enforceCalendarReplyIfNeeded } from '@/src/features/agent/capabilityHonesty';
 import {
   finalizeTurnReply,
   resolveAssistantTurn,
@@ -32,8 +32,11 @@ import {
   getConversationPayloadMessages,
   useExecutiveConversationStore,
 } from '@/src/features/chat/store/executiveConversationStore';
-import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
-import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
+import {
+  blockLlmForCalendarMutation,
+  enforceCalendarToolReply,
+  requiresCalendarToolExecution,
+} from '@/src/features/agent/calendar/calendarToolExecutionGate';
 import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
@@ -223,7 +226,7 @@ export function useHomeVoiceAssistant() {
         const payloadMessages = getConversationPayloadMessages(
           useExecutiveConversationStore.getState().messages,
         );
-        if (detectCalendarCommandIntent(trimmedTranscript) === 'none') {
+        if (!requiresCalendarToolExecution(trimmedTranscript)) {
           const reminderResult = await processVoiceReminderTranscript({
             transcript: trimmedTranscript,
             languageCode: languageCodeRef.current,
@@ -269,9 +272,12 @@ export function useHomeVoiceAssistant() {
           return;
         }
 
-        if (detectCalendarCommandIntent(trimmedTranscript) !== 'none') {
+        if (requiresCalendarToolExecution(trimmedTranscript)) {
           const forced =
-            getCalendarCommandTerminalReply(trimmedTranscript) ??
+            blockLlmForCalendarMutation({
+              transcript: trimmedTranscript,
+              reason: 'voice turn missing tool reply',
+            }) ??
             buildFailureTerminalReply(
               'CALENDAR_EXECUTION_CONTRACT',
               'calendar command blocked LLM — no tool result',
@@ -312,9 +318,12 @@ export function useHomeVoiceAssistant() {
           ];
           requestAbort.touch();
 
-          if (detectCalendarCommandIntent(trimmedTranscript) !== 'none') {
+          if (requiresCalendarToolExecution(trimmedTranscript)) {
             const forced =
-              getCalendarCommandTerminalReply(trimmedTranscript) ??
+              blockLlmForCalendarMutation({
+                transcript: trimmedTranscript,
+                reason: 'voice pre-LLM guard',
+              }) ??
               buildFailureTerminalReply(
                 'CALENDAR_EXECUTION_CONTRACT',
                 'calendar command blocked LLM',
@@ -332,13 +341,11 @@ export function useHomeVoiceAssistant() {
 
           let candidateReply = reply;
 
-          if (detectCalendarCommandIntent(trimmedTranscript) !== 'none') {
-            candidateReply =
-              getCalendarCommandTerminalReply(trimmedTranscript) ??
-              buildFailureTerminalReply(
-                'CALENDAR_EXECUTION_CONTRACT',
-                'calendar command blocked LLM reply',
-              );
+          if (requiresCalendarToolExecution(trimmedTranscript)) {
+            candidateReply = enforceCalendarToolReply({
+              userTranscript: trimmedTranscript,
+              candidateReply,
+            });
           }
 
           const finalized = finalizeTurnReply({
@@ -362,12 +369,17 @@ export function useHomeVoiceAssistant() {
             return;
           }
 
-          warnIfFalseExecutionClaim(spokenReply, 'drafted');
-          logAssistantConversation('[AssistantFinalize]', 'Voice LLM response ready', {
-            length: spokenReply.length,
+          const finalReply = enforceCalendarReplyIfNeeded({
+            userTranscript: trimmedTranscript,
+            candidateReply: spokenReply,
+            executionState: turn.calendarVerified ? 'executed' : 'drafted',
           });
-          const assistantMessage = finishAssistantTurn(spokenReply);
-          playAssistantResponse(spokenReply, assistantMessage.id);
+
+          logAssistantConversation('[AssistantFinalize]', 'Voice LLM response ready', {
+            length: finalReply.length,
+          });
+          const assistantMessage = finishAssistantTurn(finalReply);
+          playAssistantResponse(finalReply, assistantMessage.id);
         } finally {
           requestAbort.dispose();
         }

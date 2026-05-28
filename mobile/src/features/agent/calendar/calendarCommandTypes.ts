@@ -1,9 +1,15 @@
 import {
   isOperationalCalendarCreateRequest,
   isOperationalCalendarDeleteRequest,
+  isOperationalCalendarUpdateRequest,
+  isOperationalCalendarWriteRequest,
 } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 
-export type CalendarCommandKind = 'create_calendar_event' | 'delete_calendar_event' | 'none';
+export type CalendarCommandKind =
+  | 'create_calendar_event'
+  | 'delete_calendar_event'
+  | 'update_calendar_event'
+  | 'none';
 
 export function detectCalendarCommandIntent(transcript: string): CalendarCommandKind {
   const normalized = transcript.trim();
@@ -16,6 +22,10 @@ export function detectCalendarCommandIntent(transcript: string): CalendarCommand
     return 'delete_calendar_event';
   }
 
+  if (isOperationalCalendarUpdateRequest(normalized)) {
+    return 'update_calendar_event';
+  }
+
   if (isOperationalCalendarCreateRequest(normalized)) {
     return 'create_calendar_event';
   }
@@ -23,6 +33,14 @@ export function detectCalendarCommandIntent(transcript: string): CalendarCommand
   return 'none';
 }
 
+export function requiresCalendarCommandExecution(transcript: string) {
+  return isOperationalCalendarWriteRequest(transcript.trim());
+}
+
 export function isCalendarCommandIntent(kind: CalendarCommandKind) {
-  return kind === 'create_calendar_event' || kind === 'delete_calendar_event';
+  return (
+    kind === 'create_calendar_event' ||
+    kind === 'delete_calendar_event' ||
+    kind === 'update_calendar_event'
+  );
 }

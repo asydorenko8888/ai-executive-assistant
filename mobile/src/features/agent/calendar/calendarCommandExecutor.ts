@@ -14,7 +14,11 @@ import {
   getLastCalendarCommandOutcome,
   setLastCalendarCommandOutcome,
 } from '@/src/features/agent/execution/calendarExecutionSession';
-import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
+import {
+  logCalendarIntentDetected,
+  logCalendarTerminalReply,
+  logCalendarToolSelected,
+} from '@/src/features/agent/calendar/calendarExecutionDebugLog';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
 export type CalendarCommandResult = {
@@ -49,6 +53,12 @@ export async function executeCalendarCommand(params: {
 }): Promise<CalendarCommandResult> {
   const intent = detectCalendarCommandIntent(params.transcript);
 
+  logCalendarIntentDetected({
+    transcript: params.transcript,
+    intent,
+    requiresTool: intent !== 'none',
+  });
+
   if (intent === 'none') {
     return {
       matched: false,
@@ -61,12 +71,9 @@ export async function executeCalendarCommand(params: {
     };
   }
 
-  logCalendarCreate('command executor', {
-    intent,
-    transcriptPreview: params.transcript.slice(0, 120),
-  });
-
   if (intent === 'delete_calendar_event') {
+    logCalendarToolSelected({ intent, tool: 'google_calendar_delete_event' });
+
     const outcome = await executeCalendarDeleteEvent({
       transcript: params.transcript,
       languageCode: params.languageCode,
@@ -80,6 +87,12 @@ export async function executeCalendarCommand(params: {
       verified: outcome.verified,
     });
 
+    logCalendarTerminalReply({
+      intent,
+      tool: outcome.tool,
+      replyPreview: outcome.reply,
+    });
+
     return {
       matched: true,
       intent,
@@ -90,6 +103,17 @@ export async function executeCalendarCommand(params: {
       verified: outcome.verified,
       eventId: outcome.tool.eventId ?? null,
     };
+  }
+
+  const toolName =
+    intent === 'update_calendar_event'
+      ? 'google_calendar_update_event'
+      : 'google_calendar_create_event';
+
+  logCalendarToolSelected({ intent, tool: toolName });
+
+  if (intent === 'update_calendar_event') {
+    console.log('[Calendar Execution] update intent routed to create until PATCH API exists');
   }
 
   const outcome = await executeCalendarCreateEvent({
@@ -115,12 +139,10 @@ export async function executeCalendarCommand(params: {
     verified: contractOk,
   });
 
-  console.log('[Calendar Contract] create command finished', {
+  logCalendarTerminalReply({
     intent,
-    toolStatus: outcome.tool.status,
-    eventId: outcome.tool.eventId ?? null,
-    verified: contractOk,
-    terminalPreview: terminalReply.slice(0, 120),
+    tool: outcome.tool,
+    replyPreview: terminalReply,
   });
 
   return {

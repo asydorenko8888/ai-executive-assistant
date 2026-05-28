@@ -1,4 +1,5 @@
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
+import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { buildNaturalCalendarCreateSuccessReply } from '@/src/features/agent/execution/calendarCreateSuccessReply';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -21,16 +22,14 @@ export function buildFactualCalendarToolReplies(
   }
 
   if (tool.status === 'SUCCESS') {
-    const fallback =
-      options.languageCode === 'uk-UA'
-        ? 'Готово. Подію додано в Google Calendar.'
-        : options.languageCode === 'ru-RU'
-          ? 'Готово. Событие добавлено в Google Calendar.'
-          : 'Done. The event was added to Google Calendar.';
+    const text = buildFailureTerminalReply(
+      'CALENDAR_EXECUTION_CONTRACT',
+      'API success without verified event payload — success reply blocked',
+    );
 
     return {
-      reply: fallback,
-      spokenReply: fallback,
+      reply: text,
+      spokenReply: text,
     };
   }
 

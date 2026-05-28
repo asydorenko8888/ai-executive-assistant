@@ -7,7 +7,6 @@ export * from './actionExecution';
 export * from './capabilityHonesty';
 export * from './intent/assistantIntentRouter';
 export * from './intent/operationalCalendarWriteDetection';
-export * from './intent/calendarOperationalPlanner';
 export * from './intent/operationalIntentReply';
 export * from './conversation/assistantExecutionObservability';
 export * from './factual/factualTimeGrounding';

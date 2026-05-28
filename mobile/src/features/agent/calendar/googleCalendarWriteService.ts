@@ -6,6 +6,7 @@ import {
   createCalendarToolSuccess,
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
+import { logCalendarGoogleApiResponse } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import { logExecutionAudit } from '@/src/features/agent/execution/executionAuditLogger';
 import { ApiError } from '@/src/shared/api/api-error';
@@ -42,10 +43,11 @@ export async function createGoogleCalendarEvent(
       verified: response.verified,
       eventId: response.event?.id ?? null,
     });
-    logCalendarCreate('verification result', {
+    logCalendarGoogleApiResponse({
+      status: response.executionState,
+      eventId: response.event?.id ?? null,
       verified: response.verified,
       verificationFetched: response.verificationFetched,
-      eventId: response.event?.id ?? null,
     });
 
     logExecutionAudit('api_response', {

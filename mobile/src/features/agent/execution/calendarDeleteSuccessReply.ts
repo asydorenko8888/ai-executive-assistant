@@ -14,20 +14,20 @@ export function buildNaturalCalendarDeleteSuccessReply(params: {
 
   if (locale === 'uk') {
     return {
-      reply: `Готово. Я видалив: ${title} — ${timeLabel}.`,
+      reply: `Подію видалено успішно:\nНазва: ${title}\nЧас: ${timeLabel}`,
       spokenReply: `Готово. Я видалив: ${title} — ${timeLabel}.`,
     };
   }
 
   if (locale === 'ru') {
     return {
-      reply: `Готово. Я удалил: ${title} — ${timeLabel}.`,
+      reply: `Событие удалено успешно:\nНазвание: ${title}\nВремя: ${timeLabel}`,
       spokenReply: `Готово. Я удалил: ${title} — ${timeLabel}.`,
     };
   }
 
   return {
-    reply: `Done. I removed: ${title} — ${timeLabel}.`,
+    reply: `Event removed successfully:\nTitle: ${title}\nTime: ${timeLabel}`,
     spokenReply: `Done. I removed: ${title} — ${timeLabel}.`,
   };
 }

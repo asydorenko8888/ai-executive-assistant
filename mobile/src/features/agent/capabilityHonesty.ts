@@ -2,7 +2,7 @@ import type { AgentCapabilitySnapshot, ExecutiveAgentSnapshot } from '@/src/feat
 import { containsFakeOperationalSuccessClaim } from '@/src/features/agent/execution/operationalExecutionHonesty';
 import type { CalendarAuthCapabilities } from '@/src/features/agent/calendar/calendarAuthCapabilities';
 import { isCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
-import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { enforceCalendarToolReply, requiresCalendarToolExecution } from '@/src/features/agent/calendar/calendarToolExecutionGate';
 
 /** How the assistant should frame an offered or completed action in conversation. */
 export type ConversationExecutionState =
@@ -60,7 +60,7 @@ export function buildCapabilityHonestySystemPrompt(
   },
 ): string {
   const calendarWriteTurn =
-    Boolean(options?.userTranscript) && isOperationalCalendarWriteRequest(options!.userTranscript!);
+    Boolean(options?.userTranscript) && requiresCalendarToolExecution(options!.userTranscript!);
   const calendarDirectWrite = Boolean(
     options?.calendarAuth?.canWriteCalendar ||
       (context.calendarConnected && (options?.calendarWriteProven || calendarWriteTurn)),
@@ -151,4 +151,20 @@ export function warnIfFalseExecutionClaim(text: string, executionState: Conversa
       preview: text.slice(0, 120),
     });
   }
+}
+
+export function enforceCalendarReplyIfNeeded(params: {
+  userTranscript: string;
+  candidateReply: string;
+  executionState: ConversationExecutionState;
+}) {
+  if (requiresCalendarToolExecution(params.userTranscript)) {
+    return enforceCalendarToolReply({
+      userTranscript: params.userTranscript,
+      candidateReply: params.candidateReply,
+    });
+  }
+
+  warnIfFalseExecutionClaim(params.candidateReply, params.executionState);
+  return params.candidateReply;
 }

@@ -9,7 +9,7 @@ import {
   setLiveCalendarEvents,
 } from '@/src/features/agent/calendar/calendarLiveState';
 import { getCalendarAgendaWindow } from '@/src/features/agent/calendar/calendarTime';
-import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
+import { logCalendarUiRefresh, logCalendarVerificationFetch } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
 import { refreshHomeBriefing } from '@/src/features/home/services/refreshHomeBriefing';
 import { queryClient } from '@/src/shared/api/query-client';
 
@@ -61,7 +61,8 @@ export async function refreshCalendarStateAfterCreate(params: {
   endIso: string;
   referenceNow: Date;
 }): Promise<CalendarPostCreateRefreshResult> {
-  logCalendarCreate('start/end', {
+  logCalendarUiRefresh({
+    stage: 'post_create_start',
     start: params.startIso,
     end: params.endIso,
     extractedTitle: params.extractedTitle,
@@ -101,7 +102,7 @@ export async function refreshCalendarStateAfterCreate(params: {
       event: verifiedEvent,
     });
 
-    logCalendarCreate('fetched event', {
+    logCalendarVerificationFetch({
       eventId: verifiedEvent.id,
       summary: verifiedEvent.title,
       startsAt: verifiedEvent.startsAt,
@@ -116,14 +117,15 @@ export async function refreshCalendarStateAfterCreate(params: {
 
   setLiveCalendarEvents(merged);
 
-  logCalendarRefresh('home state updated', {
+  logCalendarUiRefresh({
     eventCount: merged.length,
     titles: merged.slice(0, 8).map((event) => event.title),
   });
 
   await refreshHomeBriefing(queryClient);
 
-  logCalendarRefresh('briefing updated', {
+  logCalendarUiRefresh({
+    stage: 'briefing_updated',
     eventId: params.eventId,
   });
 
