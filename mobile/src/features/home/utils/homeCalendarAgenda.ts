@@ -1,9 +1,55 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import type { AgendaItem } from '@/src/entities/home/types';
 import { formatLocationShort } from '@/src/features/agent/calendar/calendarLocation';
+import {
+  filterUpcomingTimedEvents,
+  getEventEndTimestamp,
+  getEventStartTimestamp,
+  isCancelledCalendarEvent,
+  isTimedCalendarEvent,
+} from '@/src/features/agent/calendar/calendarSchedule';
 import { formatTimeInLocalTimezone } from '@/src/features/agent/calendar/calendarTime';
 
-const CALENDAR_SUMMARY_EVENT_LIMIT = 3;
+export const CALENDAR_SUMMARY_EVENT_LIMIT = 3;
+
+export type VisibleCalendarAgendaSource = 'demo' | 'google_calendar';
+
+export type VisibleCalendarAgendaResult = {
+  source: VisibleCalendarAgendaSource;
+  totalRawEvents: number;
+  visibleEvents: CalendarEvent[];
+  visibleCalendarAgendaItems: AgendaItem[];
+};
+
+function isVisibleCalendarEvent(event: CalendarEvent): boolean {
+  if (isCancelledCalendarEvent(event)) {
+    return false;
+  }
+
+  if (!isTimedCalendarEvent(event)) {
+    return false;
+  }
+
+  if (getEventStartTimestamp(event) === null || getEventEndTimestamp(event) === null) {
+    return false;
+  }
+
+  if (!event.title.trim()) {
+    return false;
+  }
+
+  return true;
+}
+
+export function filterVisibleCalendarEvents(
+  events: CalendarEvent[],
+  referenceNow: Date,
+): CalendarEvent[] {
+  return filterUpcomingTimedEvents(
+    events.filter(isVisibleCalendarEvent),
+    referenceNow,
+  );
+}
 
 export function mapCalendarEventsToAgenda(
   events: CalendarEvent[],
@@ -13,33 +59,74 @@ export function mapCalendarEventsToAgenda(
     const locationLabel = event.location ? formatLocationShort(event.location) || event.location : '';
 
     return {
-      time: event.isAllDay ? 'All day' : formatTimeInLocalTimezone(event.startsAt),
+      time: formatTimeInLocalTimezone(event.startsAt),
       title: event.title,
       detail: locationLabel || 'Calendar event',
     };
   });
 }
 
+export function formatEventsTodayLabel(eventCount: number): string {
+  const safeCount = Math.max(0, eventCount);
+  return `${safeCount} event${safeCount === 1 ? '' : 's'} today`;
+}
+
+export function resolveVisibleCalendarAgenda(params: {
+  isCalendarConnected: boolean;
+  upcomingEvents: CalendarEvent[];
+  demoAgenda: AgendaItem[];
+  referenceDate?: Date;
+  limit?: number;
+}): VisibleCalendarAgendaResult {
+  const referenceNow = params.referenceDate ?? new Date();
+  const limit = params.limit ?? CALENDAR_SUMMARY_EVENT_LIMIT;
+  const totalRawEvents = params.upcomingEvents.length;
+
+  if (!params.isCalendarConnected) {
+    const visibleCalendarAgendaItems = params.demoAgenda.slice(0, limit);
+
+    console.log(
+      '[Calendar Count]',
+      'demo',
+      params.demoAgenda.length,
+      visibleCalendarAgendaItems.length,
+      visibleCalendarAgendaItems.map((item) => item.title),
+    );
+
+    return {
+      source: 'demo',
+      totalRawEvents: params.demoAgenda.length,
+      visibleEvents: [],
+      visibleCalendarAgendaItems,
+    };
+  }
+
+  const visibleEvents = filterVisibleCalendarEvents(params.upcomingEvents, referenceNow);
+  const visibleCalendarAgendaItems = mapCalendarEventsToAgenda(visibleEvents, limit);
+
+  console.log(
+    '[Calendar Count]',
+    'google_calendar',
+    totalRawEvents,
+    visibleCalendarAgendaItems.length,
+    visibleCalendarAgendaItems.map((item) => item.title),
+  );
+
+  return {
+    source: 'google_calendar',
+    totalRawEvents,
+    visibleEvents,
+    visibleCalendarAgendaItems,
+  };
+}
+
+/** @deprecated Use resolveVisibleCalendarAgenda().visibleCalendarAgendaItems */
 export function resolveHomeCalendarAgenda(params: {
   isCalendarConnected: boolean;
   upcomingEvents: CalendarEvent[];
   demoAgenda: AgendaItem[];
+  referenceDate?: Date;
+  limit?: number;
 }): AgendaItem[] {
-  if (!params.isCalendarConnected) {
-    console.log('[Calendar Fix] Calendar Summary — using demo agenda (not connected)', {
-      demoTitles: params.demoAgenda.map((item) => item.title),
-    });
-    return params.demoAgenda;
-  }
-
-  const agenda = mapCalendarEventsToAgenda(params.upcomingEvents);
-
-  console.log('[Calendar Fix] Calendar Summary — using real Google Calendar events', {
-    source: 'orchestrator.snapshot.upcomingCalendarEvents',
-    totalUpcoming: params.upcomingEvents.length,
-    displayedTitles: agenda.map((item) => item.title),
-    realEventTitles: params.upcomingEvents.slice(0, 8).map((event) => event.title),
-  });
-
-  return agenda;
+  return resolveVisibleCalendarAgenda(params).visibleCalendarAgendaItems;
 }

@@ -25,7 +25,7 @@ export function getHomeDashboardContent(): {
         {
           id: 'events',
           icon: 'time-outline',
-          text: '3 events today',
+          text: '0 events today',
           color: colors.accentPurpleSoft,
         },
       ],

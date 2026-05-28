@@ -5,7 +5,10 @@ import { StyleSheet } from 'react-native';
 import { VoiceAssistantButton } from '@/src/components/ui/VoiceAssistantButton';
 import { useExecutiveCompanion } from '@/src/features/agent';
 import { useHomeVoiceAssistant } from '@/src/features/home/hooks/useHomeVoiceAssistant';
-import { resolveHomeCalendarAgenda } from '@/src/features/home/utils/homeCalendarAgenda';
+import {
+  formatEventsTodayLabel,
+  resolveVisibleCalendarAgenda,
+} from '@/src/features/home/utils/homeCalendarAgenda';
 import { useReminderMonitor } from '@/src/features/reminders/useReminderMonitor';
 import { ScreenContainer } from '@/src/shared/ui';
 import { useAssistantStore } from '@/src/store/useAssistantStore';
@@ -66,15 +69,41 @@ export default function HomeScreen() {
 
   const isCalendarConnected = calendarConnection?.status === 'connected';
   const upcomingCalendarEvents = data?.orchestrator.snapshot.upcomingCalendarEvents ?? [];
-
-  const calendarAgenda = useMemo(
+  const calendarReferenceDate = useMemo(
     () =>
-      resolveHomeCalendarAgenda({
+      data?.orchestrator.context.now ? new Date(data.orchestrator.context.now) : new Date(),
+    [data?.orchestrator.context.now],
+  );
+
+  const visibleCalendarAgenda = useMemo(
+    () =>
+      resolveVisibleCalendarAgenda({
         isCalendarConnected,
         upcomingEvents: upcomingCalendarEvents,
         demoAgenda: homeDashboard.agenda,
+        referenceDate: calendarReferenceDate,
       }),
-    [homeDashboard.agenda, isCalendarConnected, upcomingCalendarEvents],
+    [
+      calendarReferenceDate,
+      homeDashboard.agenda,
+      isCalendarConnected,
+      upcomingCalendarEvents,
+    ],
+  );
+
+  const quickStats = useMemo(
+    () =>
+      homeDashboard.quickStats.map((stat) =>
+        stat.id === 'events'
+          ? {
+              ...stat,
+              text: formatEventsTodayLabel(
+                visibleCalendarAgenda.visibleCalendarAgendaItems.length,
+              ),
+            }
+          : stat,
+      ),
+    [homeDashboard.quickStats, visibleCalendarAgenda.visibleCalendarAgendaItems.length],
   );
 
   return (
@@ -84,7 +113,7 @@ export default function HomeScreen() {
         greeting={homeDashboard.greeting}
         firstName={profile.firstName}
         subtitle={homeDashboard.subtitle}
-        quickStats={homeDashboard.quickStats}
+        quickStats={quickStats}
       />
 
       <VoiceAssistantButton
@@ -144,7 +173,7 @@ export default function HomeScreen() {
       />
 
       <HomeWeatherWidget weather={homeDashboard.weather} />
-      <HomeCalendarWidget agenda={calendarAgenda} />
+      <HomeCalendarWidget agenda={visibleCalendarAgenda.visibleCalendarAgendaItems} />
     </ScreenContainer>
   );
 }
