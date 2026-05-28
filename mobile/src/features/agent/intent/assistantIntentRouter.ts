@@ -14,6 +14,8 @@ export type OperationalIntentSubtype =
   | 'planning'
   | 'generic';
 
+import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+
 export type AssistantIntentAnalysis = {
   primary: AssistantIntentClass;
   operationalSubtype: OperationalIntentSubtype | null;
@@ -109,6 +111,10 @@ export function detectHardOperationalIntent(transcript: string) {
     return false;
   }
 
+  if (isOperationalCalendarWriteRequest(normalized)) {
+    return true;
+  }
+
   return (
     HARD_OPERATIONAL_VERB_PATTERN.test(normalized) &&
     (/\b(?:calendar|meeting|event|remind|message|sms|email|schedule|зустріч|календар|встреч)\b/i.test(
@@ -175,9 +181,11 @@ export function classifyAssistantIntent(transcript: string): AssistantIntentAnal
     };
   }
 
+  const calendarWriteRequest = isOperationalCalendarWriteRequest(normalized);
   const hasHardOperationalIntent = detectHardOperationalIntent(normalized);
   const operational = scoreOperational(normalized);
-  scores.operational = hasHardOperationalIntent ? 1 : operational.score;
+  scores.operational =
+    calendarWriteRequest || hasHardOperationalIntent ? 1 : operational.score;
 
   if (CLARIFICATION_PATTERNS.some((pattern) => pattern.test(normalized))) {
     scores.clarification = clampScore(scores.clarification + 0.35);
@@ -214,6 +222,7 @@ export function classifyAssistantIntent(transcript: string): AssistantIntentAnal
     scores.conversational + scores.emotional + scores.reflective,
   );
   const shouldBypassEmotionalRouting =
+    calendarWriteRequest ||
     hasHardOperationalIntent ||
     (actionConfidence >= 0.34 && actionConfidence >= conversationalConfidence + 0.08);
 

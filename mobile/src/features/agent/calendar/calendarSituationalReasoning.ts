@@ -1,4 +1,5 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
+import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import {
   computeLunchTimeBudget,
   wantsDetailedLunchTimeBreakdown,
@@ -289,13 +290,7 @@ export function isCalendarAwareQuestion(transcript: string) {
     return false;
   }
 
-  // Operational write/scheduling instructions are not "what's on my calendar" reads.
-  if (
-    /\b(?:add|create|move|insert|update|put|schedule|book|cancel|delete|remove|reschedule)\b/i.test(
-      normalized,
-    ) &&
-    /\b(?:calendar|google\s+calendar|meeting|event|зустріч|календар|встреч)\b/i.test(normalized)
-  ) {
+  if (isOperationalCalendarWriteRequest(normalized)) {
     return false;
   }
 

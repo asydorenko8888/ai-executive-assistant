@@ -3,6 +3,7 @@ import {
   detectHardOperationalIntent,
   type AssistantIntentAnalysis,
 } from '@/src/features/agent/intent/assistantIntentRouter';
+import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 import { parseSpokenClockTime } from '@/src/features/reminders/reminderTimeParser';
@@ -117,6 +118,10 @@ function formatScheduleLabel(
 }
 
 function isCalendarWriteIntent(transcript: string, analysis: AssistantIntentAnalysis) {
+  if (isOperationalCalendarWriteRequest(transcript)) {
+    return true;
+  }
+
   if (analysis.operationalSubtype === 'calendar_write' || analysis.operationalSubtype === 'scheduling') {
     return true;
   }

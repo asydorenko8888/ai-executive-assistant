@@ -6,6 +6,7 @@ export * from './tools';
 export * from './actionExecution';
 export * from './capabilityHonesty';
 export * from './intent/assistantIntentRouter';
+export * from './intent/operationalCalendarWriteDetection';
 export * from './intent/operationalIntentReply';
 export * from './conversation/assistantResponseGuard';
 export * from './conversation/assistantTurnPipeline';
