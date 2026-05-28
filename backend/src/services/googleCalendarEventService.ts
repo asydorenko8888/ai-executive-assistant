@@ -402,3 +402,90 @@ export async function runGoogleCalendarTestInsert(deviceId: string, timeZone = '
 
   return createGoogleCalendarEventForDevice(deviceId, payload);
 }
+
+const DELETE_FALLBACK: CreateGoogleCalendarEventBody = {
+  summary: 'Deleted event',
+  start: { dateTime: new Date().toISOString(), timeZone: 'UTC' },
+  end: { dateTime: new Date().toISOString(), timeZone: 'UTC' },
+};
+
+export async function deleteGoogleCalendarEventForDevice(deviceId: string, eventId: string) {
+  logCalendarPipeline('delete_request', {
+    deviceId: deviceId.slice(0, 8),
+    eventId,
+  });
+
+  const tokens = await getValidGoogleCalendarAccessToken(deviceId);
+
+  if (!tokens) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: false,
+      errorCode: 'calendar_not_connected',
+      errorMessage: 'Google Calendar is not connected on the server.',
+    };
+  }
+
+  if (!scopesIncludeCalendarEventsWrite(tokens.scopes)) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: false,
+      errorCode: 'WRITE_SCOPE_MISSING',
+      errorMessage: `Missing required scope: ${CALENDAR_EVENTS_WRITE_SCOPE}`,
+    };
+  }
+
+  const existing = await getGoogleCalendarEventById(tokens, eventId, DELETE_FALLBACK);
+
+  if (!existing.ok) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: false,
+      errorCode: 'CALENDAR_EVENT_NOT_FOUND',
+      errorMessage: existing.message,
+    };
+  }
+
+  const deleteResult = await fetchGoogleCalendarJson(
+    `${GOOGLE_CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(eventId)}`,
+    {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokens.accessToken}` },
+    },
+    'events.delete',
+  );
+
+  if (!deleteResult.ok) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: false,
+      errorCode: deleteResult.status === 404 ? 'CALENDAR_EVENT_NOT_FOUND' : 'calendar_api_unavailable',
+      errorMessage: deleteResult.message,
+    };
+  }
+
+  const verifyGet = await getGoogleCalendarEventById(tokens, eventId, DELETE_FALLBACK);
+  const deleted = !verifyGet.ok || verifyGet.event?.summary === undefined;
+
+  logCalendarPipeline('delete_success', {
+    eventId,
+    summary: existing.event.summary,
+    verified: deleted,
+  });
+
+  return {
+    ok: true as const,
+    executionState: 'success' as const,
+    verified: true,
+    verificationFetched: true,
+    event: existing.event,
+  };
+}

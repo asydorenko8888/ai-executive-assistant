@@ -1,32 +1,39 @@
 /**
- * Detects calendar create/update instructions (any supported language).
- * Used to block emotional / empty-day calendar fallback routing.
+ * Detects calendar create/update vs delete instructions (any supported language).
  */
 
-const OPERATIONAL_WRITE_VERBS =
-  /(?:add|put|create|book|set\s*up|insert|update|move|reschedule|shift|schedule|cancel|delete|remove|внеси|внести|добав(?:ь|ьте|ить)|создай|создать|перенеси|перенести|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|перенеси|заплануй)/iu;
+const CREATE_WRITE_VERBS =
+  /(?:add|put|create|book|set\s*up|insert|update|move|reschedule|shift|schedule|внеси|внести|добав(?:ь|ьте|ить)|создай|создать|перенеси|перенести|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|заплануй)/iu;
+
+const DELETE_WRITE_VERBS =
+  /(?:delete|remove|cancel|clear|удали|удалить|убери|отмени|отменить|прибери|скасуй|скасувати|видали|видалити)/iu;
 
 const CALENDAR_DOMAIN =
   /(?:google\s*)?calendar|google\s+календар[ьяь]?|календар[ьяь]?|зустріч|встреч|meeting|events?/iu;
 
-/** "внеси … google календарь …" */
 const RU_UK_CALENDAR_WRITE_PHRASE =
   /(?:внеси|внести|добав(?:ь|ить)|создай|перенеси|запланируй|поставь|занеси|додай|створи|заплануй).{0,120}(?:google\s*)?(?:календар[ьяь]?|calendar)/iu;
+
+const RU_UK_CALENDAR_DELETE_PHRASE =
+  /(?:удали|удалить|убери|отмени|отменить|прибери|видали|видалити|скасуй).{0,120}(?:google\s*)?(?:календар[ьяь]?|calendar|событ|встреч)/iu;
 
 const EN_CALENDAR_WRITE_PHRASE =
   /(?:add|put|create|move|insert|update|schedule|book).{0,120}(?:google\s*)?calendar/iu;
 
-/** Calendar domain + write verb anywhere in the utterance. */
+const EN_CALENDAR_DELETE_PHRASE =
+  /(?:delete|remove|cancel).{0,120}(?:google\s*)?(?:calendar|event|meeting)/iu;
+
 const CALENDAR_WRITE_LOOSE =
   /(?:внеси|внести|добав(?:ь|ить)|создай|запланируй|поставь|занеси|додай|створи|заплануй|add|create|schedule|book).{0,160}(?:календар|calendar|google)/iu;
 
-/** "напомни" only when calendar is explicitly mentioned. */
 const REMIND_INTO_CALENDAR =
   /(?:напомни|нагадай|remind).{0,80}(?:календар|calendar|google)/iu;
 
-/** Command at start + date/time — no "calendar" word required (e.g. "внеси завтра в 6:00 …"). */
 const WRITE_VERB_AT_START =
   /^(?:please\s+)?(?:внеси|внести|добав(?:ь|ьте|ить)|создай|создать|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|перенеси|заплануй|add|create|schedule|book|put|insert)(?:[\s,:-]|$)/iu;
+
+const DELETE_VERB_AT_START =
+  /^(?:please\s+)?(?:удали|удалить|убери|отмени|отменить|прибери|скасуй|скасувати|видали|видалити|delete|remove|cancel)(?:[\s,:-]|$)/iu;
 
 const SCHEDULE_TIME_HINT =
   /\b(?:today|tomorrow|завтра|сегодня|сьогодні|післязавтра|послезавтра|утра|утром|вечера|вечером|дня|днём|днем|ночи|ночью|am|pm|a\.m\.|p\.m\.|\d{1,2}(?::\d{2})?)\b/iu;
@@ -34,10 +41,31 @@ const SCHEDULE_TIME_HINT =
 const WEEKDAY_HINT =
   /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес|понеділок|вівторок|середу|четвер|п'ятниц|субот|неділ)\b/iu;
 
-export function isOperationalCalendarWriteRequest(transcript: string) {
+export function isOperationalCalendarDeleteRequest(transcript: string) {
   const normalized = transcript.trim();
 
   if (!normalized) {
+    return false;
+  }
+
+  if (
+    RU_UK_CALENDAR_DELETE_PHRASE.test(normalized) ||
+    EN_CALENDAR_DELETE_PHRASE.test(normalized)
+  ) {
+    return true;
+  }
+
+  if (DELETE_VERB_AT_START.test(normalized)) {
+    return true;
+  }
+
+  return DELETE_WRITE_VERBS.test(normalized) && CALENDAR_DOMAIN.test(normalized);
+}
+
+export function isOperationalCalendarCreateRequest(transcript: string) {
+  const normalized = transcript.trim();
+
+  if (!normalized || isOperationalCalendarDeleteRequest(normalized)) {
     return false;
   }
 
@@ -54,5 +82,13 @@ export function isOperationalCalendarWriteRequest(transcript: string) {
     return true;
   }
 
-  return OPERATIONAL_WRITE_VERBS.test(normalized) && CALENDAR_DOMAIN.test(normalized);
+  return CREATE_WRITE_VERBS.test(normalized) && CALENDAR_DOMAIN.test(normalized);
+}
+
+/** Create or delete — routes to operational executor (never LLM). */
+export function isOperationalCalendarWriteRequest(transcript: string) {
+  return (
+    isOperationalCalendarCreateRequest(transcript) ||
+    isOperationalCalendarDeleteRequest(transcript)
+  );
 }

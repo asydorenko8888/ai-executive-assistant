@@ -8,7 +8,11 @@ import {
   resolveGrantedScopes,
   scopesIncludeCalendarEventsWrite,
 } from '../services/googleCalendarScopes.js';
-import { createGoogleCalendarEventForDevice, runGoogleCalendarTestInsert } from '../services/googleCalendarEventService.js';
+import {
+  createGoogleCalendarEventForDevice,
+  deleteGoogleCalendarEventForDevice,
+  runGoogleCalendarTestInsert,
+} from '../services/googleCalendarEventService.js';
 import {
   getGoogleCalendarEventForDevice,
   listGoogleCalendarEventsForDevice,
@@ -277,6 +281,69 @@ googleCalendarRouter.get('/google-calendar/events', async (request, response) =>
 
   return response.status(200).json({
     events: result.events,
+  });
+});
+
+googleCalendarRouter.delete('/google-calendar/events/:eventId', async (request, response) => {
+  const deviceId = requireDeviceId(request, response);
+
+  if (!deviceId) {
+    return;
+  }
+
+  const eventId = request.params.eventId?.trim();
+
+  if (!eventId) {
+    return response.status(400).json({
+      message: 'eventId is required.',
+      code: 'GOOGLE_CALENDAR_EVENT_ID_INVALID',
+    });
+  }
+
+  const status = await getGoogleCalendarConnectionStatus(deviceId);
+
+  if (!status.connected) {
+    return response.status(401).json({
+      message: 'Google Calendar is not connected.',
+      code: 'calendar_not_connected',
+    });
+  }
+
+  if (!status.writeEnabled) {
+    return response.status(403).json({
+      message: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+      code: 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED',
+    });
+  }
+
+  const result = await deleteGoogleCalendarEventForDevice(deviceId, eventId);
+
+  if (!result.ok) {
+    const statusCode =
+      result.errorCode === 'calendar_not_connected'
+        ? 401
+        : result.errorCode === 'CALENDAR_EVENT_NOT_FOUND'
+          ? 404
+          : result.errorCode === 'WRITE_SCOPE_MISSING'
+            ? 403
+            : 502;
+
+    return response.status(statusCode).json({
+      status: 'FAILURE',
+      code: result.errorCode,
+      message: result.errorMessage,
+      verified: result.verified,
+      verificationFetched: result.verificationFetched,
+    });
+  }
+
+  return response.status(200).json({
+    status: 'SUCCESS',
+    code: 'SUCCESS',
+    event: result.event,
+    eventId: result.event.id,
+    verified: result.verified,
+    verificationFetched: result.verificationFetched,
   });
 });
 

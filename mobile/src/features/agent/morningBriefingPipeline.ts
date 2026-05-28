@@ -1,9 +1,6 @@
+import { buildCalendarAvailabilitySummary } from '@/src/features/agent/calendar/calendarNaturalLanguage';
 import type { ReminderItem } from '@/src/entities/reminder/types';
 import type { TaskItem } from '@/src/entities/task/types';
-import {
-  areCalendarPhrasesEquivalent,
-  buildCalendarAvailabilitySummary,
-} from '@/src/features/agent/calendar/calendarNaturalLanguage';
 import { formatLocationShort } from '@/src/features/agent/calendar/calendarLocation';
 import { formatTimeInLocalTimezone } from '@/src/features/agent/calendar/calendarTime';
 import type { ExecutiveAgentContext, ExecutiveAgentSnapshot, MorningBriefing, MorningBriefingSection } from '@/src/features/agent/types';
@@ -53,27 +50,16 @@ function buildScheduleSection(snapshot: ExecutiveAgentSnapshot): MorningBriefing
       : `You have ${snapshot.upcomingCalendarEvents.length} events today.`);
 
   const nextEvent = snapshot.calendarSummary?.nextEvent;
-  const followingEventId = snapshot.calendarSummary?.followingEvent?.id;
+  const followingEvent = snapshot.calendarSummary?.followingEvent;
+  const mentionedIds = new Set([nextEvent?.id, followingEvent?.id].filter(Boolean));
   const items: string[] = [];
 
   snapshot.upcomingCalendarEvents
-    .filter((event) => event.id !== nextEvent?.id && event.id !== followingEventId)
-    .slice(0, 2)
+    .filter((event) => !mentionedIds.has(event.id))
+    .slice(0, 3)
     .forEach((event) => {
       items.push(formatEventListItem(event));
     });
-
-  const availability =
-    snapshot.calendarSummary?.availabilitySummary ??
-    (snapshot.calendarSummary ? buildCalendarAvailabilitySummary(snapshot.calendarSummary) : '');
-
-  if (
-    availability &&
-    !areCalendarPhrasesEquivalent(availability, summary) &&
-    !summary.toLowerCase().includes(availability.toLowerCase().slice(0, 24))
-  ) {
-    items.push(availability);
-  }
 
   return {
     kind: 'schedule',

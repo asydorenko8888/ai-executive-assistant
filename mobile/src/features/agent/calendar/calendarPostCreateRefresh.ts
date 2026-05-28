@@ -132,3 +132,30 @@ export async function refreshCalendarStateAfterCreate(params: {
     mergedEvents: merged,
   };
 }
+
+export async function refreshCalendarAgendaState(referenceNow: Date) {
+  const window = getCalendarAgendaWindow(referenceNow);
+  const listed = await fetchGoogleCalendarEventsFromBackend({
+    timeMin: window.timeMin,
+    timeMax: window.timeMax,
+  }).catch((error) => {
+    logCalendarRefresh('list events failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
+
+  const merged = (listed?.events ?? []).map(mapBackendEventToCalendarEvent);
+  setLiveCalendarEvents(merged);
+
+  logCalendarRefresh('home state updated', {
+    eventCount: merged.length,
+    titles: merged.slice(0, 8).map((event) => event.title),
+  });
+
+  await refreshHomeBriefing(queryClient);
+
+  logCalendarRefresh('briefing updated', { reason: 'agenda_refresh' });
+
+  return merged;
+}

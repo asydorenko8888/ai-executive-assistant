@@ -1,7 +1,11 @@
 import type { AssistantExecutionState } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import { detectHardOperationalIntent } from '@/src/features/agent/intent/assistantIntentRouter';
 import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
-import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import {
+  isOperationalCalendarCreateRequest,
+  isOperationalCalendarDeleteRequest,
+} from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
 import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
@@ -98,10 +102,33 @@ function buildTerminalCalendarBlockedReply(
 export async function tryBuildOperationalIntentReply(
   params: OperationalIntentReplyParams,
 ): Promise<OperationalIntentResult | null> {
-  if (isOperationalCalendarWriteRequest(params.transcript)) {
+  if (isOperationalCalendarDeleteRequest(params.transcript)) {
     logCalendarCreate('routing', {
       action: 'tryBuildOperationalIntentReply',
-      matched: 'calendar_write',
+      matched: 'calendar_delete',
+      transcriptPreview: params.transcript.slice(0, 120),
+    });
+
+    const execution = await executeCalendarDeleteEvent({
+      transcript: params.transcript,
+      languageCode: params.languageCode,
+      referenceNow: params.referenceNow,
+    });
+
+    return {
+      reply: execution.reply,
+      spokenReply: execution.spokenReply,
+      executionState: execution.executionState === 'success' ? 'tool_success' : 'tool_failure',
+      toolStatus: execution.tool.status,
+      calendarExecutionState: execution.executionState,
+      verified: execution.verified,
+    };
+  }
+
+  if (isOperationalCalendarCreateRequest(params.transcript)) {
+    logCalendarCreate('routing', {
+      action: 'tryBuildOperationalIntentReply',
+      matched: 'calendar_create',
       transcriptPreview: params.transcript.slice(0, 120),
     });
 

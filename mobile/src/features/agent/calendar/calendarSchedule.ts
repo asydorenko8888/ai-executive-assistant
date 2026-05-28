@@ -134,7 +134,20 @@ export function getFollowingScheduledEvent(
     return undefined;
   }
 
-  return upcomingTimedEvents[nextIndex + 1];
+  const nextStart = getEventStartTimestamp(nextEvent);
+
+  for (let index = nextIndex + 1; index < upcomingTimedEvents.length; index += 1) {
+    const candidate = upcomingTimedEvents[index];
+    const candidateStart = getEventStartTimestamp(candidate);
+
+    if (nextStart !== null && candidateStart !== null && candidateStart === nextStart) {
+      continue;
+    }
+
+    return candidate;
+  }
+
+  return undefined;
 }
 
 export function getLaterUpcomingEvents(

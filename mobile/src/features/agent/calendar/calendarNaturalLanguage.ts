@@ -113,8 +113,13 @@ function formatFollowingMeetingLine(followingEvent: CalendarSummary['followingEv
   }
 
   const followTimeLabel = formatTimeInLocalTimezone(followingEvent.startsAt);
+  const title = followingEvent.title.trim();
 
-  return ` You also have another meeting at ${followTimeLabel}.`;
+  if (title) {
+    return ` Then ${title} at ${followTimeLabel}.`;
+  }
+
+  return ` Then another meeting at ${followTimeLabel}.`;
 }
 
 function describeNextMeeting(params: {

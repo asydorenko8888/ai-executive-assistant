@@ -305,7 +305,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const calendarConnected = calendarAuth.canReadCalendar;
 
   if (isOperationalCalendarWriteRequest(userTranscript)) {
-    logTurnPipeline('calendar write intent — executing immediately', {
+    logTurnPipeline('calendar operational intent — executing immediately', {
       transcriptPreview: userTranscript.slice(0, 120),
     });
 

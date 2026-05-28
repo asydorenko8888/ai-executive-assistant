@@ -17,7 +17,8 @@ export type CalendarToolErrorCode =
   | 'CALENDAR_DATE_PARSE_FAILED'
   | 'CALENDAR_OPERATION_IN_PROGRESS'
   | 'CALENDAR_MAX_RETRIES_EXCEEDED'
-  | 'CALENDAR_OPERATION_ERROR';
+  | 'CALENDAR_OPERATION_ERROR'
+  | 'CALENDAR_EVENT_NOT_FOUND';
 
 export type CalendarToolResponse = {
   status: CalendarToolStatus;

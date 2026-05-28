@@ -9,10 +9,10 @@ const COMMAND_PREFIX =
 const CALENDAR_PHRASES =
   /(?:google\s*)?(?:календар[ьяь]?|calendar)|(?:в|во|в мой|в моей|to|into)\s+(?:google\s*)?(?:календар[ьяь]?|calendar)/giu;
 
-const DATE_WORDS = new RegExp(
-  `${WORD_EDGE}(?:today|tomorrow|сьогодні|сегодня|завтра)${WORD_END}`,
-  'giu',
-);
+const RELATIVE_DATE_PHRASES = [
+  new RegExp(`${WORD_EDGE}(?:today|tomorrow|сьогодні|сегодня|завтра)${WORD_END}`, 'giu'),
+  /\b(?:на|в|on)\s+(?:завтра|сегодня|сьогодні|today|tomorrow)\b/giu,
+];
 
 const TIME_PHRASES = [
   new RegExp(
@@ -24,16 +24,39 @@ const TIME_PHRASES = [
     'giu',
   ),
   new RegExp(`${WORD_EDGE}\\d{1,2}\\s*(?:am|pm|a\\.m\\.|p\\.m\\.)${WORD_END}`, 'giu'),
+  new RegExp(`${WORD_EDGE}(?:утра|утром|вечера|вечером|дня|днём|днем|ночи|ночью)${WORD_END}`, 'giu'),
 ];
 
 const FILLER_WORDS = new RegExp(
-  `${WORD_EDGE}(?:задач[ауеиё]?|событ[иеяё]+|встреч[а-яё]*|meeting|events?|task)${WORD_END}`,
+  `${WORD_EDGE}(?:задач[ауеиё]?|событ[иеяё]+|встреч[уеиё]|meeting|events?|task)${WORD_END}`,
   'giu',
 );
 
 const POSSESSIVE_FILLER = new RegExp(`${WORD_EDGE}(?:мой|моей|моего|моём|моем|my)${WORD_END}`, 'giu');
 
 const LEADING_FILLER = /^(?:в|на|at|о|the|a|an)\s+/iu;
+
+const INVALID_TITLES = new Set(
+  [
+    'завтра',
+    'сегодня',
+    'сьогодні',
+    'today',
+    'tomorrow',
+    'утра',
+    'утром',
+    'вечера',
+    'вечером',
+    'дня',
+    'днём',
+    'днем',
+    'ночи',
+    'ночью',
+    'на',
+    'в',
+    'at',
+  ].map((value) => value.toLowerCase()),
+);
 
 function capitalizeFirstLetter(value: string) {
   const trimmed = value.trim();
@@ -45,13 +68,30 @@ function capitalizeFirstLetter(value: string) {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
+function isInvalidTitle(title: string) {
+  const normalized = title.trim().toLowerCase();
+
+  if (!normalized || normalized.length < 2) {
+    return true;
+  }
+
+  if (INVALID_TITLES.has(normalized)) {
+    return true;
+  }
+
+  return /^[\d:\s]+(?:am|pm)?$/iu.test(normalized);
+}
+
 export function extractCalendarEventTitle(transcript: string) {
   logCalendarCreate('raw user text', { transcript });
 
   let title = transcript.trim();
   title = title.replace(COMMAND_PREFIX, '');
   title = title.replace(CALENDAR_PHRASES, ' ');
-  title = title.replace(DATE_WORDS, ' ');
+
+  for (const pattern of RELATIVE_DATE_PHRASES) {
+    title = title.replace(pattern, ' ');
+  }
 
   for (const pattern of TIME_PHRASES) {
     title = title.replace(pattern, ' ');
@@ -64,6 +104,11 @@ export function extractCalendarEventTitle(transcript: string) {
   title = title.replace(/\s+/g, ' ').trim();
 
   const extracted = capitalizeFirstLetter(title);
+
+  if (isInvalidTitle(extracted)) {
+    logCalendarCreate('extracted title', { extracted, ok: false, reason: 'invalid_or_date_only' });
+    return '';
+  }
 
   logCalendarCreate('extracted title', { extracted });
 
