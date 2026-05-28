@@ -1,5 +1,6 @@
 import type { AgentCapabilitySnapshot, ExecutiveAgentSnapshot } from '@/src/features/agent/types';
 import { containsFakeOperationalSuccessClaim } from '@/src/features/agent/execution/operationalExecutionHonesty';
+import type { CalendarAuthCapabilities } from '@/src/features/agent/calendar/calendarAuthCapabilities';
 import { isCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 
@@ -52,12 +53,18 @@ const COMPANION_VOICE_RULES = [
 
 export function buildCapabilityHonestySystemPrompt(
   context: CapabilityHonestyContext,
-  options?: { calendarWriteProven?: boolean; userTranscript?: string },
+  options?: {
+    calendarWriteProven?: boolean;
+    userTranscript?: string;
+    calendarAuth?: CalendarAuthCapabilities | null;
+  },
 ): string {
   const calendarWriteTurn =
     Boolean(options?.userTranscript) && isOperationalCalendarWriteRequest(options!.userTranscript!);
-  const calendarDirectWrite =
-    context.calendarConnected && (options?.calendarWriteProven || calendarWriteTurn);
+  const calendarDirectWrite = Boolean(
+    options?.calendarAuth?.canWriteCalendar ||
+      (context.calendarConnected && (options?.calendarWriteProven || calendarWriteTurn)),
+  );
 
   const snapshot = [
     describeOpsSnapshot('Google Calendar', context.capabilities.calendar, context.calendarConnected),
@@ -93,15 +100,19 @@ export function buildCapabilityHonestyContextFromOrchestrator(
     snapshot: ExecutiveAgentSnapshot;
   },
   userTranscript?: string,
+  calendarAuth?: CalendarAuthCapabilities | null,
 ) {
   return buildCapabilityHonestySystemPrompt(
     {
       capabilities: orchestrator.capabilities,
-      calendarConnected: orchestrator.snapshot.calendarConnection?.status === 'connected',
+      calendarConnected:
+        calendarAuth?.canReadCalendar ??
+        orchestrator.snapshot.calendarConnection?.status === 'connected',
     },
     {
       calendarWriteProven: isCalendarWriteAvailableInSession(),
       userTranscript,
+      calendarAuth,
     },
   );
 }

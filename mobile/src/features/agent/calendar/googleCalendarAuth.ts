@@ -307,6 +307,10 @@ export async function finalizeGoogleCalendarAuthCode(params: {
     await syncGoogleCalendarSessionToBackend(nextSession).catch((error) => {
       console.log('[GoogleCalendar] backend session sync failed after web exchange', error);
     });
+    const { invalidateCalendarAuthCache } = await import(
+      '@/src/features/agent/calendar/calendarAuthCapabilities'
+    );
+    invalidateCalendarAuthCache();
 
     console.log('[Calendar] OAuth granted scopes verified', {
       scopes: nextSession.scopes,
@@ -344,6 +348,10 @@ export async function finalizeGoogleCalendarAuthCode(params: {
   await syncGoogleCalendarSessionToBackend(nextSession).catch((error) => {
     console.log('[GoogleCalendar] backend session sync failed after native exchange', error);
   });
+  const { invalidateCalendarAuthCache } = await import(
+    '@/src/features/agent/calendar/calendarAuthCapabilities'
+  );
+  invalidateCalendarAuthCache();
 
   console.log('[Calendar] OAuth granted scopes verified', {
     scopes: nextSession.scopes,
@@ -412,6 +420,13 @@ async function refreshGoogleCalendarSession(session: GoogleCalendarSession) {
       };
 
       await saveGoogleCalendarSession(nextSession);
+      await syncGoogleCalendarSessionToBackend(nextSession).catch((error) => {
+        console.log('[GoogleCalendar] backend session sync failed after web refresh', error);
+      });
+      const { invalidateCalendarAuthCache } = await import(
+        '@/src/features/agent/calendar/calendarAuthCapabilities'
+      );
+      invalidateCalendarAuthCache();
       return nextSession;
     }
 
@@ -447,6 +462,13 @@ async function refreshGoogleCalendarSession(session: GoogleCalendarSession) {
     };
 
     await saveGoogleCalendarSession(nextSession);
+    await syncGoogleCalendarSessionToBackend(nextSession).catch((error) => {
+      console.log('[GoogleCalendar] backend session sync failed after native refresh', error);
+    });
+    const { invalidateCalendarAuthCache } = await import(
+      '@/src/features/agent/calendar/calendarAuthCapabilities'
+    );
+    invalidateCalendarAuthCache();
     return nextSession;
   } catch {
     return session;
@@ -633,27 +655,22 @@ export async function startGoogleCalendarWebRedirectFallback(
 
 export async function getGoogleCalendarConnection() {
   await resolveGoogleCalendarWebRedirectIfNeeded();
-  const clientId = resolveGoogleCalendarClientId();
+  const { refreshCalendarAuthCapabilities } = await import(
+    '@/src/features/agent/calendar/calendarAuthCapabilities'
+  );
+  const capabilities = await refreshCalendarAuthCapabilities({ heal: true });
 
-  if (!clientId) {
-    console.log('[Calendar Audit] getGoogleCalendarConnection — missing client ID', {
-      platform: Platform.OS,
-    });
-
-    return {
-      provider: 'google',
-      status: 'missing_config',
-    } satisfies CalendarConnection;
-  }
-
-  const connection = buildConnectionFromSession(await loadGoogleCalendarSession());
   console.log('[Calendar Audit] getGoogleCalendarConnection', {
     platform: Platform.OS,
-    status: connection.status,
-    connectedEmail: connection.connectedEmail ?? null,
+    status: capabilities.connection.status,
+    connectedEmail: capabilities.connection.connectedEmail ?? null,
+    canReadCalendar: capabilities.canReadCalendar,
+    canWriteCalendar: capabilities.canWriteCalendar,
+    inSync: capabilities.inSync,
+    desyncReason: capabilities.desyncReason ?? null,
   });
 
-  return connection;
+  return capabilities.connection;
 }
 
 export async function getActiveGoogleCalendarSession() {
@@ -837,6 +854,14 @@ export async function disconnectGoogleCalendarAccount() {
   await disconnectGoogleCalendarOnBackend().catch((error) => {
     console.log('[GoogleCalendar] backend disconnect failed', error);
   });
+  const { invalidateCalendarAuthCache } = await import(
+    '@/src/features/agent/calendar/calendarAuthCapabilities'
+  );
+  const { resetCalendarWriteSession } = await import(
+    '@/src/features/agent/calendar/calendarWriteSession'
+  );
+  invalidateCalendarAuthCache();
+  resetCalendarWriteSession();
 
   return {
     success: true,

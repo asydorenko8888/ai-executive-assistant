@@ -84,11 +84,10 @@ async function generateAssistantSummary(
 ) {
   try {
     const memoryPromptContext = await prepareMemoryPromptContext(chatMessages);
+    const contextSegments = await buildAgentSystemContextSegments(orchestrator);
     const systemMessages = [
       ...memoryPromptContext.systemMessages,
-      ...buildAgentSystemContextSegments(orchestrator).map((segment) =>
-        createConversationMessage('system', segment),
-      ),
+      ...contextSegments.map((segment) => createConversationMessage('system', segment)),
     ];
     const promptMessage: ChatMessage = {
       id: `agent-daily-summary-${Date.now()}`,

@@ -218,7 +218,7 @@ export function useExecutiveChat() {
   }, []);
 
   const buildAgentSystemMessages = useCallback(
-    (
+    async (
       orchestrator: Awaited<ReturnType<typeof createExecutiveAgentOrchestrator>>,
       userTranscript?: string,
     ) => {
@@ -233,12 +233,17 @@ export function useExecutiveChat() {
         })),
       );
 
-      return buildAgentSystemContextSegments(orchestrator, voiceLanguage, userTranscript).map(
-        (segment) =>
-          createConversationMessage(
-            'system',
-            `${segment} Use it subtly and only when it genuinely sharpens the reply.`,
-          ),
+      const segments = await buildAgentSystemContextSegments(
+        orchestrator,
+        voiceLanguage,
+        userTranscript,
+      );
+
+      return segments.map((segment) =>
+        createConversationMessage(
+          'system',
+          `${segment} Use it subtly and only when it genuinely sharpens the reply.`,
+        ),
       );
     },
     [voiceLanguage],
@@ -356,7 +361,7 @@ export function useExecutiveChat() {
       const memoryContext = await prepareMemoryPromptContext(nextMessages);
       coordinator.touch(requestId);
 
-      const agentSystemMessages = buildAgentSystemMessages(orchestrator, turn.userTranscript);
+      const agentSystemMessages = await buildAgentSystemMessages(orchestrator, turn.userTranscript);
       const activeRequest = coordinator.getActive();
       const signal = activeRequest?.abortController.signal;
       const intentSystemMessages = turn.intentPrompt

@@ -1,3 +1,4 @@
+import { ensureCalendarAuthForTool } from '@/src/features/agent/calendar/calendarAuthCapabilities';
 import { createGoogleCalendarEventOnBackend } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import type { CalendarCreateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import {
@@ -12,6 +13,22 @@ import { ApiError } from '@/src/shared/api/api-error';
 export async function createGoogleCalendarEvent(
   payload: CalendarCreateEventPayload,
 ): Promise<CalendarToolResponse> {
+  const auth = await ensureCalendarAuthForTool('google_calendar_create_event');
+
+  if (!auth.canWriteCalendar) {
+    if (!auth.canReadCalendar) {
+      return createCalendarToolFailure(
+        'GOOGLE_CALENDAR_NOT_CONNECTED',
+        'Google Calendar is not connected on the server for this device.',
+      );
+    }
+
+    return createCalendarToolFailure(
+      'WRITE_SCOPE_MISSING',
+      'WRITE_SCOPE_MISSING: reconnect Google Calendar and grant event write access (calendar.events).',
+    );
+  }
+
   logExecutionAudit('tool_call', {
     operation: 'POST /google-calendar/events',
     summary: payload.summary,

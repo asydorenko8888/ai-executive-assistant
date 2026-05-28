@@ -9,7 +9,7 @@ import {
   fetchGoogleCalendarEventsFromBackend,
   type GoogleCalendarBackendEvent,
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
-import { getGoogleCalendarConnection } from '@/src/features/agent/calendar/googleCalendarAuth';
+import { refreshCalendarAuthCapabilities } from '@/src/features/agent/calendar/calendarAuthCapabilities';
 import {
   getLiveCalendarEvents,
   mergeCalendarEventLists,
@@ -249,7 +249,8 @@ async function fetchGoogleCalendarEventsForAgenda(referenceDate: Date) {
 export async function getGoogleCalendarMorningContext(referenceDate: string): Promise<CalendarIntegrationSnapshot> {
   console.log('[Calendar Audit] getGoogleCalendarMorningContext — start', { referenceDate });
 
-  const connection = await getGoogleCalendarConnection();
+  const auth = await refreshCalendarAuthCapabilities({ force: true, heal: true });
+  const connection = auth.connection;
 
   if (connection.status === 'missing_config') {
     console.log('[Calendar Audit] getGoogleCalendarMorningContext — missing_config');
@@ -260,9 +261,12 @@ export async function getGoogleCalendarMorningContext(referenceDate: string): Pr
     };
   }
 
-  if (connection.status !== 'connected') {
+  if (!auth.canReadCalendar) {
     console.log('[Calendar Audit] getGoogleCalendarMorningContext — not connected', {
       connectionStatus: connection.status,
+      canReadCalendar: auth.canReadCalendar,
+      canWriteCalendar: auth.canWriteCalendar,
+      desyncReason: auth.desyncReason ?? null,
     });
     return {
       availability: connection.status === 'expired' ? 'not_connected' : 'not_connected',

@@ -173,17 +173,25 @@ export function buildAgentRuntimeContext(
 }
 
 /** System context blocks for chat/voice — factual time, capability honesty, runtime. */
-export function buildAgentSystemContextSegments(
+export async function buildAgentSystemContextSegments(
   orchestrator: ExecutiveAgentOrchestrator,
   languageCode?: VoiceLanguageCode,
   userTranscript?: string,
 ) {
+  const { refreshCalendarAuthCapabilities } = await import(
+    '@/src/features/agent/calendar/calendarAuthCapabilities'
+  );
+  const calendarAuth = await refreshCalendarAuthCapabilities({ heal: true });
   const factualGrounding = buildFactualGroundingContext({
     orchestrator,
     languageCode,
     userTranscript,
   });
-  const capabilityHonesty = buildCapabilityHonestyContextFromOrchestrator(orchestrator, userTranscript);
+  const capabilityHonesty = buildCapabilityHonestyContextFromOrchestrator(
+    orchestrator,
+    userTranscript,
+    calendarAuth,
+  );
   const runtimeContext = buildAgentRuntimeContext(orchestrator, languageCode, userTranscript);
 
   return [factualGrounding.systemPromptBlock, capabilityHonesty, runtimeContext].filter(Boolean);

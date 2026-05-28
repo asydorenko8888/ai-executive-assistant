@@ -94,6 +94,11 @@ export async function launchGoogleCalendarOAuthForExecution() {
     });
   }
 
+  const { invalidateCalendarAuthCache } = await import(
+    '@/src/features/agent/calendar/calendarAuthCapabilities'
+  );
+  invalidateCalendarAuthCache();
+
   const access = await resolveCalendarWriteAccessState();
 
   logActionExecution('execution_result', {

@@ -140,38 +140,41 @@ export async function executeCalendarCreateEvent(
   const access = await resolveCalendarWriteAccessState();
 
   logCalendarDecision('writeAvailable', {
-    connected: access.connected,
-    writeEnabled: access.writeEnabled,
+    canReadCalendar: access.canReadCalendar,
+    canWriteCalendar: access.canWriteCalendar,
+    inSync: access.inSync,
   });
   logCalendarDecision('writeScope', {
     scopes: access.scopes,
     hasCalendarEventsScope: access.hasCalendarEventsScope,
   });
 
-  if (!access.writeEnabled) {
+  if (!access.canWriteCalendar) {
     logCalendarDecision('reasonForRefusal', {
-      reason: 'write_scope_missing',
+      reason: access.canReadCalendar ? 'write_scope_missing' : 'calendar_not_connected',
+      desyncReason: access.capabilities.desyncReason ?? null,
     });
+
+    if (!access.canReadCalendar) {
+      await enqueueCalendarCreateAction({
+        payload: payloadResult.payload,
+        transcript: params.transcript,
+        languageCode: params.languageCode,
+      });
+
+      const tool = createCalendarToolPending('CALENDAR_AUTH_REQUIRED', 'CALENDAR_AUTH_REQUIRED');
+      endCalendarOperation({ failed: false });
+      return finalizeOutcome(
+        buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+        payloadResult.scheduleIso,
+      );
+    }
+
     const tool = createCalendarToolFailure(
       'WRITE_SCOPE_MISSING',
       'WRITE_SCOPE_MISSING: reconnect Google Calendar and grant event write access (calendar.events).',
     );
     endCalendarOperation({ failed: true });
-    return finalizeOutcome(
-      buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
-      payloadResult.scheduleIso,
-    );
-  }
-
-  if (!access.connected) {
-    await enqueueCalendarCreateAction({
-      payload: payloadResult.payload,
-      transcript: params.transcript,
-      languageCode: params.languageCode,
-    });
-
-    const tool = createCalendarToolPending('CALENDAR_AUTH_REQUIRED', 'CALENDAR_AUTH_REQUIRED');
-    endCalendarOperation({ failed: false });
     return finalizeOutcome(
       buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
       payloadResult.scheduleIso,

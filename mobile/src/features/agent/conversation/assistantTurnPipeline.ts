@@ -298,8 +298,11 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     params.orchestrator.snapshot,
     params.referenceNow,
   );
-  const calendarConnected =
-    params.orchestrator.snapshot.calendarConnection?.status === 'connected';
+  const { refreshCalendarAuthCapabilities } = await import(
+    '@/src/features/agent/calendar/calendarAuthCapabilities'
+  );
+  const calendarAuth = await refreshCalendarAuthCapabilities({ heal: true });
+  const calendarConnected = calendarAuth.canReadCalendar;
 
   if (isOperationalCalendarWriteRequest(userTranscript)) {
     logTurnPipeline('calendar write intent — executing immediately', {
@@ -531,7 +534,8 @@ export function finalizeTurnReply(
     messages: params.messages,
     candidateReply: params.candidateReply,
     languageCode: params.languageCode,
-    calendarConnected: params.orchestrator.snapshot.calendarConnection?.status === 'connected',
+    calendarConnected:
+      params.orchestrator.snapshot.calendarConnection?.status === 'connected',
     referenceNow: params.referenceNow,
   });
 }

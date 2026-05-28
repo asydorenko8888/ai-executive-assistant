@@ -289,11 +289,11 @@ export function useHomeVoiceAssistant() {
             ...(voiceSessionPrompt
               ? [createConversationMessage('system', voiceSessionPrompt)]
               : []),
-            ...buildAgentSystemContextSegments(
+            ...(await buildAgentSystemContextSegments(
               orchestrator,
               languageCodeRef.current,
               trimmedTranscript,
-            ).map((segment) =>
+            )).map((segment) =>
               createConversationMessage(
                 'system',
                 `${segment} Use it subtly and only when it genuinely sharpens the reply.`,

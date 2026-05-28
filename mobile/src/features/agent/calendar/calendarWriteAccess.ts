@@ -1,30 +1,5 @@
-import {
-  fetchGoogleCalendarBackendStatus,
-  type GoogleCalendarBackendStatus,
-} from '@/src/features/agent/calendar/googleCalendarBackendApi';
-import { getGoogleCalendarConnection } from '@/src/features/agent/calendar/googleCalendarAuth';
-import {
-  scopesIncludeCalendarEventsWrite,
-  scopesIncludeCalendarWrite,
-} from '@/src/features/agent/calendar/googleCalendarScopes';
-import { isCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
-import { loadGoogleCalendarSession, type GoogleCalendarSession } from '@/src/features/agent/calendar/googleCalendarStorage';
-
-export function sessionHasCalendarWriteScope(session: GoogleCalendarSession | null) {
-  if (!session) {
-    return false;
-  }
-
-  return scopesIncludeCalendarWrite(session.scopes);
-}
-
-export function sessionHasCalendarEventsWriteScope(session: GoogleCalendarSession | null) {
-  if (!session) {
-    return false;
-  }
-
-  return scopesIncludeCalendarEventsWrite(session.scopes);
-}
+import { refreshCalendarAuthCapabilities } from '@/src/features/agent/calendar/calendarAuthCapabilities';
+import type { CalendarAuthCapabilities } from '@/src/features/agent/calendar/calendarAuthCapabilities';
 
 export type CalendarWriteAccessState = {
   connected: boolean;
@@ -34,55 +9,26 @@ export type CalendarWriteAccessState = {
   scopes: string[];
   connectedEmail?: string;
   source: 'backend' | 'local' | 'merged';
+  canReadCalendar: boolean;
+  canWriteCalendar: boolean;
+  inSync: boolean;
+  capabilities: CalendarAuthCapabilities;
 };
 
-function mergeAccessState(
-  backend: GoogleCalendarBackendStatus | null,
-  localConnected: boolean,
-  localWrite: boolean,
-  localSession: GoogleCalendarSession | null,
-): CalendarWriteAccessState {
-  const connected = Boolean(backend?.connected || localConnected);
-  const backendScopes = backend?.scopes ?? localSession?.scopes ?? [];
-  const hasCalendarEventsScope =
-    Boolean(backend?.hasCalendarEventsScope) ||
-    scopesIncludeCalendarEventsWrite(backendScopes) ||
-    sessionHasCalendarEventsWriteScope(localSession);
-  const hasWriteAccess = Boolean(backend?.hasWriteAccess || localWrite);
-  const writeEnabled = Boolean(backend?.writeEnabled ?? hasCalendarEventsScope);
+export async function resolveCalendarWriteAccessState(): Promise<CalendarWriteAccessState> {
+  const capabilities = await refreshCalendarAuthCapabilities({ force: true, heal: true });
 
   return {
-    connected,
-    hasWriteAccess,
-    writeEnabled,
-    hasCalendarEventsScope,
-    scopes: backendScopes,
-    connectedEmail: backend?.connectedEmail,
-    source: backend ? 'merged' : localConnected ? 'local' : 'backend',
+    connected: capabilities.canReadCalendar,
+    hasWriteAccess: capabilities.canWriteCalendar,
+    writeEnabled: capabilities.canWriteCalendar,
+    hasCalendarEventsScope: capabilities.canWriteCalendar,
+    scopes: capabilities.scopes,
+    connectedEmail: capabilities.connectedEmail,
+    source: capabilities.backendStatus ? 'backend' : capabilities.localConnected ? 'local' : 'merged',
+    canReadCalendar: capabilities.canReadCalendar,
+    canWriteCalendar: capabilities.canWriteCalendar,
+    inSync: capabilities.inSync,
+    capabilities,
   };
-}
-
-export async function resolveCalendarWriteAccessState(): Promise<CalendarWriteAccessState> {
-  const [backendStatus, localConnection, localSession] = await Promise.all([
-    fetchGoogleCalendarBackendStatus().catch(() => null),
-    getGoogleCalendarConnection(),
-    loadGoogleCalendarSession(),
-  ]);
-
-  const localConnected = localConnection.status === 'connected';
-  const localWrite = sessionHasCalendarWriteScope(localSession);
-
-  const merged = mergeAccessState(backendStatus, localConnected, localWrite, localSession);
-
-  if (isCalendarWriteAvailableInSession() && merged.connected) {
-    return {
-      ...merged,
-      hasWriteAccess: true,
-      writeEnabled: true,
-      hasCalendarEventsScope: true,
-      source: 'merged',
-    };
-  }
-
-  return merged;
 }
