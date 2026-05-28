@@ -1,6 +1,6 @@
 export type ChatRole = 'system' | 'assistant' | 'user' | 'tool';
 
-export type ChatMessageStatus = 'sending' | 'sent' | 'delivered' | 'read';
+export type ChatMessageStatus = 'sending' | 'streaming' | 'sent' | 'delivered' | 'read';
 
 export type ChatMessage = {
   id: string;

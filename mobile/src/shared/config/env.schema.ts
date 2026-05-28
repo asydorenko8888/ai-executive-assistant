@@ -3,11 +3,13 @@ import { z } from 'zod';
 const defaultAppEnv = {
   APP_ENV: 'development',
   EXPO_PUBLIC_APP_NAME: 'AI Executive Assistant',
-  EXPO_PUBLIC_API_BASE_URL: 'https://api.example.com',
-  EXPO_PUBLIC_OPENAI_BASE_URL: 'https://api.openai.com/v1',
-  EXPO_PUBLIC_OPENAI_API_KEY: '',
+  EXPO_PUBLIC_API_BASE_URL: 'http://localhost:3001/api',
   EXPO_PUBLIC_ENABLE_REALTIME: false,
   EXPO_PUBLIC_REQUEST_TIMEOUT_MS: 10000,
+  EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID: '',
+  EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID: '',
+  EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID: '',
+  EXPO_PUBLIC_APP_API_KEY: '',
 } as const;
 
 function normalizeString(value: unknown) {
@@ -33,7 +35,13 @@ const stringFromEnv = (defaultValue: string) =>
   z.preprocess((value) => normalizeString(value), z.string().min(1).default(defaultValue));
 
 const optionalStringFromEnv = (defaultValue = '') =>
-  z.preprocess((value) => normalizeString(value), z.string().default(defaultValue));
+  z.preprocess((value) => {
+    if (typeof value !== 'string') {
+      return defaultValue;
+    }
+
+    return value.trim();
+  }, z.string().default(defaultValue));
 
 const urlFromEnv = (defaultValue: string) =>
   z.preprocess((value) => {
@@ -91,10 +99,18 @@ export const appEnvSchema = z.object({
   APP_ENV: appEnvironmentFromEnv,
   EXPO_PUBLIC_APP_NAME: stringFromEnv(defaultAppEnv.EXPO_PUBLIC_APP_NAME),
   EXPO_PUBLIC_API_BASE_URL: urlFromEnv(defaultAppEnv.EXPO_PUBLIC_API_BASE_URL),
-  EXPO_PUBLIC_OPENAI_BASE_URL: urlFromEnv(defaultAppEnv.EXPO_PUBLIC_OPENAI_BASE_URL),
-  EXPO_PUBLIC_OPENAI_API_KEY: optionalStringFromEnv(defaultAppEnv.EXPO_PUBLIC_OPENAI_API_KEY),
   EXPO_PUBLIC_ENABLE_REALTIME: booleanFromEnv,
   EXPO_PUBLIC_REQUEST_TIMEOUT_MS: numberFromEnv,
+  EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID: optionalStringFromEnv(
+    defaultAppEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID,
+  ),
+  EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID: optionalStringFromEnv(
+    defaultAppEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID,
+  ),
+  EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID: optionalStringFromEnv(
+    defaultAppEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID,
+  ),
+  EXPO_PUBLIC_APP_API_KEY: optionalStringFromEnv(defaultAppEnv.EXPO_PUBLIC_APP_API_KEY),
 });
 
 export type AppEnvSchema = z.infer<typeof appEnvSchema>;

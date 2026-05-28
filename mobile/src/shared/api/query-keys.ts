@@ -25,6 +25,15 @@ export const queryKeys = {
     root: ['chat'] as const,
     thread: (threadId: string) => ['chat', 'thread', threadId] as const,
   },
+  agent: {
+    root: ['agent'] as const,
+    homePreview: () => ['agent', 'home-preview'] as const,
+    briefing: () => ['agent', 'briefing'] as const,
+    capabilities: () => ['agent', 'capabilities'] as const,
+    reminders: () => ['agent', 'reminders'] as const,
+    tasks: () => ['agent', 'tasks'] as const,
+    preferences: () => ['agent', 'preferences'] as const,
+  },
   realtime: {
     root: ['realtime'] as const,
     channels: () => ['realtime', 'channels'] as const,

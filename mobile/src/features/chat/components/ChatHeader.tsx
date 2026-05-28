@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { GlassCard } from '@/src/components/ui/GlassCard';
 import type { ChatThread } from '@/src/entities/chat/types';
@@ -7,9 +7,10 @@ import { colors, fontSizes, fontWeights, spacing } from '@/src/theme';
 
 type ChatHeaderProps = {
   thread: ChatThread;
+  onHistoryResetRequest?: () => void;
 };
 
-export function ChatHeader({ thread }: ChatHeaderProps) {
+export function ChatHeader({ thread, onHistoryResetRequest }: ChatHeaderProps) {
   return (
     <GlassCard style={styles.container}>
       <View style={styles.identity}>
@@ -26,9 +27,13 @@ export function ChatHeader({ thread }: ChatHeaderProps) {
         </View>
       </View>
 
-      <View style={styles.metaPill}>
+      <Pressable
+        accessibilityHint="Long press to reset chat history"
+        accessibilityLabel="Chat updated time"
+        onLongPress={onHistoryResetRequest}
+        style={({ pressed }) => [styles.metaPill, pressed && styles.metaPillPressed]}>
         <Text style={styles.metaLabel}>Updated {thread.updatedAt}</Text>
-      </View>
+      </Pressable>
     </GlassCard>
   );
 }
@@ -87,6 +92,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     backgroundColor: colors.surfaceElevated,
+  },
+  metaPillPressed: {
+    opacity: 0.92,
   },
   metaLabel: {
     color: colors.textSubtle,

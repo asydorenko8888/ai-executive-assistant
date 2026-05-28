@@ -10,22 +10,23 @@ import { spacing } from '@/src/theme';
 type ChatMessageListProps = {
   messages: ChatMessage[];
   typingState: ChatTypingState;
+  isStreaming: boolean;
 };
 
-export function ChatMessageList({ messages, typingState }: ChatMessageListProps) {
+export function ChatMessageList({ messages, typingState, isStreaming }: ChatMessageListProps) {
   const flatListRef = useRef<FlatList<ChatMessage> | null>(null);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
       flatListRef.current?.scrollToEnd({
-        animated: true,
+        animated: !isStreaming,
       });
     }, 60);
 
     return () => {
       clearTimeout(timeout);
     };
-  }, [messages, typingState.isActive]);
+  }, [isStreaming, messages, typingState.isActive]);
 
   return (
     <FlatList
@@ -35,6 +36,11 @@ export function ChatMessageList({ messages, typingState }: ChatMessageListProps)
       renderItem={({ item }) => <ChatMessageBubble message={item} />}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
+      onContentSizeChange={() => {
+        flatListRef.current?.scrollToEnd({
+          animated: !isStreaming,
+        });
+      }}
       ListFooterComponent={
         typingState.isActive ? (
           <View style={styles.typingWrap}>

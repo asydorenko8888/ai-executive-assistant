@@ -55,4 +55,9 @@ export class ApiClient {
 
 export const apiClient = new ApiClient({
   baseUrl: env.apiBaseUrl,
+  defaultHeaders: env.appApiKey
+    ? {
+        'X-App-Key': env.appApiKey,
+      }
+    : {},
 });

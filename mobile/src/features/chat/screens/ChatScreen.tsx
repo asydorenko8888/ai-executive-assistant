@@ -1,5 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -28,10 +29,35 @@ export default function ChatScreen() {
     lastUserMessage,
     errorMessage,
     clearError,
-    hasOpenAiApiKey,
+    resetChatHistory,
     isAwaitingAssistant,
+    isStreamingAssistant,
     hasDraft,
+    voiceStatusLabel,
+    voiceStatusTone,
+    voiceLanguage,
+    setVoiceLanguage: setVoiceLanguageCode,
   } = useExecutiveChat();
+
+  const handleHistoryResetRequest = () => {
+    Alert.alert(
+      'Reset chat history?',
+      'This will clear the locally saved conversation on this device and start the executive chat from the default state.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Reset',
+          style: 'destructive',
+          onPress: () => {
+            void resetChatHistory();
+          },
+        },
+      ],
+    );
+  };
 
   return (
     <ScreenContainer contentContainerStyle={styles.screen}>
@@ -40,7 +66,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         style={styles.keyboardLayer}
         behavior={Platform.select({ ios: 'padding', default: undefined })}>
-        <ChatHeader thread={thread} />
+        <ChatHeader thread={thread} onHistoryResetRequest={handleHistoryResetRequest} />
 
         <View style={styles.heroRow}>
           <View style={styles.heroCopy}>
@@ -56,23 +82,25 @@ export default function ChatScreen() {
         </View>
 
         <View style={styles.listWrap}>
-          <ChatMessageList messages={messages} typingState={typingState} />
+          <ChatMessageList
+            messages={messages}
+            typingState={typingState}
+            isStreaming={isStreamingAssistant}
+          />
         </View>
 
         {errorMessage ? (
           <ErrorState
-            title={hasOpenAiApiKey ? 'Unable to reach OpenAI' : 'OpenAI API key is missing'}
+            title="Executive AI unavailable"
             description={errorMessage}
-            actionLabel={hasOpenAiApiKey ? 'Dismiss' : undefined}
-            onActionPress={hasOpenAiApiKey ? clearError : undefined}
+            actionLabel="Dismiss"
+            onActionPress={clearError}
           />
         ) : null}
 
         <GlassCard style={styles.composerCard} contentStyle={styles.composerContent}>
           <Text style={styles.composerHint}>
-            {hasOpenAiApiKey
-              ? 'Ask for summaries, stakeholder notes, or a decision-ready briefing.'
-              : 'Add your OpenAI key in .env to enable real executive chat responses.'}
+            Ask for summaries, stakeholder notes, or a decision-ready briefing.
           </Text>
 
           <ChatInputBar
@@ -80,9 +108,15 @@ export default function ChatScreen() {
             onChangeText={setDraft}
             onSend={sendDraft}
             onVoicePress={sendVoicePrompt}
-            isSendDisabled={!hasDraft || isAwaitingAssistant || isVoiceProcessing || !hasOpenAiApiKey}
+            isSendDisabled={!hasDraft || isAwaitingAssistant || isVoiceProcessing}
             isVoiceProcessing={isVoiceProcessing}
             isSubmitting={isAwaitingAssistant}
+            voiceStatusLabel={voiceStatusLabel}
+            voiceStatusTone={voiceStatusTone}
+            voiceLanguage={voiceLanguage}
+            onVoiceLanguageChange={(code) => {
+              void setVoiceLanguageCode(code);
+            }}
           />
         </GlassCard>
       </KeyboardAvoidingView>

@@ -45,7 +45,7 @@ Explain possible risks
 Suggest the next logical step
 IMPORTANT: All summaries and explanations for the user MUST always be written in Ukrainian or Russian language.
 
-If the user writes in Ukrainian:
+If the user writes innpm Ukrainian:
 
 answer in Ukrainian.
 If the user writes in Russian:

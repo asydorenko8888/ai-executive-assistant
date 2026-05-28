@@ -4,10 +4,12 @@ type AppEnv = {
   APP_ENV: 'development' | 'staging' | 'production';
   EXPO_PUBLIC_APP_NAME: string;
   EXPO_PUBLIC_API_BASE_URL: string;
-  EXPO_PUBLIC_OPENAI_BASE_URL: string;
-  EXPO_PUBLIC_OPENAI_API_KEY: string;
   EXPO_PUBLIC_ENABLE_REALTIME: boolean;
   EXPO_PUBLIC_REQUEST_TIMEOUT_MS: number;
+  EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID: string;
+  EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID: string;
+  EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID: string;
+  EXPO_PUBLIC_APP_API_KEY: string;
 };
 
 function readAppEnv(source: Record<string, string | undefined>): AppEnv {
@@ -20,12 +22,15 @@ function readAppEnv(source: Record<string, string | undefined>): AppEnv {
         ? appEnvironment
         : 'development',
     EXPO_PUBLIC_APP_NAME: source.EXPO_PUBLIC_APP_NAME || 'AI Executive Assistant',
-    EXPO_PUBLIC_API_BASE_URL: source.EXPO_PUBLIC_API_BASE_URL || 'https://api.example.com',
-    EXPO_PUBLIC_OPENAI_BASE_URL: source.EXPO_PUBLIC_OPENAI_BASE_URL || 'https://api.openai.com/v1',
-    EXPO_PUBLIC_OPENAI_API_KEY: source.EXPO_PUBLIC_OPENAI_API_KEY?.trim() || '',
+    EXPO_PUBLIC_API_BASE_URL: source.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3001/api',
     EXPO_PUBLIC_ENABLE_REALTIME: source.EXPO_PUBLIC_ENABLE_REALTIME === 'true',
     EXPO_PUBLIC_REQUEST_TIMEOUT_MS:
       Number.isFinite(requestTimeoutValue) && requestTimeoutValue > 0 ? requestTimeoutValue : 10000,
+    EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID: source.EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID || '',
+    EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID:
+      source.EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID || '',
+    EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID: source.EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID || '',
+    EXPO_PUBLIC_APP_API_KEY: source.EXPO_PUBLIC_APP_API_KEY || '',
   };
 }
 
@@ -44,6 +49,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
+      bundleIdentifier: 'com.aiexecutiveassistant.mobile',
+      infoPlist: {
+        NSMicrophoneUsageDescription:
+          'Microphone access is used for voice commands and executive assistant conversations.',
+      },
     },
     android: {
       adaptiveIcon: {
@@ -59,6 +69,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     plugins: [
       'expo-router',
+      'expo-av',
+      'expo-secure-store',
       [
         'expo-splash-screen',
         {

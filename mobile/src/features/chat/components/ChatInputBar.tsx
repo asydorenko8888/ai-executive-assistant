@@ -7,7 +7,10 @@ import {
   View,
 } from 'react-native';
 
+import { ChatVoiceLanguageToggle } from '@/src/features/chat/components/ChatVoiceLanguageToggle';
+import { ChatVoiceStatus } from '@/src/features/chat/components/ChatVoiceStatus';
 import { ChatVoiceButton } from '@/src/features/chat/components/ChatVoiceButton';
+import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { colors, fontSizes, fontWeights, radii, spacing } from '@/src/theme';
 
 type ChatInputBarProps = {
@@ -18,6 +21,10 @@ type ChatInputBarProps = {
   isSendDisabled: boolean;
   isVoiceProcessing: boolean;
   isSubmitting: boolean;
+  voiceStatusLabel?: string | null;
+  voiceStatusTone?: 'neutral' | 'error';
+  voiceLanguage: VoiceLanguageCode;
+  onVoiceLanguageChange: (value: VoiceLanguageCode) => void;
 };
 
 export function ChatInputBar({
@@ -28,14 +35,34 @@ export function ChatInputBar({
   isSendDisabled,
   isVoiceProcessing,
   isSubmitting,
+  voiceStatusLabel,
+  voiceStatusTone = 'neutral',
+  voiceLanguage,
+  onVoiceLanguageChange,
 }: ChatInputBarProps) {
   return (
     <View style={styles.container}>
-      <ChatVoiceButton
-        onPress={onVoicePress}
-        isProcessing={isVoiceProcessing}
-        disabled={isSubmitting}
-      />
+      <View style={styles.voiceDock}>
+        <View style={styles.voiceRow}>
+          <ChatVoiceButton
+            onPress={onVoicePress}
+            isProcessing={isVoiceProcessing}
+            disabled={isSubmitting}
+          />
+          {voiceStatusLabel ? (
+            <ChatVoiceStatus
+              label={voiceStatusLabel}
+              tone={voiceStatusTone}
+              isAnimating={isVoiceProcessing}
+            />
+          ) : null}
+        </View>
+        <ChatVoiceLanguageToggle
+          value={voiceLanguage}
+          onChange={onVoiceLanguageChange}
+          disabled={isSubmitting || isVoiceProcessing}
+        />
+      </View>
 
       <View style={styles.inputShell}>
         <TextInput
@@ -79,10 +106,22 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: spacing.md,
+    gap: spacing.sm,
+  },
+  voiceDock: {
+    flexShrink: 0,
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+    paddingBottom: 2,
+  },
+  voiceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
   },
   inputShell: {
     flex: 1,
+    minWidth: 0,
     minHeight: 62,
     flexDirection: 'row',
     alignItems: 'flex-end',

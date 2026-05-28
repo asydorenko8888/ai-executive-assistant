@@ -5,6 +5,8 @@ export function getHomeDashboardContent(): {
   profile: ExecutiveProfile;
   dashboard: HomeDashboardData;
 } {
+  console.log('[Calendar Audit] getHomeDashboardContent() — static demo agenda/weather (not Google Calendar)');
+
   return {
     profile: {
       firstName: 'Andriy',

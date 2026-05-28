@@ -9,10 +9,12 @@ export const env = {
   appEnvironment: parsedEnv.APP_ENV,
   appName: parsedEnv.EXPO_PUBLIC_APP_NAME,
   apiBaseUrl: parsedEnv.EXPO_PUBLIC_API_BASE_URL.replace(/\/$/, ''),
-  openAiBaseUrl: parsedEnv.EXPO_PUBLIC_OPENAI_BASE_URL.replace(/\/$/, ''),
-  openAiApiKey: parsedEnv.EXPO_PUBLIC_OPENAI_API_KEY,
   enableRealtime: parsedEnv.EXPO_PUBLIC_ENABLE_REALTIME,
   requestTimeoutMs: parsedEnv.EXPO_PUBLIC_REQUEST_TIMEOUT_MS,
+  googleCalendarWebClientId: parsedEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID,
+  googleCalendarAndroidClientId: parsedEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID,
+  googleCalendarIosClientId: parsedEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID,
+  appApiKey: parsedEnv.EXPO_PUBLIC_APP_API_KEY,
 } as const;
 
 export type AppEnvironment = typeof env;
