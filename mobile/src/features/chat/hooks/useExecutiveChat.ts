@@ -273,7 +273,11 @@ export function useExecutiveChat() {
         enableVoiceShortcuts: false,
       });
 
-      if (turn.operationalStarted || turn.route === 'operational_local') {
+      if (
+        turn.operationalStarted ||
+        turn.route === 'operational_local' ||
+        turn.route === 'clarification_local'
+      ) {
         const operationalReply = turn.reply?.trim() || getCalendarCommandTerminalReply(turn.userTranscript) ||
           buildFailureTerminalReply(
             'CALENDAR_EXECUTION_CONTRACT',

@@ -26,7 +26,13 @@ import { detectCalendarCommandIntent, requiresCalendarCommandExecution } from '@
 import { executeCalendarCommand } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import { assertCalendarReplyMatchesTool } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { getLastCalendarCommandOutcome } from '@/src/features/agent/execution/calendarExecutionSession';
+import {
+  buildBehaviorModeSystemPrompt,
+  resolveAssistantBehavior,
+} from '@/src/features/agent/intent/assistantBehaviorRouter';
+import type { AssistantBehaviorMode } from '@/src/features/agent/intent/assistantBehaviorRouter';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import { guardAgainstRepeatedAssistantResponse, getLatestUserMessage } from '@/src/features/agent/conversation/assistantResponseGuard';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import {
@@ -43,6 +49,8 @@ import {
 export type AssistantTurnRoute =
   | 'operational_local'
   | 'factual_local'
+  | 'advisory_local'
+  | 'clarification_local'
   | 'humanized_calendar'
   | 'voice_gym_pivot'
   | 'voice_session_followup'
@@ -64,6 +72,8 @@ export type AssistantTurnResolution = {
   pendingActionId?: string;
   spokenReply?: string;
   calendarVerified?: boolean;
+  behaviorMode?: AssistantBehaviorMode;
+  selectedTool?: string;
 };
 
 export type ResolveAssistantTurnParams = {
@@ -275,15 +285,32 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const userMessage = getLatestUserMessage(params.messages);
   const userTranscript = userMessage?.content.trim() ?? '';
   const intent = classifyAssistantIntent(userTranscript);
-  const calendarCommandIntent = detectCalendarCommandIntent(userTranscript);
-  const operationalStarted = requiresCalendarCommandExecution(userTranscript);
+  const behavior = resolveAssistantBehavior({
+    transcript: userTranscript,
+    messages: params.messages,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+    intent,
+  });
+  const actionTranscript = behavior.actionTranscript;
+  const calendarCommandIntent = detectCalendarCommandIntent(actionTranscript);
+  const operationalStarted = behavior.mode === 'ACTION_MODE' || behavior.mode === 'CLARIFICATION_MODE';
   const factualGrounding = buildFactualGroundingContext({
     orchestrator: params.orchestrator,
     languageCode: params.languageCode,
     userTranscript,
   });
   const modeDefaults = resolutionDefaults(factualGrounding);
+  const behaviorPrompt = buildBehaviorModeSystemPrompt(behavior.mode);
 
+  logTurnPipeline('behavior mode', {
+    mode: behavior.mode,
+    intent: behavior.intent,
+    reason: behavior.reason,
+    selectedTool: behavior.selectedTool,
+    missingFields: behavior.missingFields,
+    actionTranscriptPreview: actionTranscript.slice(0, 120),
+  });
   logTurnPipeline('latest user message', {
     id: userMessage?.id ?? null,
     preview: userTranscript.slice(0, 120),
@@ -308,14 +335,74 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const calendarAuth = await refreshCalendarAuthCapabilities({ heal: true });
   const calendarConnected = calendarAuth.canReadCalendar;
 
-  if (operationalStarted) {
+  if (behavior.mode === 'CLARIFICATION_MODE' && behavior.clarificationReply) {
+    logTurnPipeline('route selected', {
+      route: 'clarification_local',
+      behaviorMode: behavior.mode,
+      missingFields: behavior.missingFields,
+      blockLlm: true,
+    });
+
+    return {
+      route: 'clarification_local',
+      intent,
+      reply: behavior.clarificationReply,
+      intentPrompt: behaviorPrompt,
+      userTranscript,
+      latestUserMessageId: userMessage?.id ?? null,
+      executionState: 'tool_call',
+      operationalStarted: true,
+      spokenReply: behavior.clarificationReply,
+      calendarVerified: false,
+      responseMode: 'operational',
+      factualGroundingStatus: factualGrounding.snapshot.status,
+      behaviorMode: behavior.mode,
+      selectedTool: behavior.selectedTool,
+    };
+  }
+
+  if (behavior.mode === 'ACTION_MODE' && behavior.selectedTool === 'create_reminder') {
+    const reminderResult = await processVoiceReminderTranscript({
+      transcript: actionTranscript,
+      languageCode: params.languageCode,
+    });
+
+    if (reminderResult) {
+      logTurnPipeline('route selected', {
+        route: 'operational_local',
+        behaviorMode: behavior.mode,
+        selectedTool: 'create_reminder',
+        blockLlm: true,
+      });
+
+      return {
+        route: 'operational_local',
+        intent,
+        reply: reminderResult.confirmation,
+        intentPrompt: behaviorPrompt,
+        userTranscript,
+        latestUserMessageId: userMessage?.id ?? null,
+        executionState: 'tool_success',
+        operationalStarted: true,
+        spokenReply: reminderResult.confirmation,
+        calendarVerified: false,
+        responseMode: 'operational',
+        factualGroundingStatus: factualGrounding.snapshot.status,
+        behaviorMode: behavior.mode,
+        selectedTool: behavior.selectedTool,
+      };
+    }
+  }
+
+  if (behavior.mode === 'ACTION_MODE' && requiresCalendarCommandExecution(actionTranscript)) {
     logTurnPipeline('calendar command executor — tool-first', {
+      behaviorMode: behavior.mode,
       intent: calendarCommandIntent,
-      transcriptPreview: userTranscript.slice(0, 120),
+      transcriptPreview: actionTranscript.slice(0, 120),
     });
 
     const commandResult = await executeCalendarCommand({
-      transcript: userTranscript,
+      transcript: actionTranscript,
       languageCode: params.languageCode,
       calendarConnected,
       referenceNow: params.referenceNow,
@@ -323,15 +410,16 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
 
     const lastOutcome = getLastCalendarCommandOutcome();
     const calendarReply = assertCalendarReplyMatchesTool({
-      userTranscript,
+      userTranscript: actionTranscript,
       candidateReply: commandResult.reply,
       terminalReply: commandResult.reply,
       tool: lastOutcome?.tool ?? null,
-      intent: calendarCommandIntent,
+      intent: calendarCommandIntent === 'none' ? 'create_calendar_event' : calendarCommandIntent,
     });
 
     logTurnPipeline('route selected', {
       route: 'operational_local',
+      behaviorMode: behavior.mode,
       intent: calendarCommandIntent,
       toolStatus: commandResult.toolStatus,
       emotionalFallback: false,
@@ -343,7 +431,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       route: 'operational_local',
       intent,
       reply: calendarReply,
-      intentPrompt: null,
+      intentPrompt: behaviorPrompt,
       userTranscript,
       latestUserMessageId: userMessage?.id ?? null,
       executionState: commandResult.executionState,
@@ -353,58 +441,125 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       calendarVerified: commandResult.verified,
       responseMode: 'operational',
       factualGroundingStatus: factualGrounding.snapshot.status,
+      behaviorMode: behavior.mode,
+      selectedTool: behavior.selectedTool,
     };
   }
 
-  if (isTemporalFactualQuery(userTranscript)) {
-    const factualReply = tryBuildFactualTimeReply({
+  if (behavior.mode === 'ADVISORY_MODE') {
+    if (isTemporalFactualQuery(userTranscript)) {
+      const factualReply = tryBuildFactualTimeReply({
+        transcript: userTranscript,
+        snapshot: factualGrounding.snapshot,
+        languageCode: params.languageCode,
+      });
+
+      if (factualReply) {
+        logTurnPipeline('route selected', {
+          route: 'advisory_local',
+          behaviorMode: behavior.mode,
+          emotionalFallback: false,
+          responseMode: 'factual',
+        });
+
+        return {
+          route: 'advisory_local',
+          intent,
+          reply: guardAgainstRepeatedAssistantResponse({
+            messages: params.messages,
+            candidateReply: factualReply,
+            languageCode: params.languageCode,
+            calendarConnected,
+            referenceNow: params.referenceNow,
+          }),
+          intentPrompt: [behaviorPrompt, buildIntentPrioritySystemPrompt(intent)].filter(Boolean).join(' '),
+          userTranscript,
+          latestUserMessageId: userMessage?.id ?? null,
+          executionState: 'conversational',
+          operationalStarted: false,
+          responseMode: 'factual',
+          factualGroundingStatus: factualGrounding.snapshot.status,
+          behaviorMode: behavior.mode,
+          selectedTool: 'none',
+        };
+      }
+    }
+
+    const sessionContext = buildVoiceSessionContext(
+      buildVoiceSessionMemoryFromMessages(params.messages),
+    );
+    const humanizedReply = tryBuildHumanizedCalendarReply({
       transcript: userTranscript,
-      snapshot: factualGrounding.snapshot,
+      visibleEvents: calendarEvents,
       languageCode: params.languageCode,
+      referenceNow: params.referenceNow,
+      sessionContext,
     });
 
-    if (factualReply) {
+    if (humanizedReply) {
       logTurnPipeline('route selected', {
-        route: 'factual_local',
+        route: 'advisory_local',
+        behaviorMode: behavior.mode,
         emotionalFallback: false,
-        executionState: 'conversational',
-        responseMode: 'factual',
       });
 
       return {
-        route: 'factual_local',
+        route: 'advisory_local',
         intent,
         reply: guardAgainstRepeatedAssistantResponse({
           messages: params.messages,
-          candidateReply: factualReply,
+          candidateReply: humanizedReply.responseText,
           languageCode: params.languageCode,
           calendarConnected,
           referenceNow: params.referenceNow,
         }),
-        intentPrompt: buildIntentPrioritySystemPrompt(intent),
+        intentPrompt: [behaviorPrompt, buildIntentPrioritySystemPrompt(intent)].filter(Boolean).join(' '),
         userTranscript,
         latestUserMessageId: userMessage?.id ?? null,
         executionState: 'conversational',
         operationalStarted: false,
         responseMode: 'factual',
         factualGroundingStatus: factualGrounding.snapshot.status,
+        behaviorMode: behavior.mode,
+        selectedTool: 'none',
       };
     }
+
+    logTurnPipeline('route selected', {
+      route: 'llm',
+      behaviorMode: behavior.mode,
+      plannerExecution: 'streamExecutiveChatMessage',
+      blockCalendarMutation: true,
+    });
+
+    return {
+      route: 'llm',
+      intent,
+      reply: null,
+      intentPrompt: [behaviorPrompt, buildIntentPrioritySystemPrompt(intent)].filter(Boolean).join(' '),
+      userTranscript,
+      latestUserMessageId: userMessage?.id ?? null,
+      executionState: 'conversational',
+      operationalStarted: false,
+      responseMode: 'factual',
+      factualGroundingStatus: factualGrounding.snapshot.status,
+      behaviorMode: behavior.mode,
+      selectedTool: 'none',
+    };
   }
 
-  if (intent.shouldBypassEmotionalRouting || operationalStarted) {
+  if (behavior.mode === 'ACTION_MODE') {
     const locale = params.languageCode === 'ru-RU' ? 'ru' : params.languageCode === 'uk-UA' ? 'uk' : 'en';
     const terminalReply =
       locale === 'ru'
-        ? 'Не удалось подтвердить выполнение. Повторную попытку не запускаю.'
+        ? 'FAILURE: ACTION_MODE: не удалось выполнить запрошенное действие.'
         : locale === 'uk'
-          ? 'Не вдалося підтвердити виконання. Повторну спробу не запускаю.'
-          : 'I could not confirm execution. I am not starting another attempt.';
+          ? 'FAILURE: ACTION_MODE: не вдалося виконати запитану дію.'
+          : 'FAILURE: ACTION_MODE: could not execute the requested action.';
 
     logTurnPipeline('route selected', {
       route: 'operational_local',
-      plannerExecution: 'terminal_no_llm_operational',
-      emotionalFallback: false,
+      behaviorMode: behavior.mode,
       blockLlm: true,
     });
 
@@ -413,12 +568,37 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       intent,
       reply: terminalReply,
       spokenReply: terminalReply,
-      intentPrompt: buildIntentPrioritySystemPrompt(intent),
+      intentPrompt: behaviorPrompt,
       userTranscript,
       latestUserMessageId: userMessage?.id ?? null,
       executionState: 'tool_failure',
       operationalStarted: true,
+      responseMode: 'operational',
+      factualGroundingStatus: factualGrounding.snapshot.status,
+      behaviorMode: behavior.mode,
+      selectedTool: behavior.selectedTool,
+    };
+  }
+
+  if (behavior.mode !== 'COMPANION_MODE') {
+    logTurnPipeline('route selected', {
+      route: 'llm',
+      behaviorMode: behavior.mode,
+      plannerExecution: 'streamExecutiveChatMessage',
+    });
+
+    return {
+      route: 'llm',
+      intent,
+      reply: null,
+      intentPrompt: [behaviorPrompt, buildIntentPrioritySystemPrompt(intent)].filter(Boolean).join(' '),
+      userTranscript,
+      latestUserMessageId: userMessage?.id ?? null,
+      executionState: 'conversational',
+      operationalStarted: false,
       ...modeDefaults,
+      behaviorMode: behavior.mode,
+      selectedTool: behavior.selectedTool,
     };
   }
 
@@ -445,6 +625,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   }
 
   logTurnPipeline('emotional fallback eligible', {
+    behaviorMode: behavior.mode,
     emotionalFallback: true,
     actionConfidence: intent.actionConfidence,
     conversationalConfidence: intent.conversationalConfidence,
@@ -463,11 +644,16 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   );
 
   if (emotionalRoute) {
-    return emotionalRoute;
+    return {
+      ...emotionalRoute,
+      behaviorMode: behavior.mode,
+      intentPrompt: [behaviorPrompt, emotionalRoute.intentPrompt].filter(Boolean).join(' '),
+    };
   }
 
   logTurnPipeline('route selected', {
     route: 'llm',
+    behaviorMode: behavior.mode,
     plannerExecution: 'streamExecutiveChatMessage',
     emotionalFallback: false,
     executionState: 'conversational',
@@ -477,11 +663,13 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     route: 'llm',
     intent,
     reply: null,
-    intentPrompt: buildIntentPrioritySystemPrompt(intent),
+    intentPrompt: [behaviorPrompt, buildIntentPrioritySystemPrompt(intent)].filter(Boolean).join(' '),
     userTranscript,
     latestUserMessageId: userMessage?.id ?? null,
     executionState: 'conversational',
     operationalStarted: false,
+    behaviorMode: behavior.mode,
+    selectedTool: behavior.selectedTool,
     ...modeDefaults,
   };
 }

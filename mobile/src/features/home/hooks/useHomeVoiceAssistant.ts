@@ -34,11 +34,9 @@ import {
 } from '@/src/features/chat/store/executiveConversationStore';
 import {
   blockLlmForCalendarMutation,
-  enforceCalendarToolReply,
   requiresCalendarToolExecution,
 } from '@/src/features/agent/calendar/calendarToolExecutionGate';
 import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
-import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import {
   isSpeechSynthesisSupported,
@@ -48,7 +46,7 @@ import {
 import { buildVoiceSessionSystemPrompt } from '@/src/features/voice/memory';
 import { buildVoiceSessionMemoryFromMessages } from '@/src/features/voice/memory/voiceSessionFromMessages';
 import { startVoiceCapture, type VoiceCaptureSession } from '@/src/features/voice/voiceCapture';
-import { queryKeys, toApiError } from '@/src/shared/api';
+import { toApiError } from '@/src/shared/api';
 
 export type HomeVoiceStatus =
   | 'idle'
@@ -226,24 +224,6 @@ export function useHomeVoiceAssistant() {
         const payloadMessages = getConversationPayloadMessages(
           useExecutiveConversationStore.getState().messages,
         );
-        if (!requiresCalendarToolExecution(trimmedTranscript)) {
-          const reminderResult = await processVoiceReminderTranscript({
-            transcript: trimmedTranscript,
-            languageCode: languageCodeRef.current,
-          });
-
-          if (reminderResult) {
-            await queryClient.invalidateQueries({
-              queryKey: queryKeys.agent.homePreview(),
-            });
-
-            const spokenReminder = formatHomeVoiceReply(reminderResult.confirmation);
-            warnIfFalseExecutionClaim(spokenReminder, 'executed');
-            const assistantMessage = finishAssistantTurn(spokenReminder);
-            playAssistantResponse(spokenReminder, assistantMessage.id);
-            return;
-          }
-        }
 
         const orchestrator = await createExecutiveAgentOrchestrator({
           locale: getChatLocaleFromVoiceLanguage(languageCodeRef.current),
@@ -340,13 +320,6 @@ export function useHomeVoiceAssistant() {
           requestAbort.touch();
 
           let candidateReply = reply;
-
-          if (requiresCalendarToolExecution(trimmedTranscript)) {
-            candidateReply = enforceCalendarToolReply({
-              userTranscript: trimmedTranscript,
-              candidateReply,
-            });
-          }
 
           const finalized = finalizeTurnReply({
             messages: getConversationPayloadMessages(
