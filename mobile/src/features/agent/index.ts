@@ -10,6 +10,8 @@ export * from './intent/operationalCalendarWriteDetection';
 export * from './intent/calendarOperationalPlanner';
 export * from './intent/operationalIntentReply';
 export * from './conversation/assistantExecutionObservability';
+export * from './factual/factualTimeGrounding';
+export * from './factual/factualTimeReply';
 export * from './conversation/assistantResponseGuard';
 export * from './conversation/assistantTurnPipeline';
 export * from './morningBriefingPipeline';

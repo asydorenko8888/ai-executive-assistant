@@ -249,7 +249,7 @@ export function useHomeVoiceAssistant() {
         });
 
         if (turn.reply) {
-          const spokenLocal = shouldFormatReplyForVoice(turn.executionState)
+          const spokenLocal = shouldFormatReplyForVoice(turn.executionState, turn.responseMode)
             ? formatHomeVoiceReply(turn.reply)
             : turn.reply;
           warnIfFalseExecutionClaim(spokenLocal, 'drafted');
@@ -305,7 +305,7 @@ export function useHomeVoiceAssistant() {
             candidateReply: reply,
           });
           const spokenReply =
-            (shouldFormatReplyForVoice(turn.executionState)
+            (shouldFormatReplyForVoice(turn.executionState, turn.responseMode)
               ? formatHomeVoiceReply(finalized)
               : finalized) || reply.trim();
 

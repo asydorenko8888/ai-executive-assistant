@@ -18,6 +18,7 @@ import {
   type AssistantTurnRoute,
 } from '@/src/features/agent/conversation/assistantTurnPipeline';
 import type { AssistantExecutionState } from '@/src/features/agent/conversation/assistantExecutionObservability';
+import type { AssistantResponseMode } from '@/src/features/agent/factual/factualTimeGrounding';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import { executiveChatThread } from '@/src/features/chat/data/chatSeed';
 import {
@@ -58,6 +59,7 @@ type ChatMutationResult = {
   requestId: string;
   route: AssistantTurnRoute;
   executionState: AssistantExecutionState;
+  responseMode: AssistantResponseMode;
 };
 
 export function useExecutiveChat() {
@@ -255,6 +257,7 @@ export function useExecutiveChat() {
           requestId,
           route: turn.route,
           executionState: turn.executionState,
+          responseMode: turn.responseMode,
         };
       }
 
@@ -300,6 +303,7 @@ export function useExecutiveChat() {
           requestId,
           route: turn.route,
           executionState: turn.executionState,
+          responseMode: turn.responseMode,
         };
       }
 
@@ -308,6 +312,7 @@ export function useExecutiveChat() {
         requestId,
         route: turn.route,
         executionState: turn.executionState,
+        responseMode: turn.responseMode,
       };
     },
     onSuccess: async (result, variables) => {
@@ -334,7 +339,7 @@ export function useExecutiveChat() {
         assistantReply = coordinator.buildRecoveryForRequest(variables.assistantMessageId, 'empty');
       }
 
-      const displayReply = shouldFormatReplyForVoice(result.executionState)
+      const displayReply = shouldFormatReplyForVoice(result.executionState, result.responseMode)
         ? formatVoiceResponse(assistantReply, {
             maxSentences: 4,
             locale: getChatLocaleFromVoiceLanguage(voiceLanguage),

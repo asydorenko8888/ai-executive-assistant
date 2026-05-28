@@ -14,6 +14,13 @@ import {
   logAssistantIntentRouting,
   type AssistantIntentAnalysis,
 } from '@/src/features/agent/intent/assistantIntentRouter';
+import {
+  buildFactualGroundingContext,
+  type AssistantResponseMode,
+  type FactualGroundingStatus,
+  isTemporalFactualQuery,
+} from '@/src/features/agent/factual/factualTimeGrounding';
+import { tryBuildFactualTimeReply } from '@/src/features/agent/factual/factualTimeReply';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { tryBuildOperationalIntentReply } from '@/src/features/agent/intent/operationalIntentReply';
 import { guardAgainstRepeatedAssistantResponse, getLatestUserMessage } from '@/src/features/agent/conversation/assistantResponseGuard';
@@ -31,6 +38,7 @@ import {
 
 export type AssistantTurnRoute =
   | 'operational_local'
+  | 'factual_local'
   | 'humanized_calendar'
   | 'voice_gym_pivot'
   | 'voice_session_followup'
@@ -45,6 +53,8 @@ export type AssistantTurnResolution = {
   latestUserMessageId: string | null;
   executionState: AssistantExecutionState;
   operationalStarted: boolean;
+  responseMode: AssistantResponseMode;
+  factualGroundingStatus: FactualGroundingStatus;
 };
 
 export type ResolveAssistantTurnParams = {
@@ -71,7 +81,15 @@ function tryEmotionalRoute(
   calendarEvents: CalendarEvent[],
   calendarConnected: boolean,
   fromState: AssistantExecutionState,
+  responseMode: AssistantResponseMode,
 ): AssistantTurnResolution | null {
+  if (responseMode === 'factual' || responseMode === 'operational') {
+    logFallbackActivation('emotional route blocked — factual/operational mode locked', {
+      responseMode,
+    });
+    return null;
+  }
+
   if (params.enableVoiceShortcuts && userTranscript) {
     const sessionContext = buildVoiceSessionContext(
       buildVoiceSessionMemoryFromMessages(params.messages),
@@ -105,6 +123,8 @@ function tryEmotionalRoute(
         latestUserMessageId: userMessage?.id ?? null,
         executionState: 'emotional_support',
         operationalStarted: false,
+        responseMode,
+        factualGroundingStatus: 'grounded',
       };
     }
 
@@ -141,6 +161,8 @@ function tryEmotionalRoute(
         latestUserMessageId: userMessage?.id ?? null,
         executionState: 'emotional_support',
         operationalStarted: false,
+        responseMode,
+        factualGroundingStatus: 'grounded',
       };
     }
 
@@ -174,6 +196,8 @@ function tryEmotionalRoute(
         latestUserMessageId: userMessage?.id ?? null,
         executionState: 'emotional_support',
         operationalStarted: false,
+        responseMode,
+        factualGroundingStatus: 'grounded',
       };
     }
   } else if (userTranscript) {
@@ -213,6 +237,8 @@ function tryEmotionalRoute(
         latestUserMessageId: userMessage?.id ?? null,
         executionState: 'emotional_support',
         operationalStarted: false,
+        responseMode,
+        factualGroundingStatus: 'grounded',
       };
     }
   }
@@ -220,17 +246,40 @@ function tryEmotionalRoute(
   return null;
 }
 
+function resolutionDefaults(
+  factualGrounding: ReturnType<typeof buildFactualGroundingContext>,
+): Pick<AssistantTurnResolution, 'responseMode' | 'factualGroundingStatus'> {
+  return {
+    responseMode: factualGrounding.responseMode,
+    factualGroundingStatus: factualGrounding.snapshot.status,
+  };
+}
+
 export function resolveAssistantTurn(params: ResolveAssistantTurnParams): AssistantTurnResolution {
   const userMessage = getLatestUserMessage(params.messages);
   const userTranscript = userMessage?.content.trim() ?? '';
   const intent = classifyAssistantIntent(userTranscript);
   const operationalStarted = isOperationalCalendarWriteRequest(userTranscript);
+  const factualGrounding = buildFactualGroundingContext({
+    orchestrator: params.orchestrator,
+    languageCode: params.languageCode,
+    userTranscript,
+  });
+  const modeDefaults = resolutionDefaults(factualGrounding);
 
   logTurnPipeline('latest user message', {
     id: userMessage?.id ?? null,
     preview: userTranscript.slice(0, 120),
   });
   logAssistantIntentRouting(userTranscript, intent);
+  logTurnPipeline('factual grounding', {
+    responseMode: factualGrounding.responseMode,
+    temporalQueryLocked: factualGrounding.temporalQueryLocked,
+    factualGroundingStatus: factualGrounding.snapshot.status,
+    timeSource: factualGrounding.snapshot.source,
+    timezone: factualGrounding.snapshot.timezone,
+    dayOfWeek: factualGrounding.snapshot.dayOfWeekEn,
+  });
 
   const calendarEvents = getAssistantVisibleCalendarEvents(
     params.orchestrator.snapshot,
@@ -271,7 +320,44 @@ export function resolveAssistantTurn(params: ResolveAssistantTurnParams): Assist
       latestUserMessageId: userMessage?.id ?? null,
       executionState: operationalResult.executionState,
       operationalStarted: true,
+      ...modeDefaults,
     };
+  }
+
+  if (isTemporalFactualQuery(userTranscript)) {
+    const factualReply = tryBuildFactualTimeReply({
+      transcript: userTranscript,
+      snapshot: factualGrounding.snapshot,
+      languageCode: params.languageCode,
+    });
+
+    if (factualReply) {
+      logTurnPipeline('route selected', {
+        route: 'factual_local',
+        emotionalFallback: false,
+        executionState: 'conversational',
+        responseMode: 'factual',
+      });
+
+      return {
+        route: 'factual_local',
+        intent,
+        reply: guardAgainstRepeatedAssistantResponse({
+          messages: params.messages,
+          candidateReply: factualReply,
+          languageCode: params.languageCode,
+          calendarConnected,
+          referenceNow: params.referenceNow,
+        }),
+        intentPrompt: buildIntentPrioritySystemPrompt(intent),
+        userTranscript,
+        latestUserMessageId: userMessage?.id ?? null,
+        executionState: 'conversational',
+        operationalStarted: false,
+        responseMode: 'factual',
+        factualGroundingStatus: factualGrounding.snapshot.status,
+      };
+    }
   }
 
   if (intent.shouldBypassEmotionalRouting || operationalStarted) {
@@ -292,6 +378,29 @@ export function resolveAssistantTurn(params: ResolveAssistantTurnParams): Assist
       latestUserMessageId: userMessage?.id ?? null,
       executionState: 'planning',
       operationalStarted: true,
+      ...modeDefaults,
+    };
+  }
+
+  if (factualGrounding.responseMode === 'factual') {
+    logTurnPipeline('route selected', {
+      route: 'llm',
+      plannerExecution: 'streamExecutiveChatMessage',
+      emotionalFallback: false,
+      responseMode: 'factual',
+      factualGroundingStatus: factualGrounding.snapshot.status,
+    });
+
+    return {
+      route: 'llm',
+      intent,
+      reply: null,
+      intentPrompt: buildIntentPrioritySystemPrompt(intent),
+      userTranscript,
+      latestUserMessageId: userMessage?.id ?? null,
+      executionState: 'conversational',
+      operationalStarted: false,
+      ...modeDefaults,
     };
   }
 
@@ -310,6 +419,7 @@ export function resolveAssistantTurn(params: ResolveAssistantTurnParams): Assist
     calendarEvents,
     calendarConnected,
     'conversational',
+    factualGrounding.responseMode,
   );
 
   if (emotionalRoute) {
@@ -332,6 +442,7 @@ export function resolveAssistantTurn(params: ResolveAssistantTurnParams): Assist
     latestUserMessageId: userMessage?.id ?? null,
     executionState: 'conversational',
     operationalStarted: false,
+    ...modeDefaults,
   };
 }
 
@@ -347,6 +458,13 @@ export function finalizeTurnReply(
   });
 }
 
-export function shouldFormatReplyForVoice(executionState: AssistantExecutionState) {
+export function shouldFormatReplyForVoice(
+  executionState: AssistantExecutionState,
+  responseMode?: AssistantResponseMode,
+) {
+  if (responseMode === 'factual' || responseMode === 'operational') {
+    return false;
+  }
+
   return executionState === 'conversational' || executionState === 'emotional_support';
 }

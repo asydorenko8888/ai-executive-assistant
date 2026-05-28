@@ -3,6 +3,7 @@ import type { ChatCompletionCreateParamsNonStreaming, ChatCompletionCreateParams
 
 import { backendEnv } from '../config/env.js';
 import { capabilityHonestyPrompt } from './capabilityHonesty.js';
+import { buildServerFactualTimePromptBlock } from './factualTimeGrounding.js';
 import { executiveSystemPrompt } from './executivePrompt.js';
 import { normalizeAssistantReply } from './responsePostProcessing.js';
 import type { BackendChatMessage } from '../types/chat.js';
@@ -85,6 +86,10 @@ function mapMessages(messages: BackendChatMessage[]) {
       role: message.role,
       content: message.content,
     })),
+    {
+      role: 'system' as const,
+      content: buildServerFactualTimePromptBlock(),
+    },
     {
       role: 'system' as const,
       content: capabilityHonestyPrompt,
