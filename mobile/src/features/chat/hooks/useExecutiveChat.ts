@@ -13,6 +13,11 @@ import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/ca
 import { warnIfFalseExecutionClaim } from '@/src/features/agent/capabilityHonesty';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import { executiveChatThread } from '@/src/features/chat/data/chatSeed';
+import {
+  createAssistantRequestCoordinator,
+  getAssistantPartialContent,
+  type ActiveAssistantRequest,
+} from '@/src/features/chat/hooks/assistantRequestCoordinator';
 import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
 import {
   extractMeaningfulMemories,
@@ -20,6 +25,10 @@ import {
   prepareMemoryPromptContext,
   upsertLongTermMemories,
 } from '@/src/features/chat/memory';
+import {
+  isAbortError,
+  logAssistantConversation,
+} from '@/src/features/chat/services/assistantConversationLifecycle';
 import { streamExecutiveChatMessage } from '@/src/features/chat/services/chatProxyService';
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
@@ -33,6 +42,17 @@ import { startVoiceCapture, type VoiceCaptureSession } from '@/src/features/voic
 import { toApiError } from '@/src/shared/api';
 
 const assistantTypingLabel = 'Executive AI is structuring a recommendation';
+
+type ChatMutationVariables = {
+  nextMessages: ChatMessage[];
+  assistantMessageId: string;
+  requestId: string;
+};
+
+type ChatMutationResult = {
+  reply: string;
+  requestId: string;
+};
 
 export function useExecutiveChat() {
   const {
@@ -63,6 +83,8 @@ export function useExecutiveChat() {
   const voiceStatusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const preserveVoiceStatusOnEndRef = useRef(false);
   const draftSnapshotBeforeVoiceRef = useRef('');
+  const assistantRequestCoordinatorRef = useRef(createAssistantRequestCoordinator());
+  const chatMutationRef = useRef<ReturnType<typeof useMutation<ChatMutationResult, Error, ChatMutationVariables>> | null>(null);
 
   const clearVoiceStatus = useCallback(() => {
     if (voiceStatusTimeoutRef.current) {
@@ -106,26 +128,6 @@ export function useExecutiveChat() {
 
   useEffect(() => clearTimers, [clearTimers]);
 
-  const finalizeAssistantMessage = useCallback(
-    (assistantMessageId: string, content: string) => {
-      upsertAssistantMessage(assistantMessageId, content, 'read');
-    },
-    [upsertAssistantMessage],
-  );
-
-  const demoteStreamingMessage = useCallback(
-    (assistantMessageId: string) => {
-      const existing = useExecutiveConversationStore
-        .getState()
-        .messages.find((message) => message.id === assistantMessageId);
-
-      if (existing) {
-        upsertAssistantMessage(assistantMessageId, existing.content, 'delivered');
-      }
-    },
-    [upsertAssistantMessage],
-  );
-
   const resetStreamingState = useCallback(() => {
     hasReceivedStreamTokenRef.current = false;
     setIsStreamingAssistant(false);
@@ -134,6 +136,52 @@ export function useExecutiveChat() {
       label: assistantTypingLabel,
     });
   }, []);
+
+  const finalizeAssistantMessage = useCallback(
+    (assistantMessageId: string, content: string, terminalState: 'completed' | 'failed' | 'timeout' | 'interrupted') => {
+      logAssistantConversation('[AssistantFinalize]', 'Committing assistant message', {
+        assistantMessageId,
+        terminalState,
+        length: content.length,
+      });
+      upsertAssistantMessage(assistantMessageId, content, 'read');
+    },
+    [upsertAssistantMessage],
+  );
+
+  const persistConversationSafe = useCallback(async () => {
+    try {
+      await persistConversation();
+      logAssistantConversation('[AssistantPersist]', 'Conversation persisted');
+    } catch (error) {
+      console.warn('[AssistantPersist] Failed to persist conversation', error);
+    }
+  }, [persistConversation]);
+
+  const handleAssistantInactivityTimeout = useCallback(
+    (request: ActiveAssistantRequest) => {
+      if (request.finalized) {
+        return;
+      }
+
+      request.finalized = true;
+      request.terminalState = 'timeout';
+      request.abortController.abort();
+
+      const recovery = assistantRequestCoordinatorRef.current.buildRecoveryForRequest(
+        request.assistantMessageId,
+        'timeout',
+      );
+
+      finalizeAssistantMessage(request.assistantMessageId, recovery, 'timeout');
+      assistantRequestCoordinatorRef.current.finalizeRequest(request.requestId);
+      assistantRequestCoordinatorRef.current.clear(request.requestId);
+      resetStreamingState();
+      chatMutationRef.current?.reset();
+      void persistConversationSafe();
+    },
+    [finalizeAssistantMessage, persistConversationSafe, resetStreamingState],
+  );
 
   const syncLongTermMemory = useCallback(async (conversationMessages: ChatMessage[]) => {
     const existingMemories = await loadLongTermMemories();
@@ -173,19 +221,18 @@ export function useExecutiveChat() {
     [voiceLanguage],
   );
 
-  const chatMutation = useMutation({
-    mutationFn: async ({
-      nextMessages,
-      assistantMessageId,
-    }: {
-      nextMessages: ChatMessage[];
-      assistantMessageId: string;
-    }) => {
+  const chatMutation = useMutation<ChatMutationResult, Error, ChatMutationVariables>({
+    mutationFn: async ({ nextMessages, assistantMessageId, requestId }) => {
+      const coordinator = assistantRequestCoordinatorRef.current;
+      coordinator.touch(requestId);
+
       const latestUserMessage = [...nextMessages].reverse().find((message) => message.role === 'user');
       const orchestrator = await createExecutiveAgentOrchestrator({
         locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
         chatMessages: nextMessages,
       });
+      coordinator.touch(requestId);
+
       const referenceNow = new Date(orchestrator.context.now);
       const calendarEvents = getAssistantVisibleCalendarEvents(orchestrator.snapshot, referenceNow);
 
@@ -204,20 +251,31 @@ export function useExecutiveChat() {
         });
 
         if (humanizedReply) {
-          return humanizedReply.responseText;
+          coordinator.touch(requestId);
+          return {
+            reply: humanizedReply.responseText,
+            requestId,
+          };
         }
       }
 
       const memoryContext = await prepareMemoryPromptContext(nextMessages);
+      coordinator.touch(requestId);
+
       const agentSystemMessages = buildAgentSystemMessages(
         orchestrator,
         latestUserMessage?.content.trim(),
       );
+      const activeRequest = coordinator.getActive();
+      const signal = activeRequest?.abortController.signal;
 
-      return streamExecutiveChatMessage({
+      const reply = await streamExecutiveChatMessage({
         messages: nextMessages,
         systemMessages: [...memoryContext.systemMessages, ...agentSystemMessages],
+        signal,
+        requestId,
         onToken: (token) => {
+          coordinator.touch(requestId);
           hasReceivedStreamTokenRef.current = true;
           setTypingState({
             isActive: false,
@@ -227,33 +285,97 @@ export function useExecutiveChat() {
           appendAssistantToken(assistantMessageId, token);
         },
       });
+
+      coordinator.touch(requestId);
+
+      const trimmedReply = reply.trim();
+      const partial = getAssistantPartialContent(assistantMessageId);
+
+      if (!trimmedReply && partial) {
+        return {
+          reply: partial,
+          requestId,
+        };
+      }
+
+      return {
+        reply: trimmedReply,
+        requestId,
+      };
     },
-    onSuccess: (assistantReply, variables) => {
+    onSuccess: (result, variables) => {
+      const coordinator = assistantRequestCoordinatorRef.current;
+
+      if (!coordinator.isCurrentRequest(result.requestId)) {
+        return;
+      }
+
+      const active = coordinator.getActive();
+
+      if (!active || active.finalized) {
+        return;
+      }
+
+      active.terminalState = 'completed';
+      active.finalized = true;
+      active.abortController.dispose();
+
+      let assistantReply = result.reply.trim();
+      const partial = getAssistantPartialContent(variables.assistantMessageId);
+
+      if (!assistantReply) {
+        assistantReply = coordinator.buildRecoveryForRequest(variables.assistantMessageId, 'empty');
+      }
+
       const displayReply = formatVoiceResponse(assistantReply, {
         maxSentences: 4,
         locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
       });
-      warnIfFalseExecutionClaim(displayReply || assistantReply, 'drafted');
-      console.log('[Voice Test] responseText', displayReply || assistantReply);
-      finalizeAssistantMessage(variables.assistantMessageId, displayReply || assistantReply);
+      const committed = displayReply || assistantReply;
+
+      warnIfFalseExecutionClaim(committed, 'drafted');
+      console.log('[Voice Test] responseText', committed);
+      finalizeAssistantMessage(variables.assistantMessageId, committed, 'completed');
+      coordinator.finalizeRequest(result.requestId);
       resetStreamingState();
-      void persistConversation();
+      void persistConversationSafe();
       void syncLongTermMemory([
         ...variables.nextMessages,
-        createConversationMessage('assistant', assistantReply),
+        createConversationMessage('assistant', committed),
       ]);
     },
     onError: (error, variables) => {
-      const apiError = toApiError(error);
+      const coordinator = assistantRequestCoordinatorRef.current;
+      const active = coordinator.getActive();
 
-      if (hasReceivedStreamTokenRef.current) {
-        demoteStreamingMessage(variables.assistantMessageId);
+      if (!active || active.requestId !== variables.requestId || active.finalized) {
+        return;
       }
 
+      if (isAbortError(error)) {
+        return;
+      }
+
+      active.terminalState = 'failed';
+      active.finalized = true;
+      active.abortController.dispose();
+
+      const recovery = coordinator.buildRecoveryForRequest(variables.assistantMessageId, 'failed');
+      finalizeAssistantMessage(variables.assistantMessageId, recovery, 'failed');
+      coordinator.finalizeRequest(variables.requestId);
       resetStreamingState();
+
+      const apiError = toApiError(error);
       setErrorMessage(apiError.message);
+      void persistConversationSafe();
+    },
+    onSettled: (_result, _error, variables) => {
+      assistantRequestCoordinatorRef.current.clear(variables.requestId);
+      resetStreamingState();
     },
   });
+
+  chatMutationRef.current = chatMutation;
 
   const messageCount = messages.length;
   const lastMessageSignature =
@@ -266,19 +388,18 @@ export function useExecutiveChat() {
       return;
     }
 
-    if (chatMutation.isPending || isStreamingAssistant || typingState.isActive) {
+    if (chatMutation.isPending || isStreamingAssistant) {
       return;
     }
 
-    void persistConversation();
+    void persistConversationSafe();
   }, [
     chatMutation.isPending,
     isHistoryHydrated,
     isStreamingAssistant,
     lastMessageSignature,
     messageCount,
-    persistConversation,
-    typingState.isActive,
+    persistConversationSafe,
   ]);
 
   useEffect(() => {
@@ -290,36 +411,52 @@ export function useExecutiveChat() {
     void syncLongTermMemory(messages);
   }, [isHistoryHydrated, messages, syncLongTermMemory]);
 
-  const submitUserMessage = useCallback((content: string) => {
-    const trimmedMessage = content.trim();
+  const submitUserMessage = useCallback(
+    (content: string) => {
+      const trimmedMessage = content.trim();
 
-    if (!trimmedMessage) {
-      return;
-    }
+      if (!trimmedMessage) {
+        return;
+      }
 
-    if (chatMutation.isPending || isStreamingAssistant) {
-      return;
-    }
+      clearTimers();
+      setErrorMessage(null);
 
-    clearTimers();
-    setErrorMessage(null);
+      appendUserMessage(trimmedMessage);
+      const nextMessages = [...useExecutiveConversationStore.getState().messages];
+      const assistantMessageId = `assistant-stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const request = assistantRequestCoordinatorRef.current.begin(
+        assistantMessageId,
+        handleAssistantInactivityTimeout,
+      );
 
-    appendUserMessage(trimmedMessage);
-    const nextMessages = [...useExecutiveConversationStore.getState().messages];
-    const assistantMessageId = `assistant-stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      hasReceivedStreamTokenRef.current = false;
+      void persistConversationSafe();
+      setTypingState({
+        isActive: true,
+        label: assistantTypingLabel,
+      });
+      setIsStreamingAssistant(false);
 
-    hasReceivedStreamTokenRef.current = false;
-    void persistConversation();
-    setTypingState({
-      isActive: true,
-      label: assistantTypingLabel,
-    });
-    setIsStreamingAssistant(false);
-    chatMutation.mutate({
-      nextMessages,
-      assistantMessageId,
-    });
-  }, [appendUserMessage, chatMutation, clearTimers, isStreamingAssistant, persistConversation]);
+      logAssistantConversation('[Conversation]', 'User message submitted', {
+        requestId: request.requestId,
+        assistantMessageId,
+      });
+
+      chatMutation.mutate({
+        nextMessages,
+        assistantMessageId,
+        requestId: request.requestId,
+      });
+    },
+    [
+      appendUserMessage,
+      chatMutation,
+      clearTimers,
+      handleAssistantInactivityTimeout,
+      persistConversationSafe,
+    ],
+  );
 
   const sendDraft = useCallback(() => {
     const nextDraft = draft.trim();
@@ -338,7 +475,7 @@ export function useExecutiveChat() {
       return;
     }
 
-    if (chatMutation.isPending || isStreamingAssistant) {
+    if (chatMutation.isPending) {
       return;
     }
 
@@ -414,7 +551,6 @@ export function useExecutiveChat() {
     clearTimers,
     clearVoiceStatus,
     draft,
-    isStreamingAssistant,
     isVoiceProcessing,
     recognitionLocale,
     setTemporaryVoiceStatus,
@@ -436,6 +572,15 @@ export function useExecutiveChat() {
   }, [messages]);
 
   const resetChatHistory = useCallback(async () => {
+    const active = assistantRequestCoordinatorRef.current.getActive();
+
+    if (active && !active.finalized) {
+      active.terminalState = 'interrupted';
+      active.finalized = true;
+      active.abortController.abort();
+      active.abortController.dispose();
+    }
+
     clearTimers();
     chatMutation.reset();
     resetStreamingState();

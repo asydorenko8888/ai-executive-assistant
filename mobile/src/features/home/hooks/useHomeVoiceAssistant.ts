@@ -13,6 +13,12 @@ import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar
 import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
 import { prepareMemoryPromptContext } from '@/src/features/chat/memory';
+import {
+  buildAssistantRecoveryMessage,
+  createAssistantRequestAbortController,
+  isAbortError,
+  logAssistantConversation,
+} from '@/src/features/chat/services/assistantConversationLifecycle';
 import { sendExecutiveChatMessage } from '@/src/features/chat/services/chatProxyService';
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
@@ -290,31 +296,64 @@ export function useHomeVoiceAssistant() {
           return;
         }
 
-        const memoryContext = await prepareMemoryPromptContext(payloadMessages);
-        const voiceSessionPrompt = buildVoiceSessionSystemPrompt(voiceSession);
-        const systemMessages = [
-          ...memoryContext.systemMessages,
-          ...(voiceSessionPrompt
-            ? [createConversationMessage('system', voiceSessionPrompt)]
-            : []),
-          ...buildAgentSystemContextSegments(
-            orchestrator,
-            languageCodeRef.current,
-            trimmedTranscript,
-          ).map((segment) =>
-            createConversationMessage(
-              'system',
-              `${segment} Use it subtly and only when it genuinely sharpens the reply.`,
-            ),
-          ),
-        ];
-        const reply = await sendExecutiveChatMessage(payloadMessages, systemMessages);
+        const requestAbort = createAssistantRequestAbortController();
 
-        const spokenReply = formatHomeVoiceReply(reply);
-        warnIfFalseExecutionClaim(spokenReply, 'drafted');
-        const assistantMessage = finishAssistantTurn(spokenReply);
-        playAssistantResponse(spokenReply, assistantMessage.id);
+        try {
+          requestAbort.touch();
+          const memoryContext = await prepareMemoryPromptContext(payloadMessages);
+          requestAbort.touch();
+          const voiceSessionPrompt = buildVoiceSessionSystemPrompt(voiceSession);
+          const systemMessages = [
+            ...memoryContext.systemMessages,
+            ...(voiceSessionPrompt
+              ? [createConversationMessage('system', voiceSessionPrompt)]
+              : []),
+            ...buildAgentSystemContextSegments(
+              orchestrator,
+              languageCodeRef.current,
+              trimmedTranscript,
+            ).map((segment) =>
+              createConversationMessage(
+                'system',
+                `${segment} Use it subtly and only when it genuinely sharpens the reply.`,
+              ),
+            ),
+          ];
+          requestAbort.touch();
+
+          logAssistantConversation('[Conversation]', 'Voice LLM request started');
+          const reply = await sendExecutiveChatMessage(payloadMessages, systemMessages, {
+            signal: requestAbort.signal,
+          });
+          requestAbort.touch();
+
+          const spokenReply = formatHomeVoiceReply(reply) || reply.trim();
+
+          if (!spokenReply) {
+            const recovery = buildAssistantRecoveryMessage(null, 'empty');
+            const assistantMessage = finishAssistantTurn(recovery);
+            playAssistantResponse(recovery, assistantMessage.id);
+            return;
+          }
+
+          warnIfFalseExecutionClaim(spokenReply, 'drafted');
+          logAssistantConversation('[AssistantFinalize]', 'Voice LLM response ready', {
+            length: spokenReply.length,
+          });
+          const assistantMessage = finishAssistantTurn(spokenReply);
+          playAssistantResponse(spokenReply, assistantMessage.id);
+        } finally {
+          requestAbort.dispose();
+        }
       } catch (error) {
+        if (isAbortError(error)) {
+          const recovery = buildAssistantRecoveryMessage(null, 'timeout');
+          logAssistantConversation('[AssistantTimeout]', 'Voice LLM request timed out');
+          const assistantMessage = finishAssistantTurn(recovery);
+          playAssistantResponse(recovery, assistantMessage.id);
+          return;
+        }
+
         const apiError = toApiError(error);
         console.log('[Voice] Error', apiError.message);
         setVoiceStatus('error');

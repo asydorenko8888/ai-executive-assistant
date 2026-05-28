@@ -1,6 +1,11 @@
 import { Platform } from 'react-native';
 
 import type { ChatMessage } from '@/src/entities/chat/types';
+import {
+  fetchWithAbort,
+  isAbortError,
+  logAssistantConversation,
+} from '@/src/features/chat/services/assistantConversationLifecycle';
 import { ApiError, createApiErrorFromResponse, toApiError } from '@/src/shared/api';
 import { getAppApiKeyHeaders } from '@/src/shared/api/authHeaders';
 import { env } from '@/src/shared/config';
@@ -33,6 +38,13 @@ type StreamExecutiveChatResponseOptions = {
   messages: ChatMessage[];
   systemMessages?: ChatMessage[];
   onToken: (token: string) => void;
+  signal?: AbortSignal;
+  requestId?: string;
+};
+
+type SendExecutiveChatOptions = {
+  signal?: AbortSignal;
+  requestId?: string;
 };
 
 function getRuntimeApiBaseUrl() {
@@ -100,10 +112,12 @@ function parseSseEvent(rawEvent: string) {
 async function readStreamingResponse(
   response: Response,
   onToken: (token: string) => void,
+  signal?: AbortSignal,
 ) {
   const responseBody = response.body;
 
   if (!responseBody || typeof responseBody.getReader !== 'function') {
+    logAssistantConversation('[AssistantStream]', 'ReadableStream not available — non-stream fallback');
     return null;
   }
 
@@ -113,6 +127,11 @@ async function readStreamingResponse(
   let aggregatedContent = '';
 
   while (true) {
+    if (signal?.aborted) {
+      logAssistantConversation('[AssistantStream]', 'Stream read aborted');
+      throw Object.assign(new Error('The assistant stream was aborted.'), { name: 'AbortError' });
+    }
+
     const { done, value } = await reader.read();
 
     if (done) {
@@ -134,6 +153,7 @@ async function readStreamingResponse(
       }
 
       if (parsedEvent === '[DONE]') {
+        logAssistantConversation('[AssistantStream]', 'Received [DONE]');
         return aggregatedContent.trim();
       }
 
@@ -173,6 +193,10 @@ async function readStreamingResponse(
     }
   }
 
+  logAssistantConversation('[AssistantStream]', 'Stream body ended', {
+    length: aggregatedContent.length,
+  });
+
   return aggregatedContent.trim();
 }
 
@@ -186,15 +210,23 @@ async function parseErrorPayload(response: Response) {
   return response.text();
 }
 
-export async function sendExecutiveChatMessage(messages: ChatMessage[], systemMessages: ChatMessage[] = []) {
+export async function sendExecutiveChatMessage(
+  messages: ChatMessage[],
+  systemMessages: ChatMessage[] = [],
+  options: SendExecutiveChatOptions = {},
+) {
   const requestUrl = `${getRuntimeApiBaseUrl()}/chat`;
   const requestBody = {
     ...createBackendRequestPayload(messages, systemMessages),
     stream: false,
   };
 
+  logAssistantConversation('[AssistantStream]', 'Non-stream request started', {
+    requestId: options.requestId,
+  });
+
   try {
-    const response = await fetch(requestUrl, {
+    const response = await fetchWithAbort(requestUrl, {
       method: 'POST',
       headers: {
         Accept: 'application/json',
@@ -202,6 +234,7 @@ export async function sendExecutiveChatMessage(messages: ChatMessage[], systemMe
         ...getAppApiKeyHeaders(),
       },
       body: JSON.stringify(requestBody),
+      signal: options.signal,
     });
 
     if (!response.ok) {
@@ -231,8 +264,17 @@ export async function sendExecutiveChatMessage(messages: ChatMessage[], systemMe
       });
     }
 
+    logAssistantConversation('[AssistantFinalize]', 'Non-stream response ready', {
+      requestId: options.requestId,
+      length: assistantReply.length,
+    });
+
     return assistantReply;
   } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
     console.error('[Executive AI chat] Request error', error);
     throw toApiError(error);
   }
@@ -242,6 +284,8 @@ export async function streamExecutiveChatMessage({
   messages,
   systemMessages = [],
   onToken,
+  signal,
+  requestId,
 }: StreamExecutiveChatResponseOptions) {
   const requestUrl = `${getRuntimeApiBaseUrl()}/chat`;
   const requestBody = {
@@ -251,8 +295,10 @@ export async function streamExecutiveChatMessage({
 
   let hasReceivedToken = false;
 
+  logAssistantConversation('[AssistantStream]', 'Stream request started', { requestId });
+
   try {
-    const response = await fetch(requestUrl, {
+    const response = await fetchWithAbort(requestUrl, {
       method: 'POST',
       headers: {
         Accept: 'text/event-stream',
@@ -260,6 +306,7 @@ export async function streamExecutiveChatMessage({
         ...getAppApiKeyHeaders(),
       },
       body: JSON.stringify(requestBody),
+      signal,
     });
 
     if (!response.ok) {
@@ -273,10 +320,14 @@ export async function streamExecutiveChatMessage({
       throw createApiErrorFromResponse(response.status, errorPayload);
     }
 
-    const streamedContent = await readStreamingResponse(response, (token) => {
-      hasReceivedToken = true;
-      onToken(token);
-    });
+    const streamedContent = await readStreamingResponse(
+      response,
+      (token) => {
+        hasReceivedToken = true;
+        onToken(token);
+      },
+      signal,
+    );
 
     console.log('[Executive AI chat] Response', {
       status: response.status,
@@ -284,13 +335,38 @@ export async function streamExecutiveChatMessage({
     });
 
     if (streamedContent) {
+      logAssistantConversation('[AssistantFinalize]', 'Stream completed with content', {
+        requestId,
+        length: streamedContent.length,
+      });
       return streamedContent;
     }
 
-    return sendExecutiveChatMessage(messages, systemMessages);
+    if (hasReceivedToken) {
+      logAssistantConversation('[AssistantFinalize]', 'Stream ended without trailing payload — using partial', {
+        requestId,
+      });
+      return '';
+    }
+
+    if (signal?.aborted) {
+      throw Object.assign(new Error('The assistant stream was aborted before completion.'), {
+        name: 'AbortError',
+      });
+    }
+
+    logAssistantConversation('[AssistantStream]', 'Empty stream — falling back to non-stream');
+    return sendExecutiveChatMessage(messages, systemMessages, { signal, requestId });
   } catch (error) {
+    if (isAbortError(error)) {
+      throw error;
+    }
+
     if (!hasReceivedToken) {
-      return sendExecutiveChatMessage(messages, systemMessages);
+      logAssistantConversation('[AssistantStream]', 'Stream failed before tokens — non-stream fallback', {
+        requestId,
+      });
+      return sendExecutiveChatMessage(messages, systemMessages, { signal, requestId });
     }
 
     console.error('[Executive AI chat] Request error', error);

@@ -108,7 +108,7 @@ export default function ChatScreen() {
             onChangeText={setDraft}
             onSend={sendDraft}
             onVoicePress={sendVoicePrompt}
-            isSendDisabled={!hasDraft || isAwaitingAssistant || isVoiceProcessing}
+            isSendDisabled={!hasDraft || isVoiceProcessing}
             isVoiceProcessing={isVoiceProcessing}
             isSubmitting={isAwaitingAssistant}
             voiceStatusLabel={voiceStatusLabel}
