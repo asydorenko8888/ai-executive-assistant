@@ -1,4 +1,5 @@
 import { MAX_CALENDAR_TOOL_RETRIES, type CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
+import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
 import { logExecutionAudit } from '@/src/features/agent/execution/executionAuditLogger';
 import { recordCalendarExecutionDebug } from '@/src/features/settings/storage/calendarExecutionDebugStore';
 
@@ -6,6 +7,26 @@ let calendarOperationInProgress = false;
 let calendarRetryCount = 0;
 let lastOperationKey: string | null = null;
 let lastToolResponse: CalendarToolResponse | null = null;
+let lastCommandOutcome: {
+  intent: CalendarCommandKind;
+  tool: CalendarToolResponse;
+  terminalReply: string;
+  verified: boolean;
+} | null = null;
+
+export function getLastCalendarCommandOutcome() {
+  return lastCommandOutcome;
+}
+
+export function setLastCalendarCommandOutcome(outcome: {
+  intent: CalendarCommandKind;
+  tool: CalendarToolResponse;
+  terminalReply: string;
+  verified: boolean;
+}) {
+  lastCommandOutcome = outcome;
+  setLastCalendarToolResponse(outcome.tool);
+}
 
 function normalizeOperationKey(transcript: string) {
   return transcript.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 200);
@@ -107,4 +128,5 @@ export function resetCalendarExecutionSession() {
   calendarRetryCount = 0;
   lastOperationKey = null;
   lastToolResponse = null;
+  lastCommandOutcome = null;
 }

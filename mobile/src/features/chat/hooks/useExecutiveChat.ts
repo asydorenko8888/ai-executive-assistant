@@ -42,9 +42,9 @@ import {
   isAbortError,
   logAssistantConversation,
 } from '@/src/features/chat/services/assistantConversationLifecycle';
-import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
-import { isSoftCalendarRefusalReply } from '@/src/features/agent/execution/calendarSoftRefusalGuard';
-import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
+import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
+import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { refreshHomeBriefing } from '@/src/features/home/services/refreshHomeBriefing';
 import { streamExecutiveChatMessage } from '@/src/features/chat/services/chatProxyService';
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
@@ -271,9 +271,11 @@ export function useExecutiveChat() {
       });
 
       if (turn.operationalStarted || turn.route === 'operational_local') {
-        const operationalReply =
-          turn.reply?.trim() ||
-          'FAILURE: CALENDAR_EXECUTION_MISSING: calendar write did not produce a terminal reply.';
+        const operationalReply = turn.reply?.trim() || getCalendarCommandTerminalReply(turn.userTranscript) ||
+          buildFailureTerminalReply(
+            'CALENDAR_EXECUTION_CONTRACT',
+            'calendar command did not produce a terminal tool reply',
+          );
 
         coordinator.touch(requestId);
 
@@ -344,6 +346,25 @@ export function useExecutiveChat() {
         };
       }
 
+      if (detectCalendarCommandIntent(turn.userTranscript) !== 'none') {
+        const forced =
+          getCalendarCommandTerminalReply(turn.userTranscript) ??
+          buildFailureTerminalReply(
+            'CALENDAR_EXECUTION_CONTRACT',
+            'calendar command blocked LLM — no tool result',
+          );
+
+        return {
+          reply: forced,
+          spokenReply: forced,
+          requestId,
+          route: 'operational_local',
+          executionState: 'tool_failure',
+          responseMode: 'operational',
+          calendarVerified: false,
+        };
+      }
+
       if (turn.reply) {
         coordinator.touch(requestId);
 
@@ -360,6 +381,25 @@ export function useExecutiveChat() {
 
       const memoryContext = await prepareMemoryPromptContext(nextMessages);
       coordinator.touch(requestId);
+
+      if (detectCalendarCommandIntent(turn.userTranscript) !== 'none') {
+        const forced =
+          getCalendarCommandTerminalReply(turn.userTranscript) ??
+          buildFailureTerminalReply(
+            'CALENDAR_EXECUTION_CONTRACT',
+            'calendar command blocked LLM stream',
+          );
+
+        return {
+          reply: forced,
+          spokenReply: forced,
+          requestId,
+          route: 'operational_local',
+          executionState: 'tool_failure',
+          responseMode: 'operational',
+          calendarVerified: false,
+        };
+      }
 
       const agentSystemMessages = await buildAgentSystemMessages(orchestrator, turn.userTranscript);
       const activeRequest = coordinator.getActive();
@@ -459,22 +499,13 @@ export function useExecutiveChat() {
       const latestUserTranscript = latestUser?.content.trim() ?? '';
       let candidateReply = displayReply || assistantReply;
 
-      if (
-        result.route === 'llm' &&
-        latestUserTranscript &&
-        isOperationalCalendarWriteRequest(latestUserTranscript) &&
-        isSoftCalendarRefusalReply(candidateReply)
-      ) {
-        const calendarConnected =
-          orchestrator.snapshot.calendarConnection?.status === 'connected';
-        const recovery = await executeCalendarCreateEvent({
-          transcript: latestUserTranscript,
-          languageCode: voiceLanguage,
-          calendarConnected,
-          referenceNow,
-        });
-
-        candidateReply = recovery.reply;
+      if (detectCalendarCommandIntent(latestUserTranscript) !== 'none') {
+        candidateReply =
+          getCalendarCommandTerminalReply(latestUserTranscript) ??
+          buildFailureTerminalReply(
+            'CALENDAR_EXECUTION_CONTRACT',
+            'calendar command blocked post-LLM reply',
+          );
       }
 
       let committed = finalizeTurnReply({

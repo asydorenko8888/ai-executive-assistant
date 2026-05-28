@@ -22,8 +22,11 @@ import {
 } from '@/src/features/agent/factual/factualTimeGrounding';
 import { tryBuildFactualTimeReply } from '@/src/features/agent/factual/factualTimeReply';
 import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
+import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
+import { executeCalendarCommand } from '@/src/features/agent/calendar/calendarCommandExecutor';
+import { assertCalendarReplyMatchesTool } from '@/src/features/agent/calendar/calendarExecutionContract';
+import { getLastCalendarCommandOutcome } from '@/src/features/agent/execution/calendarExecutionSession';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
-import { tryBuildOperationalIntentReply } from '@/src/features/agent/intent/operationalIntentReply';
 import { guardAgainstRepeatedAssistantResponse, getLatestUserMessage } from '@/src/features/agent/conversation/assistantResponseGuard';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import {
@@ -272,7 +275,8 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const userMessage = getLatestUserMessage(params.messages);
   const userTranscript = userMessage?.content.trim() ?? '';
   const intent = classifyAssistantIntent(userTranscript);
-  const operationalStarted = isOperationalCalendarWriteRequest(userTranscript);
+  const calendarCommandIntent = detectCalendarCommandIntent(userTranscript);
+  const operationalStarted = calendarCommandIntent !== 'none';
   const factualGrounding = buildFactualGroundingContext({
     orchestrator: params.orchestrator,
     languageCode: params.languageCode,
@@ -304,96 +308,51 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const calendarAuth = await refreshCalendarAuthCapabilities({ heal: true });
   const calendarConnected = calendarAuth.canReadCalendar;
 
-  if (isOperationalCalendarWriteRequest(userTranscript)) {
-    logTurnPipeline('calendar operational intent — executing immediately', {
+  if (operationalStarted) {
+    logTurnPipeline('calendar command executor — tool-first', {
+      intent: calendarCommandIntent,
       transcriptPreview: userTranscript.slice(0, 120),
     });
 
-    const operationalResult = await tryBuildOperationalIntentReply({
+    const commandResult = await executeCalendarCommand({
       transcript: userTranscript,
       languageCode: params.languageCode,
       calendarConnected,
       referenceNow: params.referenceNow,
     });
 
-    if (!operationalResult?.reply) {
-      logTurnPipeline('calendar tool missing terminal reply — blocking LLM fallback', {
-        operationalStarted: true,
-      });
-    }
-
-    const calendarReply = operationalResult?.reply ?? 'I could not confirm event creation.';
-    const guarded = guardAgainstRepeatedAssistantResponse({
-      messages: params.messages,
-      candidateReply: calendarReply,
-      languageCode: params.languageCode,
-      calendarConnected,
-      referenceNow: params.referenceNow,
+    const lastOutcome = getLastCalendarCommandOutcome();
+    const calendarReply = assertCalendarReplyMatchesTool({
+      userTranscript,
+      candidateReply: commandResult.reply,
+      terminalReply: commandResult.reply,
+      tool: lastOutcome?.tool ?? null,
+      intent: calendarCommandIntent,
     });
 
     logTurnPipeline('route selected', {
       route: 'operational_local',
-      toolStatus: operationalResult?.toolStatus ?? 'FAILURE',
+      intent: calendarCommandIntent,
+      toolStatus: commandResult.toolStatus,
       emotionalFallback: false,
       blockLlm: true,
+      eventId: commandResult.eventId ?? null,
     });
 
     return {
       route: 'operational_local',
       intent,
-      reply: guarded,
-      intentPrompt: buildIntentPrioritySystemPrompt(intent),
+      reply: calendarReply,
+      intentPrompt: null,
       userTranscript,
       latestUserMessageId: userMessage?.id ?? null,
-      executionState: operationalResult?.executionState ?? 'tool_failure',
+      executionState: commandResult.executionState,
       operationalStarted: true,
-      requiresCalendarAuth: operationalResult?.requiresCalendarAuth,
-      operationalUxPhase: operationalResult?.operationalUxPhase,
-      pendingActionId: operationalResult?.pendingActionId,
-      spokenReply: operationalResult?.spokenReply,
-      calendarVerified: operationalResult?.verified,
-      ...modeDefaults,
-    };
-  }
-
-  const operationalResult = await tryBuildOperationalIntentReply({
-    transcript: userTranscript,
-    languageCode: params.languageCode,
-    calendarConnected,
-    referenceNow: params.referenceNow,
-  });
-
-  if (operationalResult) {
-    const guarded = guardAgainstRepeatedAssistantResponse({
-      messages: params.messages,
-      candidateReply: operationalResult.reply,
-      languageCode: params.languageCode,
-      calendarConnected,
-      referenceNow: params.referenceNow,
-    });
-
-    logTurnPipeline('route selected', {
-      route: 'operational_local',
-      plannerExecution: 'none',
-      emotionalFallback: false,
-      executionState: operationalResult.executionState,
-    });
-
-    return {
-      route: 'operational_local',
-      intent,
-      reply: guarded,
-      intentPrompt: buildIntentPrioritySystemPrompt(intent),
-      userTranscript,
-      latestUserMessageId: userMessage?.id ?? null,
-      executionState: operationalResult.executionState,
-      operationalStarted: true,
-      requiresCalendarAuth: operationalResult.requiresCalendarAuth,
-      operationalUxPhase: operationalResult.operationalUxPhase,
-      pendingActionId: operationalResult.pendingActionId,
-      spokenReply: operationalResult.spokenReply,
-      calendarVerified: operationalResult.verified,
-      ...modeDefaults,
+      requiresCalendarAuth: commandResult.requiresCalendarAuth,
+      spokenReply: commandResult.spokenReply,
+      calendarVerified: commandResult.verified,
+      responseMode: 'operational',
+      factualGroundingStatus: factualGrounding.snapshot.status,
     };
   }
 

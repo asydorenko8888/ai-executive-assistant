@@ -32,9 +32,9 @@ import {
   getConversationPayloadMessages,
   useExecutiveConversationStore,
 } from '@/src/features/chat/store/executiveConversationStore';
-import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
-import { isSoftCalendarRefusalReply } from '@/src/features/agent/execution/calendarSoftRefusalGuard';
-import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
+import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
+import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import {
@@ -223,7 +223,7 @@ export function useHomeVoiceAssistant() {
         const payloadMessages = getConversationPayloadMessages(
           useExecutiveConversationStore.getState().messages,
         );
-        if (!isOperationalCalendarWriteRequest(trimmedTranscript)) {
+        if (detectCalendarCommandIntent(trimmedTranscript) === 'none') {
           const reminderResult = await processVoiceReminderTranscript({
             transcript: trimmedTranscript,
             languageCode: languageCodeRef.current,
@@ -256,10 +256,7 @@ export function useHomeVoiceAssistant() {
         });
 
         if (turn.reply) {
-          const spokenLocal =
-            turn.calendarVerified || !shouldFormatReplyForVoice(turn.executionState, turn.responseMode)
-              ? turn.reply
-              : formatHomeVoiceReply(turn.reply);
+          const spokenLocal = turn.reply;
 
           warnIfFalseExecutionClaim(spokenLocal, turn.calendarVerified ? 'executed' : 'drafted');
 
@@ -269,6 +266,18 @@ export function useHomeVoiceAssistant() {
 
           const assistantMessage = finishAssistantTurn(spokenLocal);
           playAssistantResponse(spokenLocal, assistantMessage.id);
+          return;
+        }
+
+        if (detectCalendarCommandIntent(trimmedTranscript) !== 'none') {
+          const forced =
+            getCalendarCommandTerminalReply(trimmedTranscript) ??
+            buildFailureTerminalReply(
+              'CALENDAR_EXECUTION_CONTRACT',
+              'calendar command blocked LLM — no tool result',
+            );
+          const assistantMessage = finishAssistantTurn(forced);
+          playAssistantResponse(forced, assistantMessage.id);
           return;
         }
 
@@ -303,6 +312,18 @@ export function useHomeVoiceAssistant() {
           ];
           requestAbort.touch();
 
+          if (detectCalendarCommandIntent(trimmedTranscript) !== 'none') {
+            const forced =
+              getCalendarCommandTerminalReply(trimmedTranscript) ??
+              buildFailureTerminalReply(
+                'CALENDAR_EXECUTION_CONTRACT',
+                'calendar command blocked LLM',
+              );
+            const assistantMessage = finishAssistantTurn(forced);
+            playAssistantResponse(forced, assistantMessage.id);
+            return;
+          }
+
           logAssistantConversation('[Conversation]', 'Voice LLM request started');
           const reply = await sendExecutiveChatMessage(payloadMessages, systemMessages, {
             signal: requestAbort.signal,
@@ -311,20 +332,13 @@ export function useHomeVoiceAssistant() {
 
           let candidateReply = reply;
 
-          if (
-            isOperationalCalendarWriteRequest(trimmedTranscript) &&
-            isSoftCalendarRefusalReply(candidateReply)
-          ) {
-            const calendarConnected =
-              orchestrator.snapshot.calendarConnection?.status === 'connected';
-            const recovery = await executeCalendarCreateEvent({
-              transcript: trimmedTranscript,
-              languageCode: languageCodeRef.current,
-              calendarConnected,
-              referenceNow,
-            });
-
-            candidateReply = recovery.reply;
+          if (detectCalendarCommandIntent(trimmedTranscript) !== 'none') {
+            candidateReply =
+              getCalendarCommandTerminalReply(trimmedTranscript) ??
+              buildFailureTerminalReply(
+                'CALENDAR_EXECUTION_CONTRACT',
+                'calendar command blocked LLM reply',
+              );
           }
 
           const finalized = finalizeTurnReply({

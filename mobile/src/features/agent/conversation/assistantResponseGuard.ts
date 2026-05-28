@@ -4,8 +4,13 @@ import {
   logFallbackActivation,
 } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import { blockConversationalCalendarRetryLoop } from '@/src/features/agent/execution/calendarRetryPhraseGuard';
-import { isSoftCalendarRefusalReply } from '@/src/features/agent/execution/calendarSoftRefusalGuard';
-import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
+import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
+import {
+  assertCalendarReplyMatchesTool,
+  buildFailureTerminalReply,
+} from '@/src/features/agent/calendar/calendarExecutionContract';
+import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
+import { getLastCalendarCommandOutcome } from '@/src/features/agent/execution/calendarExecutionSession';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
@@ -64,22 +69,10 @@ export function blockEmotionalFallbackAfterOperational(params: {
     return params.candidateReply;
   }
 
-  logFallbackActivation('Blocked emotional empty-day fallback after operational calendar intent', {
-    latestUserMessage: latestUser.content.slice(0, 120),
-    blockedPreview: params.candidateReply.slice(0, 120),
-  });
-
-  const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
-
-  if (locale === 'uk') {
-    return 'Зрозумів календарний запит — без емоційного опису дня. Уточни час і назву зустрічі, якщо потрібно.';
-  }
-
-  if (locale === 'ru') {
-    return 'Понял календарный запрос — без эмоционального описания дня. Уточни время и название встречи, если нужно.';
-  }
-
-  return 'Understood the calendar request — skipping the emotional day summary. Share the time and title if needed.';
+  return (
+    getCalendarCommandTerminalReply(latestUser.content) ??
+    buildFailureTerminalReply('CALENDAR_EXECUTION_CONTRACT', 'missing terminal tool reply')
+  );
 }
 
 export function forceRegenerateOperationalReply(params: {
@@ -88,6 +81,13 @@ export function forceRegenerateOperationalReply(params: {
   calendarConnected: boolean;
   referenceNow: Date;
 }) {
+  if (isOperationalCalendarWriteRequest(params.transcript)) {
+    return (
+      getCalendarCommandTerminalReply(params.transcript) ??
+      buildFailureTerminalReply('CALENDAR_EXECUTION_CONTRACT', 'missing terminal tool reply')
+    );
+  }
+
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
 
   if (locale === 'uk') {
@@ -127,31 +127,26 @@ export function guardAgainstRepeatedAssistantResponse(params: {
   const latestUser = getLatestUserMessage(params.messages);
   const userTranscript = latestUser?.content.trim() ?? '';
   const isCalendarWrite = isOperationalCalendarWriteRequest(userTranscript);
-
-  let reply = isCalendarWrite
-    ? params.candidateReply
-    : blockEmotionalFallbackAfterOperational(params);
-
-  if (isCalendarWrite && isSoftCalendarRefusalReply(reply)) {
-    logCalendarDecision('reasonForRefusal', {
-      reason: 'blocked_soft_llm_refusal',
-      preview: reply.slice(0, 120),
-    });
-
-    const lastFailure =
-      'FAILURE: CALENDAR_SOFT_REFUSAL_BLOCKED: calendar write must use API, not assistant fallback.';
-
-    return lastFailure;
-  }
-
-  reply = blockConversationalCalendarRetryLoop({
-    userTranscript,
-    candidateReply: reply,
-  });
+  const calendarIntent = detectCalendarCommandIntent(userTranscript);
 
   if (isCalendarWrite) {
-    return reply;
+    const lastOutcome = getLastCalendarCommandOutcome();
+    const terminal =
+      getCalendarCommandTerminalReply(userTranscript) ??
+      buildFailureTerminalReply('CALENDAR_EXECUTION_CONTRACT', 'missing terminal tool reply');
+
+    const enforced = assertCalendarReplyMatchesTool({
+      userTranscript,
+      candidateReply: params.candidateReply,
+      terminalReply: terminal,
+      tool: lastOutcome?.tool ?? null,
+      intent: calendarIntent === 'none' ? 'create_calendar_event' : calendarIntent,
+    });
+
+    return enforced;
   }
+
+  let reply = blockEmotionalFallbackAfterOperational(params);
 
   if (isFactualOperationalReply(reply)) {
     return reply;
