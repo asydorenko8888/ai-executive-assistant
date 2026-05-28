@@ -8,6 +8,8 @@ export type FormatVoiceResponseOptions = {
   maxSentences?: number;
   urgency?: SpokenUrgency;
   locale?: VoiceLanguageChatLocale;
+  /** Keep period-separated sentences intact (for detailed time breakdowns). */
+  preserveSentences?: boolean;
 };
 
 const ROBOTIC_SPEECH_PATTERNS: RegExp[] = [
@@ -116,7 +118,11 @@ export function limitSpokenSentences(text: string, maxSentences = 2) {
   return parts.slice(0, maxSentences).join(' ');
 }
 
-function injectSpokenPauses(text: string, urgency: SpokenUrgency = 'relaxed') {
+function injectSpokenPauses(
+  text: string,
+  urgency: SpokenUrgency = 'relaxed',
+  maxSentences = 2,
+) {
   const normalized = text
     .replace(/\s*[,;—–-]\s+/g, ' ... ')
     .replace(/\s+\.\.\.\s+\.\.\./g, ' ... ')
@@ -129,7 +135,7 @@ function injectSpokenPauses(text: string, urgency: SpokenUrgency = 'relaxed') {
   }
 
   const pause = urgency === 'immediate' ? '. ' : ' ... ';
-  return sentences.slice(0, 2).join(pause);
+  return sentences.slice(0, maxSentences).join(pause);
 }
 
 function compressForListening(text: string) {
@@ -154,7 +160,9 @@ export function formatVoiceResponse(text: string, options: FormatVoiceResponseOp
 
   const sanitized = sanitizeRoboticSpeech(text);
   const limited = limitSpokenSentences(sanitized, maxSentences);
-  const paced = injectSpokenPauses(limited, urgency);
+  const paced = options.preserveSentences
+    ? limited
+    : injectSpokenPauses(limited, urgency, maxSentences);
   const compressed = compressForListening(paced);
 
   console.log('[Voice Premium] formatVoiceResponse', {
@@ -241,10 +249,32 @@ export function formatSpokenMinutesUntil(
   }
 
   if (locale === 'uk') {
+    const mod10 = safeMinutes % 10;
+    const mod100 = safeMinutes % 100;
+
+    if (mod10 === 1 && mod100 !== 11) {
+      return `${safeMinutes} хвилина`;
+    }
+
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+      return `${safeMinutes} хвилини`;
+    }
+
     return `${safeMinutes} хвилин`;
   }
 
   if (locale === 'ru') {
+    const mod10 = safeMinutes % 10;
+    const mod100 = safeMinutes % 100;
+
+    if (mod10 === 1 && mod100 !== 11) {
+      return `${safeMinutes} минута`;
+    }
+
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+      return `${safeMinutes} минуты`;
+    }
+
     return `${safeMinutes} минут`;
   }
 

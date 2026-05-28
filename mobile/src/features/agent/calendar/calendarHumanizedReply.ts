@@ -19,6 +19,12 @@ export {
 } from '@/src/features/agent/calendar/calendarSituationalReasoning';
 
 export {
+  computeLunchTimeBudget,
+  wantsDetailedLunchTimeBreakdown,
+  type LunchTimeBudget,
+} from '@/src/features/agent/calendar/calendarLunchTimeBudget';
+
+export {
   formatVoiceResponse,
   prepareTextForSpeech,
   sanitizeRoboticSpeech,

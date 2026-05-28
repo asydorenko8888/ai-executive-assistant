@@ -1,4 +1,8 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
+import {
+  computeLunchTimeBudget,
+  wantsDetailedLunchTimeBreakdown,
+} from '@/src/features/agent/calendar/calendarLunchTimeBudget';
 import { getMinutesUntilEvent } from '@/src/features/agent/calendar/calendarTime';
 import type { SpokenDayLoad, SpokenUrgency } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import { resolveSpokenDayLoad, resolveSpokenUrgency } from '@/src/features/voice/speech/voiceSpeechFormatter';
@@ -30,6 +34,9 @@ export type CalendarSituationAnalysis = {
     planChange: boolean;
     asksStillHaveTime: boolean;
     asksHowMuchTime: boolean;
+    asksExactTime: boolean;
+    asksCanHaveLunch: boolean;
+    wantsDetailedTimeBreakdown: boolean;
     uncertainty: boolean;
     userPlaceMentions: string[];
     travelBetweenPlaces: boolean;
@@ -231,7 +238,11 @@ function resolveCategory(params: {
 
   if (
     modifiers.mentionsLunch &&
-    (modifiers.asksHowMuchTime || modifiers.travelBetweenPlaces || modifiers.userPlaceMentions.length >= 2)
+    (modifiers.asksHowMuchTime ||
+      modifiers.asksExactTime ||
+      modifiers.asksCanHaveLunch ||
+      modifiers.travelBetweenPlaces ||
+      modifiers.userPlaceMentions.length >= 2)
   ) {
     return modifiers.travelBetweenPlaces ? 'travel_awareness' : 'lunch_free_time';
   }
@@ -296,7 +307,6 @@ export function analyzeCalendarSituation(params: {
   const minutesUntilNextEvent = nextEvent
     ? getMinutesUntilEvent(nextEvent.startsAt, params.referenceNow)
     : null;
-  const urgency = resolveSpokenUrgency(minutesUntilNextEvent);
   const dayLoad = resolveSpokenDayLoad(params.visibleEvents.length);
   const userPlaceMentions = extractUserPlaceMentions(transcript, params.visibleEvents);
   const explicitLunchPlace = extractLunchPlaceFromTranscript(transcript);
@@ -314,29 +324,60 @@ export function analyzeCalendarSituation(params: {
     ) ??
     userPlaceMentions[0] ??
     null;
-  const travelBetweenPlaces = Boolean(
+  let travelBetweenPlaces = Boolean(
     lunchPlace &&
       destinationEvent?.location &&
       estimateTravelMinutes(lunchPlace, destinationEvent.location) > 0,
   );
-  const estimatedTravelMinutes =
+  let estimatedTravelMinutes =
     lunchPlace && destinationEvent?.location
       ? estimateTravelMinutes(lunchPlace, destinationEvent.location)
       : 0;
+
+  if (
+    !travelBetweenPlaces &&
+    params.visibleEvents.length > 1 &&
+    nextEvent?.location &&
+    destinationEvent?.location
+  ) {
+    const inferredTravel = estimateTravelMinutes(nextEvent.location, destinationEvent.location);
+
+    if (inferredTravel > 0) {
+      travelBetweenPlaces = true;
+      estimatedTravelMinutes = inferredTravel;
+    }
+  }
+
   const minutesUntilDestination = destinationEvent
     ? getMinutesUntilEvent(destinationEvent.startsAt, params.referenceNow)
     : minutesUntilNextEvent;
+  const urgency = resolveSpokenUrgency(minutesUntilDestination);
   const effectiveFreeMinutes = resolveEffectiveFreeMinutes({
     minutesUntilDestination,
     travelMinutes: estimatedTravelMinutes,
   });
 
+  const mentionsLunch = /\b(lunch|обід|ланч|їсти|eat|пообід|пообеда)\b/i.test(transcript);
+  const asksHowMuchTime =
+    /\bhow much time\b/i.test(transcript) ||
+    /\bскільки часу\b/i.test(transcript) ||
+    /\btime (?:is )?left\b/i.test(transcript) ||
+    /\bскільки лишилось\b/i.test(transcript);
+  const asksExactTime =
+    /\b(exactly|точно|скільки саме|how much time exactly|time exactly)\b/i.test(transcript);
+  const asksCanHaveLunch =
+    /\b(can i have lunch|can i eat|could i have lunch|have time for lunch)\b/i.test(transcript) ||
+    /\b(чи можу (по)?обід|встигну пообідати|можу пообідати)\b/i.test(transcript);
+
   const modifiers = {
-    mentionsLunch: /\b(lunch|обід|ланч|їсти|eat)\b/i.test(transcript),
+    mentionsLunch,
     mentionsGym: /\b(gym|спортзал|тренування|workout)\b/i.test(transcript),
     planChange: PLAN_CHANGE_PATTERNS.some((pattern) => pattern.test(transcript)),
     asksStillHaveTime: /\b(still have time|still got time|встигну|чи в мене є час)\b/i.test(transcript),
-    asksHowMuchTime: /\bhow much time\b/i.test(transcript) || /\bскільки часу\b/i.test(transcript),
+    asksHowMuchTime,
+    asksExactTime,
+    asksCanHaveLunch,
+    wantsDetailedTimeBreakdown: false,
     uncertainty:
       UNCERTAINTY_PATTERNS.some((pattern) => pattern.test(transcript)) ||
       /\bdo i\b/i.test(transcript) ||
@@ -363,8 +404,23 @@ export function analyzeCalendarSituation(params: {
     minutesUntilNextEvent: minutesUntilDestination,
     nextEvent,
     destinationEvent,
-    modifiers,
+    modifiers: {
+      ...modifiers,
+      wantsDetailedTimeBreakdown: wantsDetailedLunchTimeBreakdown({
+        category,
+        emotionalNeed: resolveEmotionalNeed(category),
+        urgency,
+        dayLoad,
+        transcript,
+        minutesUntilNextEvent: minutesUntilDestination,
+        nextEvent,
+        destinationEvent,
+        modifiers,
+      }),
+    },
   };
+
+  const timeBudget = computeLunchTimeBudget(analysis);
 
   console.log('[Calendar Situation]', {
     category: analysis.category,
@@ -377,6 +433,8 @@ export function analyzeCalendarSituation(params: {
     destination: analysis.destinationEvent?.location ?? null,
     mentionsLunch: analysis.modifiers.mentionsLunch,
     planChange: analysis.modifiers.planChange,
+    wantsDetailedTimeBreakdown: analysis.modifiers.wantsDetailedTimeBreakdown,
+    timeBudget,
   });
 
   return analysis;
@@ -386,6 +444,15 @@ export function buildSituationContextForLlm(analysis: CalendarSituationAnalysis)
   const destination = analysis.destinationEvent?.location ?? 'unknown';
   const free = analysis.modifiers.effectiveFreeMinutes;
   const travel = analysis.modifiers.estimatedTravelMinutes;
+  const budget = computeLunchTimeBudget(analysis);
 
-  return `Situational read (${analysis.category}, emotional need: ${analysis.emotionalNeed}): user is asking in real life, not for a calendar dump. Destination meeting area: ${destination}. Estimated travel buffer: ${travel} min. Practical free window before destination: ${free ?? 'unknown'} min. Respond with life-aware guidance, not identical timing templates.`;
+  const budgetLine = budget
+    ? ` Exact minutes until meeting: ${budget.minutesUntilMeeting}. Travel reserve: ${budget.travelKnown ? 'estimated' : 'unknown — use conservative'} ${budget.travelMinutesMin}-${budget.travelMinutesMax} min plus ${budget.bufferMinutes} min buffer. Usable lunch window: ${budget.lunchMinutesMin}-${budget.lunchMinutesMax} min. Suggest leaving in ~${budget.leaveInMinutes} min. Risk: ${budget.riskLevel}.`
+    : '';
+
+  const detailHint = analysis.modifiers.wantsDetailedTimeBreakdown
+    ? ' User wants exact usable lunch time, travel buffer, leave-by guidance, and safe vs risky — not vague "you can make it".'
+    : '';
+
+  return `Situational read (${analysis.category}, emotional need: ${analysis.emotionalNeed}): user is asking in real life, not for a calendar dump. Destination meeting area: ${destination}. Estimated travel buffer: ${travel} min. Practical free window before destination: ${free ?? 'unknown'} min.${budgetLine}${detailHint} Respond with life-aware guidance, not identical timing templates.`;
 }

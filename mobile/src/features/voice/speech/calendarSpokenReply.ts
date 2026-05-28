@@ -7,6 +7,7 @@ import {
 import { getMinutesUntilEvent, parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
 import type { VoiceLanguageChatLocale, VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import { buildDetailedLunchTimeSpeech } from '@/src/features/voice/speech/calendarLunchTimeSpeech';
 import { buildSituationalSpeechDraft } from '@/src/features/voice/speech/calendarSituationalSpeech';
 import {
   formatSpokenMinutesUntil,
@@ -259,10 +260,12 @@ export function tryBuildSpokenCalendarReply(params: {
   const nextEvent = situation.nextEvent ?? params.visibleEvents[0];
   const minutesUntilNextEvent = situation.minutesUntilNextEvent;
   const responseTone = situation.urgency;
+  const detailedDraft = buildDetailedLunchTimeSpeech(situation, locale, params.referenceNow);
   const situationalDraft =
-    situation.category !== 'simple_schedule'
+    detailedDraft ??
+    (situation.category !== 'simple_schedule'
       ? buildSituationalSpeechDraft(situation, locale)
-      : null;
+      : null);
   const draft =
     situationalDraft ??
     buildSpokenScheduleDraft({
@@ -275,7 +278,8 @@ export function tryBuildSpokenCalendarReply(params: {
   const responseText = formatVoiceResponse(draft, {
     urgency: responseTone,
     locale,
-    maxSentences: 2,
+    maxSentences: detailedDraft ? 4 : 2,
+    preserveSentences: Boolean(detailedDraft),
   });
 
   const result: SpokenCalendarReplyResult = {
