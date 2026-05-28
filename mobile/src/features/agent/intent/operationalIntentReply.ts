@@ -76,11 +76,16 @@ function bundleToOperationalResult(bundle: ReturnType<typeof buildCalendarToolRe
   };
 }
 
-function buildTerminalCalendarBlockedReply(languageCode: VoiceLanguageCode): OperationalIntentResult {
+function buildTerminalCalendarBlockedReply(
+  languageCode: VoiceLanguageCode,
+  referenceNow: Date,
+): OperationalIntentResult {
   const last = getLastCalendarToolResponse();
 
   if (last) {
-    return bundleToOperationalResult(buildCalendarToolReplyFromLastResult(languageCode, last));
+    return bundleToOperationalResult(
+      buildCalendarToolReplyFromLastResult(languageCode, last, { referenceNow }),
+    );
   }
 
   const tool = createCalendarToolFailure(
@@ -88,7 +93,9 @@ function buildTerminalCalendarBlockedReply(languageCode: VoiceLanguageCode): Ope
     'Calendar operation blocked to prevent retry loop.',
   );
 
-  return bundleToOperationalResult(buildCalendarToolReplyBundle(tool, languageCode));
+  return bundleToOperationalResult(
+    buildCalendarToolReplyBundle(tool, languageCode, { referenceNow }),
+  );
 }
 
 export async function tryBuildOperationalIntentReply(
@@ -102,7 +109,7 @@ export async function tryBuildOperationalIntentReply(
     });
 
     if (shouldBlockCalendarRecreate(params.transcript)) {
-      return buildTerminalCalendarBlockedReply(params.languageCode);
+      return buildTerminalCalendarBlockedReply(params.languageCode, params.referenceNow);
     }
 
     const execution = await executeCalendarCreateEvent({

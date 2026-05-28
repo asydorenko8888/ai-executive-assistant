@@ -3,6 +3,8 @@ import { Platform } from 'react-native';
 
 import { useQueryClient } from '@tanstack/react-query';
 
+import { refreshHomeBriefing } from '@/src/features/home/services/refreshHomeBriefing';
+
 import type { ChatMessage } from '@/src/entities/chat/types';
 import {
   buildAgentSystemContextSegments,
@@ -252,10 +254,17 @@ export function useHomeVoiceAssistant() {
         });
 
         if (turn.reply) {
-          const spokenLocal = shouldFormatReplyForVoice(turn.executionState, turn.responseMode)
-            ? formatHomeVoiceReply(turn.reply)
-            : turn.reply;
-          warnIfFalseExecutionClaim(spokenLocal, 'drafted');
+          const spokenLocal =
+            turn.calendarVerified || !shouldFormatReplyForVoice(turn.executionState, turn.responseMode)
+              ? turn.reply
+              : formatHomeVoiceReply(turn.reply);
+
+          warnIfFalseExecutionClaim(spokenLocal, turn.calendarVerified ? 'executed' : 'drafted');
+
+          if (turn.calendarVerified) {
+            void refreshHomeBriefing(queryClient);
+          }
+
           const assistantMessage = finishAssistantTurn(spokenLocal);
           playAssistantResponse(spokenLocal, assistantMessage.id);
           return;

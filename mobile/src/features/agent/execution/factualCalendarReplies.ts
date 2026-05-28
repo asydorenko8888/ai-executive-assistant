@@ -1,13 +1,36 @@
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
+import { buildNaturalCalendarCreateSuccessReply } from '@/src/features/agent/execution/calendarCreateSuccessReply';
+import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
-/** Factual only — no conversational fallback phrasing. */
-export function buildFactualCalendarToolReplies(tool: CalendarToolResponse) {
+export type FactualCalendarReplyOptions = {
+  languageCode: VoiceLanguageCode;
+  referenceNow?: Date;
+};
+
+/** Factual failures/pending; natural confirmation on verified success. */
+export function buildFactualCalendarToolReplies(
+  tool: CalendarToolResponse,
+  options: FactualCalendarReplyOptions,
+) {
+  if (tool.status === 'SUCCESS' && tool.event) {
+    return buildNaturalCalendarCreateSuccessReply({
+      event: tool.event,
+      languageCode: options.languageCode,
+      referenceNow: options.referenceNow,
+    });
+  }
+
   if (tool.status === 'SUCCESS') {
-    const reply = tool.eventId ? `Event created. ID: ${tool.eventId}` : 'Event created.';
+    const fallback =
+      options.languageCode === 'uk-UA'
+        ? 'Готово. Подію додано в Google Calendar.'
+        : options.languageCode === 'ru-RU'
+          ? 'Готово. Событие добавлено в Google Calendar.'
+          : 'Done. The event was added to Google Calendar.';
 
     return {
-      reply,
-      spokenReply: 'Event created.',
+      reply: fallback,
+      spokenReply: fallback,
     };
   }
 

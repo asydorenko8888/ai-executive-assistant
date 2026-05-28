@@ -106,7 +106,10 @@ export async function executeCalendarCreateEvent(
       'CALENDAR_MAX_RETRIES_EXCEEDED',
       'Calendar create already attempted for this request.',
     );
-    return finalizeOutcome(buildCalendarToolReplyBundle(blocked, params.languageCode), null);
+    return finalizeOutcome(
+      buildCalendarToolReplyBundle(blocked, params.languageCode, { referenceNow: params.referenceNow }),
+      null,
+    );
   }
 
   logExecutionAudit('parsed_intent', { stage: 'parsing' });
@@ -125,7 +128,10 @@ export async function executeCalendarCreateEvent(
   if (!payloadResult.ok) {
     const tool = createCalendarToolFailure('CALENDAR_DATE_PARSE_FAILED', payloadResult.detail);
     endCalendarOperation({ failed: true });
-    return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), null);
+    return finalizeOutcome(
+      buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+      null,
+    );
   }
 
   const access = await resolveCalendarWriteAccessState();
@@ -136,7 +142,10 @@ export async function executeCalendarCreateEvent(
       'WRITE_SCOPE_MISSING: reconnect Google Calendar and grant event write access (calendar.events).',
     );
     endCalendarOperation({ failed: true });
-    return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), payloadResult.scheduleIso);
+    return finalizeOutcome(
+      buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+      payloadResult.scheduleIso,
+    );
   }
 
   if (!access.connected) {
@@ -148,7 +157,10 @@ export async function executeCalendarCreateEvent(
 
     const tool = createCalendarToolPending('CALENDAR_AUTH_REQUIRED', 'CALENDAR_AUTH_REQUIRED');
     endCalendarOperation({ failed: false });
-    return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), payloadResult.scheduleIso);
+    return finalizeOutcome(
+      buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+      payloadResult.scheduleIso,
+    );
   }
 
   if (!tryBeginCalendarOperation(params.transcript)) {
@@ -156,7 +168,10 @@ export async function executeCalendarCreateEvent(
       'CALENDAR_OPERATION_IN_PROGRESS',
       'Calendar operation already in progress.',
     );
-    return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), payloadResult.scheduleIso);
+    return finalizeOutcome(
+      buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+      payloadResult.scheduleIso,
+    );
   }
 
   logCalendarExecutionStateTransition({
@@ -193,17 +208,26 @@ export async function executeCalendarCreateEvent(
       });
       tool = createCalendarToolPending('CALENDAR_AUTH_REQUIRED', 'CALENDAR_AUTH_REQUIRED');
       endCalendarOperation({ failed: false });
-      return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), payloadResult.scheduleIso);
+      return finalizeOutcome(
+        buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+        payloadResult.scheduleIso,
+      );
     }
 
     if (tool.status === 'FAILURE') {
       endCalendarOperation({ failed: true });
-      return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), payloadResult.scheduleIso);
+      return finalizeOutcome(
+        buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+        payloadResult.scheduleIso,
+      );
     }
 
     if (tool.status === 'PENDING') {
       endCalendarOperation({ failed: false });
-      return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), payloadResult.scheduleIso);
+      return finalizeOutcome(
+        buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+        payloadResult.scheduleIso,
+      );
     }
 
     logCalendarExecutionStateTransition({
@@ -214,21 +238,31 @@ export async function executeCalendarCreateEvent(
     });
 
     endCalendarOperation({ failed: false });
-    return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), payloadResult.scheduleIso);
+    return finalizeOutcome(
+      buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+      payloadResult.scheduleIso,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Calendar operation error';
     tool = createCalendarToolFailure('CALENDAR_OPERATION_ERROR', message);
     endCalendarOperation({ failed: true });
-    return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), payloadResult.scheduleIso);
+    return finalizeOutcome(
+      buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+      payloadResult.scheduleIso,
+    );
   }
 }
 
 export function buildOutcomeFromVerifiedBackendEvent(
   languageCode: VoiceLanguageCode,
   event: NonNullable<ActionExecutionResult['event']>,
+  referenceNow?: Date,
 ) {
   const tool = createCalendarToolSuccess(event);
-  return finalizeOutcome(buildCalendarToolReplyBundle(tool, languageCode), null);
+  return finalizeOutcome(
+    buildCalendarToolReplyBundle(tool, languageCode, { referenceNow }),
+    null,
+  );
 }
 
 export function buildSuccessReplyFromVerifiedEvent(

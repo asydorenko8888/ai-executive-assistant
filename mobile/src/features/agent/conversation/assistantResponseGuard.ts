@@ -103,8 +103,8 @@ function isFactualOperationalReply(reply: string) {
   const normalized = reply.trim();
 
   return (
-    normalized === 'Event created.' ||
-    normalized.startsWith('Event created.') ||
+    normalized.startsWith('Готово.') ||
+    normalized.startsWith('Done.') ||
     normalized.startsWith('FAILURE:') ||
     normalized.startsWith('PENDING:')
   );

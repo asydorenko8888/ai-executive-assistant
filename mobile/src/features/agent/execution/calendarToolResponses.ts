@@ -23,11 +23,19 @@ function mapToolStatusToExecutionState(tool: CalendarToolResponse): CalendarExec
   return 'failed';
 }
 
+export type CalendarToolReplyOptions = {
+  referenceNow?: Date;
+};
+
 export function buildCalendarToolReplyBundle(
   tool: CalendarToolResponse,
-  _languageCode: VoiceLanguageCode,
+  languageCode: VoiceLanguageCode,
+  options?: CalendarToolReplyOptions,
 ): CalendarToolReplyBundle {
-  const copy = buildFactualCalendarToolReplies(tool);
+  const copy = buildFactualCalendarToolReplies(tool, {
+    languageCode,
+    referenceNow: options?.referenceNow,
+  });
 
   return {
     tool,
@@ -45,6 +53,7 @@ export function buildCalendarToolReplyBundle(
 export function buildCalendarToolReplyFromLastResult(
   languageCode: VoiceLanguageCode,
   last: CalendarToolResponse,
+  options?: CalendarToolReplyOptions,
 ) {
-  return buildCalendarToolReplyBundle(last, languageCode);
+  return buildCalendarToolReplyBundle(last, languageCode, options);
 }

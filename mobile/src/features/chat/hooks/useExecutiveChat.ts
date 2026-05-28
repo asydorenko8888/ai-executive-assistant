@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import type { ChatMessage, ChatTypingState } from '@/src/entities/chat/types';
 import {
@@ -42,6 +42,7 @@ import {
   isAbortError,
   logAssistantConversation,
 } from '@/src/features/chat/services/assistantConversationLifecycle';
+import { refreshHomeBriefing } from '@/src/features/home/services/refreshHomeBriefing';
 import { streamExecutiveChatMessage } from '@/src/features/chat/services/chatProxyService';
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
@@ -70,6 +71,7 @@ type ChatMutationResult = {
 };
 
 export function useExecutiveChat() {
+  const queryClient = useQueryClient();
   const {
     languageCode: voiceLanguage,
     recognitionLocale,
@@ -460,6 +462,11 @@ export function useExecutiveChat() {
       });
 
       warnIfFalseExecutionClaim(committed, result.calendarVerified ? 'executed' : 'drafted');
+
+      if (result.calendarVerified && result.executionState === 'tool_success') {
+        void refreshHomeBriefing(queryClient);
+      }
+
       console.log('[Voice Test] responseText', committed);
       finalizeAssistantMessage(variables.assistantMessageId, committed, 'completed');
       coordinator.finalizeRequest(result.requestId);
