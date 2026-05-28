@@ -13,6 +13,7 @@ import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/ca
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
 import { sendExecutiveChatMessage } from '@/src/features/chat/services/chatProxyService';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import {
   isSpeechSynthesisSupported,
   speakText,
@@ -102,8 +103,26 @@ export function useHomeVoiceAssistant() {
     };
   }, [stopAllVoiceOutput]);
 
+  const formatHomeVoiceReply = useCallback(
+    (reply: string, urgency: 'immediate' | 'soon' | 'relaxed' | 'free' = 'relaxed') =>
+      formatVoiceResponse(reply, {
+        maxSentences: 2,
+        urgency,
+        locale: getChatLocaleFromVoiceLanguage(languageCodeRef.current),
+      }),
+    [],
+  );
+
   const playAssistantResponse = useCallback((reply: string) => {
+    const speechText = reply.trim();
+
     if (isSpeechMutedRef.current || !isSpeechSynthesisSupported()) {
+      setVoiceStatus('answered');
+      setStatusText('Answer ready');
+      return;
+    }
+
+    if (!speechText) {
       setVoiceStatus('answered');
       setStatusText('Answer ready');
       return;
@@ -112,7 +131,7 @@ export function useHomeVoiceAssistant() {
     setVoiceStatus('speaking');
     setStatusText('Speaking...');
 
-    speakText(reply, {
+    speakText(speechText, {
       languageCode: languageCodeRef.current,
       lang: recognitionLocaleRef.current,
       onStart: () => {
@@ -155,9 +174,10 @@ export function useHomeVoiceAssistant() {
             queryKey: queryKeys.agent.homePreview(),
           });
 
-          console.log('[Voice] Assistant response', reminderResult.confirmation);
-          setAssistantResponse(reminderResult.confirmation);
-          playAssistantResponse(reminderResult.confirmation);
+          const spokenReminder = formatHomeVoiceReply(reminderResult.confirmation);
+          console.log('[Voice] Assistant response', spokenReminder);
+          setAssistantResponse(spokenReminder);
+          playAssistantResponse(spokenReminder);
           return;
         }
 
@@ -208,10 +228,11 @@ export function useHomeVoiceAssistant() {
           : [];
         const reply = await sendExecutiveChatMessage([userMessage], systemMessages);
 
-        console.log('[Voice Test] responseText', reply);
-        console.log('[Voice] Assistant response', reply);
-        setAssistantResponse(reply);
-        playAssistantResponse(reply);
+        const spokenReply = formatHomeVoiceReply(reply);
+        console.log('[Voice Test] responseText', spokenReply);
+        console.log('[Voice] Assistant response', spokenReply);
+        setAssistantResponse(spokenReply);
+        playAssistantResponse(spokenReply);
       } catch (error) {
         const apiError = toApiError(error);
         console.log('[Voice] Error', apiError.message);
@@ -221,7 +242,7 @@ export function useHomeVoiceAssistant() {
         isSendingRef.current = false;
       }
     },
-    [playAssistantResponse, queryClient],
+    [formatHomeVoiceReply, playAssistantResponse, queryClient],
   );
 
   const toggleSpeechMute = useCallback(() => {

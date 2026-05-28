@@ -10,6 +10,7 @@ import {
 } from '@/src/features/agent';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
 import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
+import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import {
   executiveChatThread,
   executiveChatMessages,
@@ -305,8 +306,12 @@ export function useExecutiveChat() {
       });
     },
     onSuccess: (assistantReply, variables) => {
-      console.log('[Voice Test] responseText', assistantReply);
-      finalizeAssistantMessage(variables.assistantMessageId, assistantReply);
+      const displayReply = formatVoiceResponse(assistantReply, {
+        maxSentences: 4,
+        locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
+      });
+      console.log('[Voice Test] responseText', displayReply || assistantReply);
+      finalizeAssistantMessage(variables.assistantMessageId, displayReply || assistantReply);
       resetStreamingState();
       void syncLongTermMemory([
         ...variables.nextMessages,
