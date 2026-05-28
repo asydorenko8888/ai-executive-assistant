@@ -305,12 +305,18 @@ export function buildVoiceSessionContext(memory: VoiceSessionMemory): VoiceSessi
   };
 }
 
-export function buildVoiceSessionSystemPrompt(memory: VoiceSessionMemory): string | null {
+export function buildVoiceSessionSystemPrompt(
+  memory: VoiceSessionMemory,
+  options?: { suppressEmotionalContinuation?: boolean },
+): string | null {
   const { state, rollingSummary, recentTurns } = buildVoiceSessionContext(memory);
   const segments: string[] = [];
+  const suppressEmotionalContinuation = options?.suppressEmotionalContinuation ?? false;
 
   segments.push(
-    'Live voice session — this is one ongoing conversation, not isolated Q&A. Build on prior turns, recommendations, and worries already discussed.',
+    suppressEmotionalContinuation
+      ? 'Live voice session — the user just gave an operational instruction. Answer that action first; do not continue a prior relaxing or emotional thread unless it directly helps the task.'
+      : 'Live voice session — this is one ongoing conversation, not isolated Q&A. Build on prior turns, recommendations, and worries already discussed.',
   );
 
   if (rollingSummary) {
@@ -329,7 +335,7 @@ export function buildVoiceSessionSystemPrompt(memory: VoiceSessionMemory): strin
     segments.push(`User tone: ${state.emotionalTone}. Stay calm, practical, slightly caring — not robotic.`);
   }
 
-  if (state.lastAssistantRecommendation) {
+  if (state.lastAssistantRecommendation && !suppressEmotionalContinuation) {
     segments.push(
       `Your previous recommendation in this session: "${state.lastAssistantRecommendation}". Do not contradict it unless the new message changes the situation.`,
     );

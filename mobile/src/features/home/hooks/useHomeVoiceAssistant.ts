@@ -9,8 +9,10 @@ import {
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
 import { warnIfFalseExecutionClaim } from '@/src/features/agent/capabilityHonesty';
-import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
-import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
+import {
+  finalizeTurnReply,
+  resolveAssistantTurn,
+} from '@/src/features/agent/conversation/assistantTurnPipeline';
 import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
 import { prepareMemoryPromptContext } from '@/src/features/chat/memory';
 import {
@@ -34,15 +36,8 @@ import {
   speakText,
   stopSpeech,
 } from '@/src/features/chat/services/speechSynthesis';
-import {
-  buildVoiceSessionContext,
-  buildVoiceSessionSystemPrompt,
-} from '@/src/features/voice/memory';
+import { buildVoiceSessionSystemPrompt } from '@/src/features/voice/memory';
 import { buildVoiceSessionMemoryFromMessages } from '@/src/features/voice/memory/voiceSessionFromMessages';
-import {
-  tryBuildGymLunchPivotReply,
-  tryBuildVoiceSessionFollowUpReply,
-} from '@/src/features/voice/memory/voiceSessionFollowUp';
 import { startVoiceCapture, type VoiceCaptureSession } from '@/src/features/voice/voiceCapture';
 import { queryKeys, toApiError } from '@/src/shared/api';
 
@@ -222,11 +217,6 @@ export function useHomeVoiceAssistant() {
         const payloadMessages = getConversationPayloadMessages(
           useExecutiveConversationStore.getState().messages,
         );
-        const voiceSession = resolveVoiceSession(
-          useExecutiveConversationStore.getState().messages,
-        );
-        const sessionContext = buildVoiceSessionContext(voiceSession);
-
         const reminderResult = await processVoiceReminderTranscript({
           transcript: trimmedTranscript,
           languageCode: languageCodeRef.current,
@@ -249,60 +239,34 @@ export function useHomeVoiceAssistant() {
           chatMessages: payloadMessages,
         });
         const referenceNow = new Date(orchestrator.context.now);
-        const calendarEvents = getAssistantVisibleCalendarEvents(
-          orchestrator.snapshot,
+        const turn = resolveAssistantTurn({
+          messages: payloadMessages,
+          orchestrator,
+          languageCode: languageCodeRef.current,
           referenceNow,
+          enableVoiceShortcuts: true,
+        });
+
+        if (turn.reply) {
+          const spokenLocal = formatHomeVoiceReply(turn.reply);
+          warnIfFalseExecutionClaim(spokenLocal, 'drafted');
+          const assistantMessage = finishAssistantTurn(spokenLocal);
+          playAssistantResponse(spokenLocal, assistantMessage.id);
+          return;
+        }
+
+        const voiceSession = resolveVoiceSession(
+          useExecutiveConversationStore.getState().messages,
         );
-
-        const gymLunchPivot = tryBuildGymLunchPivotReply({
-          transcript: trimmedTranscript,
-          session: sessionContext,
-          languageCode: languageCodeRef.current,
-        });
-
-        if (gymLunchPivot) {
-          const spokenPivot = formatHomeVoiceReply(gymLunchPivot, 'relaxed');
-          const assistantMessage = finishAssistantTurn(spokenPivot);
-          playAssistantResponse(spokenPivot, assistantMessage.id);
-          return;
-        }
-
-        const humanizedReply = tryBuildHumanizedCalendarReply({
-          transcript: trimmedTranscript,
-          visibleEvents: calendarEvents,
-          languageCode: languageCodeRef.current,
-          referenceNow,
-          sessionContext,
-        });
-
-        if (humanizedReply) {
-          const assistantMessage = finishAssistantTurn(humanizedReply.responseText);
-          playAssistantResponse(humanizedReply.responseText, assistantMessage.id);
-          return;
-        }
-
-        const sessionFollowUp = tryBuildVoiceSessionFollowUpReply({
-          transcript: trimmedTranscript,
-          session: sessionContext,
-          visibleEvents: calendarEvents,
-          languageCode: languageCodeRef.current,
-          referenceNow,
-        });
-
-        if (sessionFollowUp) {
-          const spokenFollowUp = formatHomeVoiceReply(sessionFollowUp, 'soon');
-          const assistantMessage = finishAssistantTurn(spokenFollowUp);
-          playAssistantResponse(spokenFollowUp, assistantMessage.id);
-          return;
-        }
-
         const requestAbort = createAssistantRequestAbortController();
 
         try {
           requestAbort.touch();
           const memoryContext = await prepareMemoryPromptContext(payloadMessages);
           requestAbort.touch();
-          const voiceSessionPrompt = buildVoiceSessionSystemPrompt(voiceSession);
+          const voiceSessionPrompt = buildVoiceSessionSystemPrompt(voiceSession, {
+            suppressEmotionalContinuation: turn.intent.shouldBypassEmotionalRouting,
+          });
           const systemMessages = [
             ...memoryContext.systemMessages,
             ...(voiceSessionPrompt
@@ -318,6 +282,7 @@ export function useHomeVoiceAssistant() {
                 `${segment} Use it subtly and only when it genuinely sharpens the reply.`,
               ),
             ),
+            ...(turn.intentPrompt ? [createConversationMessage('system', turn.intentPrompt)] : []),
           ];
           requestAbort.touch();
 
@@ -327,7 +292,18 @@ export function useHomeVoiceAssistant() {
           });
           requestAbort.touch();
 
-          const spokenReply = formatHomeVoiceReply(reply) || reply.trim();
+          const spokenReply =
+            formatHomeVoiceReply(
+              finalizeTurnReply({
+                messages: getConversationPayloadMessages(
+                  useExecutiveConversationStore.getState().messages,
+                ),
+                orchestrator,
+                languageCode: languageCodeRef.current,
+                referenceNow,
+                candidateReply: reply,
+              }),
+            ) || reply.trim();
 
           if (!spokenReply) {
             const recovery = buildAssistantRecoveryMessage(null, 'empty');

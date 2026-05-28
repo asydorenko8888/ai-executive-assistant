@@ -89,9 +89,12 @@ export const useExecutiveConversationStore = create<ExecutiveConversationState>(
     const trimmed = content.trim();
     const state = get();
     const lastMessage = state.messages[state.messages.length - 1];
+    const messageBeforeLast = state.messages[state.messages.length - 2];
 
+    // Only dedupe consecutive assistant writes on the same turn (retries), never across new user turns.
     if (
       lastMessage?.role === 'assistant' &&
+      messageBeforeLast?.role !== 'user' &&
       lastMessage.content === trimmed &&
       lastMessage.status === status
     ) {

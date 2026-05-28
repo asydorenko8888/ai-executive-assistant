@@ -1,5 +1,6 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import { analyzeCalendarSituation } from '@/src/features/agent/calendar/calendarSituationalReasoning';
+import { shouldSuppressConversationalCalendarRouting } from '@/src/features/agent/intent/assistantIntentRouter';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 import type { VoiceSessionContext } from '@/src/features/voice/memory/voiceSessionMemory';
@@ -37,6 +38,10 @@ export function tryBuildGymLunchPivotReply(params: {
   session: VoiceSessionContext;
   languageCode: VoiceLanguageCode;
 }): string | null {
+  if (shouldSuppressConversationalCalendarRouting(params.transcript)) {
+    return null;
+  }
+
   if (
     !params.session.state.gymClosed ||
     !params.session.state.consideringLunch ||
@@ -66,6 +71,10 @@ export function tryBuildVoiceSessionFollowUpReply(params: {
   languageCode: VoiceLanguageCode;
   referenceNow: Date;
 }): string | null {
+  if (shouldSuppressConversationalCalendarRouting(params.transcript)) {
+    return null;
+  }
+
   if (!hasActiveTimingSession(params.session) || !isShortFollowUp(params.transcript)) {
     return null;
   }

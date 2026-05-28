@@ -9,8 +9,12 @@ import {
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
-import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import { warnIfFalseExecutionClaim } from '@/src/features/agent/capabilityHonesty';
+import {
+  finalizeTurnReply,
+  readFreshConversationMessages,
+  resolveAssistantTurn,
+} from '@/src/features/agent/conversation/assistantTurnPipeline';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import { executiveChatThread } from '@/src/features/chat/data/chatSeed';
 import {
@@ -36,15 +40,12 @@ import {
   createConversationMessage,
   useExecutiveConversationStore,
 } from '@/src/features/chat/store/executiveConversationStore';
-import { buildVoiceSessionContext } from '@/src/features/voice/memory';
-import { buildVoiceSessionMemoryFromMessages } from '@/src/features/voice/memory/voiceSessionFromMessages';
 import { startVoiceCapture, type VoiceCaptureSession } from '@/src/features/voice/voiceCapture';
 import { toApiError } from '@/src/shared/api';
 
 const assistantTypingLabel = 'Executive AI is structuring a recommendation';
 
 type ChatMutationVariables = {
-  nextMessages: ChatMessage[];
   assistantMessageId: string;
   requestId: string;
 };
@@ -222,11 +223,11 @@ export function useExecutiveChat() {
   );
 
   const chatMutation = useMutation<ChatMutationResult, Error, ChatMutationVariables>({
-    mutationFn: async ({ nextMessages, assistantMessageId, requestId }) => {
+    mutationFn: async ({ assistantMessageId, requestId }) => {
       const coordinator = assistantRequestCoordinatorRef.current;
       coordinator.touch(requestId);
 
-      const latestUserMessage = [...nextMessages].reverse().find((message) => message.role === 'user');
+      const nextMessages = readFreshConversationMessages();
       const orchestrator = await createExecutiveAgentOrchestrator({
         locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
         chatMessages: nextMessages,
@@ -234,44 +235,39 @@ export function useExecutiveChat() {
       coordinator.touch(requestId);
 
       const referenceNow = new Date(orchestrator.context.now);
-      const calendarEvents = getAssistantVisibleCalendarEvents(orchestrator.snapshot, referenceNow);
+      const turn = resolveAssistantTurn({
+        messages: nextMessages,
+        orchestrator,
+        languageCode: voiceLanguage,
+        referenceNow,
+        enableVoiceShortcuts: false,
+      });
 
-      if (latestUserMessage?.content.trim()) {
-        console.log('[Voice Test] transcript', latestUserMessage.content.trim());
-
-        const sessionContext = buildVoiceSessionContext(
-          buildVoiceSessionMemoryFromMessages(nextMessages),
-        );
-        const humanizedReply = tryBuildHumanizedCalendarReply({
-          transcript: latestUserMessage.content.trim(),
-          visibleEvents: calendarEvents,
-          languageCode: voiceLanguage,
-          referenceNow,
-          sessionContext,
-        });
-
-        if (humanizedReply) {
-          coordinator.touch(requestId);
-          return {
-            reply: humanizedReply.responseText,
-            requestId,
-          };
-        }
+      if (turn.reply) {
+        coordinator.touch(requestId);
+        return {
+          reply: turn.reply,
+          requestId,
+        };
       }
 
       const memoryContext = await prepareMemoryPromptContext(nextMessages);
       coordinator.touch(requestId);
 
-      const agentSystemMessages = buildAgentSystemMessages(
-        orchestrator,
-        latestUserMessage?.content.trim(),
-      );
+      const agentSystemMessages = buildAgentSystemMessages(orchestrator, turn.userTranscript);
       const activeRequest = coordinator.getActive();
       const signal = activeRequest?.abortController.signal;
+      const intentSystemMessages = turn.intentPrompt
+        ? [createConversationMessage('system', turn.intentPrompt)]
+        : [];
 
       const reply = await streamExecutiveChatMessage({
         messages: nextMessages,
-        systemMessages: [...memoryContext.systemMessages, ...agentSystemMessages],
+        systemMessages: [
+          ...memoryContext.systemMessages,
+          ...agentSystemMessages,
+          ...intentSystemMessages,
+        ],
         signal,
         requestId,
         onToken: (token) => {
@@ -303,7 +299,7 @@ export function useExecutiveChat() {
         requestId,
       };
     },
-    onSuccess: (result, variables) => {
+    onSuccess: async (result, variables) => {
       const coordinator = assistantRequestCoordinatorRef.current;
 
       if (!coordinator.isCurrentRequest(result.requestId)) {
@@ -331,7 +327,19 @@ export function useExecutiveChat() {
         maxSentences: 4,
         locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
       });
-      const committed = displayReply || assistantReply;
+      const freshMessages = readFreshConversationMessages();
+      const orchestrator = await createExecutiveAgentOrchestrator({
+        locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
+        chatMessages: freshMessages,
+      });
+      const referenceNow = new Date(orchestrator.context.now);
+      const committed = finalizeTurnReply({
+        messages: freshMessages,
+        orchestrator,
+        languageCode: voiceLanguage,
+        referenceNow,
+        candidateReply: displayReply || assistantReply,
+      });
 
       warnIfFalseExecutionClaim(committed, 'drafted');
       console.log('[Voice Test] responseText', committed);
@@ -340,7 +348,7 @@ export function useExecutiveChat() {
       resetStreamingState();
       void persistConversationSafe();
       void syncLongTermMemory([
-        ...variables.nextMessages,
+        ...freshMessages,
         createConversationMessage('assistant', committed),
       ]);
     },
@@ -423,7 +431,6 @@ export function useExecutiveChat() {
       setErrorMessage(null);
 
       appendUserMessage(trimmedMessage);
-      const nextMessages = [...useExecutiveConversationStore.getState().messages];
       const assistantMessageId = `assistant-stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const request = assistantRequestCoordinatorRef.current.begin(
         assistantMessageId,
@@ -444,7 +451,6 @@ export function useExecutiveChat() {
       });
 
       chatMutation.mutate({
-        nextMessages,
         assistantMessageId,
         requestId: request.requestId,
       });
