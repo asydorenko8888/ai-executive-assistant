@@ -5,6 +5,7 @@ import { GlassCard } from '@/src/components/ui/GlassCard';
 import { SectionTitle } from '@/src/components/ui/SectionTitle';
 import { VoiceLanguageSelector } from '@/src/components/ui/VoiceLanguageSelector';
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
+import { CalendarDebugPanel } from '@/src/features/settings/components/CalendarDebugPanel';
 import { useSpeechVoiceSettings } from '@/src/features/settings/hooks/useSpeechVoiceSettings';
 import { ScreenContainer } from '@/src/shared/ui';
 import { colors, fontSizes, fontWeights, radii, spacing } from '@/src/theme';
@@ -26,6 +27,8 @@ export default function SettingsScreen() {
     <ScreenContainer scrollable contentContainerStyle={styles.content}>
       <StatusBar style="light" />
       <Text style={styles.title}>Settings</Text>
+
+      <CalendarDebugPanel />
 
       <GlassCard style={styles.card}>
         <SectionTitle

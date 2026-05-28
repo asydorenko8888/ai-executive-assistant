@@ -20,8 +20,6 @@ import {
 } from '@/src/features/agent/execution/calendarExecutionSession';
 import { createCalendarToolFailure } from '@/src/features/agent/execution/calendarToolContract';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
-import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
-
 export type OperationalIntentReplyParams = {
   transcript: string;
   languageCode: VoiceLanguageCode;
@@ -146,13 +144,7 @@ export async function tryBuildOperationalIntentReply(
     };
   }
 
-  const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
-  const reply =
-    locale === 'ru'
-      ? 'Не удалось выполнить операцию — уточни запрос.'
-      : locale === 'uk'
-        ? 'Не вдалося виконати операцію — уточни запит.'
-        : 'Could not run the operation — clarify the request.';
+  const reply = 'FAILURE: OPERATION_NOT_SUPPORTED: no operational handler for this request.';
 
   return {
     reply,

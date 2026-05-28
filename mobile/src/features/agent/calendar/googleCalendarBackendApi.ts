@@ -6,9 +6,31 @@ import { apiClient } from '@/src/shared/api';
 export type GoogleCalendarBackendStatus = {
   connected: boolean;
   hasWriteAccess: boolean;
+  writeEnabled?: boolean;
+  hasCalendarEventsScope?: boolean;
   connectedEmail?: string;
   expiresAt?: string;
   scopes: string[];
+  authStatus?: string;
+  requiredScope?: string;
+  token?: {
+    accessToken: string | null;
+    refreshTokenPresent: boolean;
+    scopes: string[];
+    hasCalendarEventsScope?: boolean;
+  };
+};
+
+export type GoogleCalendarDebugSnapshot = GoogleCalendarBackendStatus & {
+  authStatus?: string;
+  calendarConnected?: boolean;
+  requiredScope?: string;
+  lastTestInsert?: {
+    status: string;
+    code?: string;
+    message?: string;
+    eventId?: string;
+  };
 };
 
 export type GoogleCalendarBackendEvent = {
@@ -39,6 +61,25 @@ export type PendingCalendarCreateAction = {
 export async function fetchGoogleCalendarBackendStatus() {
   return apiClient.get<GoogleCalendarBackendStatus>({
     path: '/google-calendar/status',
+  });
+}
+
+export async function fetchGoogleCalendarDebugSnapshot() {
+  return apiClient.get<GoogleCalendarDebugSnapshot>({
+    path: '/google-calendar/debug',
+  });
+}
+
+export async function runGoogleCalendarTestInsert(timeZone?: string) {
+  return apiClient.post<{
+    status: string;
+    code?: string;
+    message?: string;
+    eventId?: string;
+    event?: GoogleCalendarBackendEvent;
+  }>({
+    path: '/google-calendar/debug/test-insert',
+    body: timeZone ? { timeZone } : {},
   });
 }
 

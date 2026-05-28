@@ -7,6 +7,9 @@ import { refreshGoogleCalendarAccessToken } from './googleOAuthService.js';
 
 const TOKEN_NAMESPACE = 'google-calendar-tokens';
 
+export const CALENDAR_EVENTS_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
+export const CALENDAR_FULL_SCOPE = 'https://www.googleapis.com/auth/calendar';
+
 export type StoredGoogleCalendarTokens = {
   accessToken: string;
   refreshToken: string;
@@ -17,15 +20,54 @@ export type StoredGoogleCalendarTokens = {
   updatedAt: string;
 };
 
-const CALENDAR_WRITE_SCOPE_MARKERS = [
-  'https://www.googleapis.com/auth/calendar.events',
-  'https://www.googleapis.com/auth/calendar',
-] as const;
-
-export function scopesIncludeCalendarWrite(scopes: string[]) {
+export function scopesIncludeCalendarEventsWrite(scopes: string[]) {
   const joined = scopes.join(' ').toLowerCase();
 
-  return CALENDAR_WRITE_SCOPE_MARKERS.some((scope) => joined.includes(scope.toLowerCase()));
+  return joined.includes(CALENDAR_EVENTS_WRITE_SCOPE.toLowerCase());
+}
+
+/** Legacy full calendar scope also grants write. */
+export function scopesIncludeCalendarWrite(scopes: string[]) {
+  if (scopesIncludeCalendarEventsWrite(scopes)) {
+    return true;
+  }
+
+  const joined = scopes.join(' ').toLowerCase();
+
+  return joined.includes(CALENDAR_FULL_SCOPE.toLowerCase());
+}
+
+export function redactToken(token: string) {
+  if (token.length <= 8) {
+    return '***';
+  }
+
+  return `${token.slice(0, 4)}…${token.slice(-4)}`;
+}
+
+export function buildTokenDebugLog(tokens: StoredGoogleCalendarTokens | null) {
+  if (!tokens) {
+    return {
+      connected: false,
+      accessToken: null,
+      refreshTokenPresent: false,
+      scopes: [],
+      expiresAt: null,
+      connectedEmail: null,
+    };
+  }
+
+  return {
+    connected: true,
+    accessToken: redactToken(tokens.accessToken),
+    refreshTokenPresent: Boolean(tokens.refreshToken),
+    tokenType: tokens.tokenType ?? null,
+    scopes: tokens.scopes,
+    expiresAt: tokens.expiresAt,
+    connectedEmail: tokens.connectedEmail ?? null,
+    hasCalendarEventsScope: scopesIncludeCalendarEventsWrite(tokens.scopes),
+    hasCalendarWriteScope: scopesIncludeCalendarWrite(tokens.scopes),
+  };
 }
 
 export async function saveGoogleCalendarTokens(deviceId: string, tokens: StoredGoogleCalendarTokens) {
@@ -48,6 +90,8 @@ export async function getGoogleCalendarConnectionStatus(deviceId: string) {
     return {
       connected: false,
       hasWriteAccess: false,
+      writeEnabled: false,
+      hasCalendarEventsScope: false,
       connectedEmail: undefined as string | undefined,
       expiresAt: undefined as string | undefined,
       scopes: [] as string[],
@@ -56,10 +100,14 @@ export async function getGoogleCalendarConnectionStatus(deviceId: string) {
 
   const expiresAtMs = Date.parse(tokens.expiresAt);
   const isExpired = Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now() + 60_000;
+  const hasCalendarEventsScope = scopesIncludeCalendarEventsWrite(tokens.scopes);
+  const hasWriteAccess = scopesIncludeCalendarWrite(tokens.scopes);
 
   return {
     connected: !isExpired || Boolean(tokens.refreshToken),
-    hasWriteAccess: scopesIncludeCalendarWrite(tokens.scopes),
+    hasWriteAccess,
+    writeEnabled: hasCalendarEventsScope,
+    hasCalendarEventsScope,
     connectedEmail: tokens.connectedEmail,
     expiresAt: tokens.expiresAt,
     scopes: tokens.scopes,
@@ -119,7 +167,7 @@ export function buildStoredTokensFromOAuthResult(params: {
   const scopes =
     typeof params.scope === 'string' && params.scope.trim()
       ? params.scope.split(' ')
-      : [...CALENDAR_WRITE_SCOPE_MARKERS];
+      : [CALENDAR_EVENTS_WRITE_SCOPE, CALENDAR_FULL_SCOPE];
 
   return {
     accessToken: params.accessToken,

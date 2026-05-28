@@ -5,6 +5,8 @@ export const MAX_CALENDAR_TOOL_RETRIES = 1;
 export type CalendarToolStatus = 'SUCCESS' | 'FAILURE' | 'PENDING';
 
 export type CalendarToolErrorCode =
+  | 'WRITE_SCOPE_MISSING'
+  | 'VERIFY_FAILED'
   | 'GOOGLE_WRITE_PERMISSION_MISSING'
   | 'GOOGLE_CALENDAR_NOT_CONNECTED'
   | 'CALENDAR_AUTH_REQUIRED'

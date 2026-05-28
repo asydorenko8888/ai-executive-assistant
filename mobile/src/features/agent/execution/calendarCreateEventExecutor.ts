@@ -125,10 +125,10 @@ export async function executeCalendarCreateEvent(
 
   const access = await resolveCalendarWriteAccessState();
 
-  if (!access.hasWriteAccess) {
+  if (!access.writeEnabled) {
     const tool = createCalendarToolFailure(
-      'GOOGLE_WRITE_PERMISSION_MISSING',
-      'GOOGLE_WRITE_PERMISSION_MISSING',
+      'WRITE_SCOPE_MISSING',
+      'WRITE_SCOPE_MISSING: https://www.googleapis.com/auth/calendar.events',
     );
     endCalendarOperation({ failed: true });
     return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), payloadResult.scheduleIso);

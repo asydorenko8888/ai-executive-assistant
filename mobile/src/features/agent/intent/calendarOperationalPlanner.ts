@@ -74,8 +74,12 @@ function mapErrorCodeToFailureReason(errorCode?: string): CalendarPlannerFailure
     return 'calendar_not_connected';
   }
 
-  if (errorCode === 'calendar_write_forbidden') {
+  if (errorCode === 'calendar_write_forbidden' || errorCode === 'WRITE_SCOPE_MISSING') {
     return 'calendar_write_forbidden';
+  }
+
+  if (errorCode === 'VERIFY_FAILED') {
+    return 'calendar_verification_failed';
   }
 
   if (errorCode === 'calendar_api_unavailable') {
@@ -145,12 +149,7 @@ export async function executeCalendarOperationalPlanner(
     logPlannerFailure('planner_exception', error);
     state = 'tool_failure';
 
-    const failureReply =
-      params.languageCode === 'ru-RU'
-        ? 'Не удалось подтвердить создание события в Google Calendar.'
-        : params.languageCode === 'uk-UA'
-          ? 'Не вдалося підтвердити створення події в Google Calendar.'
-          : "I couldn't confirm event creation.";
+    const failureReply = 'FAILURE: planner_exception: calendar planner threw an error.';
 
     return {
       state,

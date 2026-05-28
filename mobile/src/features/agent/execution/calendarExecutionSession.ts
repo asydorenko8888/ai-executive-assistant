@@ -1,5 +1,6 @@
 import { MAX_CALENDAR_TOOL_RETRIES, type CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import { logExecutionAudit } from '@/src/features/agent/execution/executionAuditLogger';
+import { recordCalendarExecutionDebug } from '@/src/features/settings/storage/calendarExecutionDebugStore';
 
 let calendarOperationInProgress = false;
 let calendarRetryCount = 0;
@@ -16,6 +17,12 @@ export function getLastCalendarToolResponse() {
 
 export function setLastCalendarToolResponse(response: CalendarToolResponse) {
   lastToolResponse = response;
+  recordCalendarExecutionDebug({
+    status: response.status,
+    errorCode: response.errorCode,
+    error: response.error,
+    eventId: response.eventId,
+  });
   logExecutionAudit('truth_state', {
     finalAssistantState: response.status,
     errorCode: response.errorCode ?? null,

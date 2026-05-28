@@ -35,7 +35,7 @@ export async function createGoogleCalendarEvent(
       logExecutionAudit('verification_response', { verified: false, reason: 'backend_did_not_confirm' });
 
       return createCalendarToolFailure(
-        'CALENDAR_VERIFICATION_FAILED',
+        'VERIFY_FAILED',
         'Google Calendar did not return a verified event.',
       );
     }
@@ -68,14 +68,21 @@ export async function createGoogleCalendarEvent(
       return createCalendarToolFailure('GOOGLE_CALENDAR_NOT_CONNECTED', 'Google Calendar is not connected.');
     }
 
-    if (apiError?.status === 403 || code === 'calendar_write_forbidden') {
-      return createCalendarToolFailure('GOOGLE_WRITE_PERMISSION_MISSING', 'GOOGLE_WRITE_PERMISSION_MISSING');
+    if (code === 'WRITE_SCOPE_MISSING' || apiError?.status === 403 || code === 'calendar_write_forbidden') {
+      return createCalendarToolFailure(
+        'WRITE_SCOPE_MISSING',
+        'WRITE_SCOPE_MISSING: https://www.googleapis.com/auth/calendar.events',
+      );
+    }
+
+    if (code === 'VERIFY_FAILED') {
+      return createCalendarToolFailure('VERIFY_FAILED', apiError?.message || 'VERIFY_FAILED');
     }
 
     if (code === 'calendar_confirmation_timeout') {
       return createCalendarToolFailure(
         'CALENDAR_CONFIRMATION_TIMEOUT',
-        'Still waiting for confirmation from Google Calendar.',
+        'CALENDAR_CONFIRMATION_TIMEOUT: Google Calendar API timeout',
       );
     }
 

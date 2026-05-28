@@ -23,6 +23,9 @@ export function sessionHasCalendarWriteScope(session: GoogleCalendarSession | nu
 export type CalendarWriteAccessState = {
   connected: boolean;
   hasWriteAccess: boolean;
+  writeEnabled: boolean;
+  hasCalendarEventsScope: boolean;
+  scopes: string[];
   connectedEmail?: string;
   source: 'backend' | 'local' | 'merged';
 };
@@ -31,13 +34,22 @@ function mergeAccessState(
   backend: GoogleCalendarBackendStatus | null,
   localConnected: boolean,
   localWrite: boolean,
+  localSession: GoogleCalendarSession | null,
 ): CalendarWriteAccessState {
   const connected = Boolean(backend?.connected || localConnected);
+  const backendScopes = backend?.scopes ?? localSession?.scopes ?? [];
+  const hasCalendarEventsScope = backendScopes.some((scope) =>
+    scope.includes('calendar.events'),
+  );
   const hasWriteAccess = Boolean(backend?.hasWriteAccess || localWrite);
+  const writeEnabled = Boolean(backend?.writeEnabled ?? hasCalendarEventsScope);
 
   return {
     connected,
     hasWriteAccess,
+    writeEnabled,
+    hasCalendarEventsScope,
+    scopes: backendScopes,
     connectedEmail: backend?.connectedEmail,
     source: backend ? 'merged' : localConnected ? 'local' : 'backend',
   };
@@ -53,5 +65,5 @@ export async function resolveCalendarWriteAccessState(): Promise<CalendarWriteAc
   const localConnected = localConnection.status === 'connected';
   const localWrite = sessionHasCalendarWriteScope(localSession);
 
-  return mergeAccessState(backendStatus, localConnected, localWrite);
+  return mergeAccessState(backendStatus, localConnected, localWrite, localSession);
 }

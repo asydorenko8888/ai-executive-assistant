@@ -2,7 +2,8 @@ import type { Request, Response } from 'express';
 import { Router } from 'express';
 
 import { readExecutiveDeviceId } from '../lib/executiveDeviceId.js';
-import { createGoogleCalendarEventForDevice } from '../services/googleCalendarEventService.js';
+import { getGoogleCalendarDebugSnapshot } from '../services/googleCalendarDebug.js';
+import { createGoogleCalendarEventForDevice, runGoogleCalendarTestInsert } from '../services/googleCalendarEventService.js';
 import {
   buildStoredTokensFromOAuthResult,
   clearGoogleCalendarTokens,
@@ -219,8 +220,62 @@ googleCalendarRouter.get('/google-calendar/status', async (request, response) =>
   }
 
   const status = await getGoogleCalendarConnectionStatus(deviceId);
+  const debug = await getGoogleCalendarDebugSnapshot(deviceId);
 
-  return response.status(200).json(status);
+  return response.status(200).json({
+    ...status,
+    ...debug,
+  });
+});
+
+googleCalendarRouter.get('/google-calendar/debug', async (request, response) => {
+  const deviceId = requireDeviceId(request, response);
+
+  if (!deviceId) {
+    return;
+  }
+
+  const debug = await getGoogleCalendarDebugSnapshot(deviceId);
+
+  return response.status(200).json(debug);
+});
+
+googleCalendarRouter.post('/google-calendar/debug/test-insert', async (request, response) => {
+  const deviceId = requireDeviceId(request, response);
+
+  if (!deviceId) {
+    return;
+  }
+
+  const timeZone =
+    typeof request.body === 'object' &&
+    request.body !== null &&
+    'timeZone' in request.body &&
+    typeof (request.body as { timeZone?: string }).timeZone === 'string'
+      ? (request.body as { timeZone: string }).timeZone
+      : 'UTC';
+
+  const result = await runGoogleCalendarTestInsert(deviceId, timeZone);
+
+  if (!result.ok) {
+    return response.status(result.httpStatus ?? 502).json({
+      status: 'FAILURE',
+      code: result.errorCode,
+      message: result.errorMessage,
+      verified: result.verified,
+      verificationFetched: result.verificationFetched,
+      insertedEventId: 'insertedEventId' in result ? result.insertedEventId : undefined,
+    });
+  }
+
+  return response.status(201).json({
+    status: 'SUCCESS',
+    code: 'SUCCESS',
+    event: result.event,
+    eventId: result.event.id,
+    verified: result.verified,
+    verificationFetched: result.verificationFetched,
+  });
 });
 
 googleCalendarRouter.post('/google-calendar/exchange', async (request, response) => {
@@ -380,24 +435,28 @@ googleCalendarRouter.post('/google-calendar/events', async (request, response) =
     });
   }
 
-  if (!status.hasWriteAccess) {
+  if (!status.writeEnabled) {
     return response.status(403).json({
-      message: 'Google Calendar write scope is missing. Re-authorization required.',
-      code: 'calendar_write_forbidden',
+      message: 'WRITE_SCOPE_MISSING: https://www.googleapis.com/auth/calendar.events',
+      code: 'WRITE_SCOPE_MISSING',
+      status: 'FAILURE',
+      scopes: status.scopes,
     });
   }
 
   const result = await createGoogleCalendarEventForDevice(deviceId, parsedRequest);
 
   if (!result.ok) {
-    const code =
-      result.errorCode === 'calendar_write_forbidden'
-        ? 'GOOGLE_WRITE_PERMISSION_MISSING'
-        : result.errorCode;
+    const httpStatus =
+      result.errorCode === 'WRITE_SCOPE_MISSING'
+        ? 403
+        : result.errorCode === 'VERIFY_FAILED'
+          ? 502
+          : (result.httpStatus ?? 502);
 
-    return response.status(result.httpStatus ?? 502).json({
+    return response.status(httpStatus).json({
       message: result.errorMessage,
-      code,
+      code: result.errorCode,
       status: 'FAILURE',
       executionState: result.executionState,
       verified: result.verified,
