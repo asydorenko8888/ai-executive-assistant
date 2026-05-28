@@ -1,4 +1,9 @@
 import type { ChatMessage } from '@/src/entities/chat/types';
+import {
+  isEmotionalEmptyDayFallback,
+  logFallbackActivation,
+} from '@/src/features/agent/conversation/assistantExecutionObservability';
+import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { tryBuildOperationalIntentReply } from '@/src/features/agent/intent/operationalIntentReply';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -39,6 +44,38 @@ export function isRepeatedAssistantResponse(params: {
   return normalizeReply(previousAssistant.content) === normalizeReply(params.candidateReply);
 }
 
+export function blockEmotionalFallbackAfterOperational(params: {
+  messages: ChatMessage[];
+  candidateReply: string;
+  languageCode: VoiceLanguageCode;
+  calendarConnected: boolean;
+  referenceNow: Date;
+}) {
+  const latestUser = getLatestUserMessage(params.messages);
+
+  if (!latestUser || !isEmotionalEmptyDayFallback(params.candidateReply)) {
+    return params.candidateReply;
+  }
+
+  if (!isOperationalCalendarWriteRequest(latestUser.content)) {
+    return params.candidateReply;
+  }
+
+  logFallbackActivation('Blocked emotional empty-day fallback after operational calendar intent', {
+    latestUserMessage: latestUser.content.slice(0, 120),
+    blockedPreview: params.candidateReply.slice(0, 120),
+  });
+
+  const operational = tryBuildOperationalIntentReply({
+    transcript: latestUser.content.trim(),
+    languageCode: params.languageCode,
+    calendarConnected: params.calendarConnected,
+    referenceNow: params.referenceNow,
+  });
+
+  return operational?.reply ?? params.candidateReply;
+}
+
 export function forceRegenerateOperationalReply(params: {
   transcript: string;
   languageCode: VoiceLanguageCode;
@@ -48,7 +85,7 @@ export function forceRegenerateOperationalReply(params: {
   const operational = tryBuildOperationalIntentReply(params);
 
   if (operational) {
-    return operational;
+    return operational.reply;
   }
 
   return 'Got it — let me handle that request directly. What time and title should I use?';
@@ -61,20 +98,22 @@ export function guardAgainstRepeatedAssistantResponse(params: {
   calendarConnected: boolean;
   referenceNow: Date;
 }) {
+  let reply = blockEmotionalFallbackAfterOperational(params);
+
   if (
     !isRepeatedAssistantResponse({
       messages: params.messages,
-      candidateReply: params.candidateReply,
+      candidateReply: reply,
     })
   ) {
-    return params.candidateReply;
+    return reply;
   }
 
   const latestUser = getLatestUserMessage(params.messages);
 
   console.error('[Repeated Assistant Response]', {
     latestUserMessage: latestUser?.content?.slice(0, 120),
-    repeatedPreview: params.candidateReply.slice(0, 120),
+    repeatedPreview: reply.slice(0, 120),
   });
 
   return forceRegenerateOperationalReply({

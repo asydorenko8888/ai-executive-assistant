@@ -1,12 +1,13 @@
+import type { AssistantExecutionState } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import {
   classifyAssistantIntent,
   detectHardOperationalIntent,
   type AssistantIntentAnalysis,
 } from '@/src/features/agent/intent/assistantIntentRouter';
+import { executeCalendarOperationalPlanner } from '@/src/features/agent/intent/calendarOperationalPlanner';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
-import { parseSpokenClockTime } from '@/src/features/reminders/reminderTimeParser';
 
 export type OperationalIntentReplyParams = {
   transcript: string;
@@ -15,174 +16,10 @@ export type OperationalIntentReplyParams = {
   referenceNow: Date;
 };
 
-function extractClockFragment(transcript: string) {
-  const patterns = [
-    /\b(?:at|@|о|в)\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?)/i,
-    /\b(\d{1,2}:\d{2})\b/,
-    /\b(\d{1,2})\s*(am|pm)\b/i,
-    /\b(?:for\s+)?(\d{1,2})\s*(?:o'clock)?\b/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = transcript.match(pattern);
-
-    if (match) {
-      return match[1] ?? match[0];
-    }
-  }
-
-  return null;
-}
-
-function resolveDayOffset(transcript: string) {
-  const normalized = transcript.toLowerCase();
-
-  if (/\b(?:tomorrow|завтра)\b/i.test(normalized)) {
-    return 1;
-  }
-
-  if (/\b(?:today|сьогодні|сегодня)\b/i.test(normalized)) {
-    return 0;
-  }
-
-  return null;
-}
-
-function parseOperationalScheduleHint(transcript: string, referenceNow: Date) {
-  const dayOffset = resolveDayOffset(transcript);
-  const clockFragment = extractClockFragment(transcript);
-
-  if (dayOffset === null && !clockFragment) {
-    return null;
-  }
-
-  const base = new Date(referenceNow);
-
-  if (dayOffset !== null) {
-    base.setDate(base.getDate() + dayOffset);
-  }
-
-  if (!clockFragment) {
-    return {
-      date: base,
-      hasExplicitTime: false,
-    };
-  }
-
-  const parsedTime = parseSpokenClockTime(clockFragment, base);
-
-  if (!parsedTime) {
-    return {
-      date: base,
-      hasExplicitTime: false,
-    };
-  }
-
-  if (dayOffset !== null) {
-    parsedTime.setFullYear(base.getFullYear(), base.getMonth(), base.getDate());
-  }
-
-  return {
-    date: parsedTime,
-    hasExplicitTime: true,
-  };
-}
-
-function formatScheduleLabel(
-  schedule: ReturnType<typeof parseOperationalScheduleHint>,
-  locale: ReturnType<typeof getChatLocaleFromVoiceLanguage>,
-) {
-  if (!schedule) {
-    return null;
-  }
-
-  if (schedule.hasExplicitTime) {
-    return schedule.date.toLocaleString([], {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-  }
-
-  if (locale === 'uk') {
-    return 'завтра';
-  }
-
-  if (locale === 'ru') {
-    return 'завтра';
-  }
-
-  return 'tomorrow';
-}
-
-function isCalendarWriteIntent(transcript: string, analysis: AssistantIntentAnalysis) {
-  if (isOperationalCalendarWriteRequest(transcript)) {
-    return true;
-  }
-
-  if (analysis.operationalSubtype === 'calendar_write' || analysis.operationalSubtype === 'scheduling') {
-    return true;
-  }
-
-  return /\b(?:add|put|create|move|reschedule|schedule|book).{0,50}\b(?:calendar|google\s+calendar|календар|зустріч|meeting|event)\b/i.test(
-    transcript,
-  );
-}
-
-function buildCalendarWriteReply(params: OperationalIntentReplyParams) {
-  const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
-  const schedule = parseOperationalScheduleHint(params.transcript, params.referenceNow);
-  const scheduleLabel = formatScheduleLabel(schedule, locale);
-  const mentionsMove = /\b(?:moved|rescheduled|shifted|переніс|перенес|перенёс)\b/i.test(params.transcript);
-
-  if (locale === 'uk') {
-    const ack = scheduleLabel
-      ? mentionsMove
-        ? `Зрозумів — перенесення зафіксував, ${scheduleLabel}.`
-        : `Зрозумів — ${scheduleLabel}.`
-      : mentionsMove
-        ? 'Зрозумів — перенесення зафіксував.'
-        : 'Зрозумів — додамо в календар.';
-
-    const ops = params.calendarConnected
-      ? 'Запис у Google Calendar з чату поки через підтвердження в застосунку — надішли назву зустрічі, якщо хочеш, зберу чернетку події.'
-      : 'Google Calendar ще не підключений — як тільки підключимо, поставлю це на завтра.';
-
-    return `${ack} ${ops}`;
-  }
-
-  if (locale === 'ru') {
-    const ack = scheduleLabel
-      ? mentionsMove
-        ? `Понял — перенос зафиксировал, ${scheduleLabel}.`
-        : `Понял — ${scheduleLabel}.`
-      : mentionsMove
-        ? 'Понял — перенос зафиксировал.'
-        : 'Понял — добавим в календарь.';
-
-    const ops = params.calendarConnected
-      ? 'Запись в Google Calendar из чата пока через подтверждение в приложении — скинь название встречи, соберу черновик события.'
-      : 'Google Calendar ещё не подключён — как только подключим, поставлю на завтра.';
-
-    return `${ack} ${ops}`;
-  }
-
-  const ack = scheduleLabel
-    ? mentionsMove
-      ? `Got it — I noted the move for ${scheduleLabel}.`
-      : `Got it — ${scheduleLabel}.`
-    : mentionsMove
-      ? 'Got it — I noted the move.'
-      : 'Got it — we can put that on the calendar.';
-
-  const ops = params.calendarConnected
-    ? 'Calendar is connected for reading; placing events from here still goes through a quick confirm in the app — send the meeting title if you want me to draft the event.'
-    : 'Google Calendar is not connected yet — once it is, I can place this for tomorrow.';
-
-  return `${ack} ${ops}`;
-}
+export type OperationalIntentResult = {
+  reply: string;
+  executionState: AssistantExecutionState;
+};
 
 function buildMessageDraftReply(params: OperationalIntentReplyParams) {
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
@@ -215,7 +52,7 @@ function buildGenericOperationalReply(params: OperationalIntentReplyParams, anal
 
 export function tryBuildOperationalIntentReply(
   params: OperationalIntentReplyParams,
-): string | null {
+): OperationalIntentResult | null {
   const analysis = classifyAssistantIntent(params.transcript);
 
   if (!analysis.shouldBypassEmotionalRouting && !detectHardOperationalIntent(params.transcript)) {
@@ -226,13 +63,31 @@ export function tryBuildOperationalIntentReply(
     return null;
   }
 
-  if (isCalendarWriteIntent(params.transcript, analysis)) {
-    return buildCalendarWriteReply(params);
+  const plannerResult = executeCalendarOperationalPlanner(params);
+
+  if (plannerResult) {
+    return {
+      reply: plannerResult.reply,
+      executionState: plannerResult.state,
+    };
+  }
+
+  if (isOperationalCalendarWriteRequest(params.transcript)) {
+    return {
+      reply: buildGenericOperationalReply(params, analysis),
+      executionState: 'tool_failure',
+    };
   }
 
   if (analysis.operationalSubtype === 'message_draft') {
-    return buildMessageDraftReply(params);
+    return {
+      reply: buildMessageDraftReply(params),
+      executionState: 'tool_success',
+    };
   }
 
-  return null;
+  return {
+    reply: buildGenericOperationalReply(params, analysis),
+    executionState: 'planning',
+  };
 }

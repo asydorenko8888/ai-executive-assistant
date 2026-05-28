@@ -12,6 +12,7 @@ import { warnIfFalseExecutionClaim } from '@/src/features/agent/capabilityHonest
 import {
   finalizeTurnReply,
   resolveAssistantTurn,
+  shouldFormatReplyForVoice,
 } from '@/src/features/agent/conversation/assistantTurnPipeline';
 import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
 import { prepareMemoryPromptContext } from '@/src/features/chat/memory';
@@ -248,7 +249,9 @@ export function useHomeVoiceAssistant() {
         });
 
         if (turn.reply) {
-          const spokenLocal = formatHomeVoiceReply(turn.reply);
+          const spokenLocal = shouldFormatReplyForVoice(turn.executionState)
+            ? formatHomeVoiceReply(turn.reply)
+            : turn.reply;
           warnIfFalseExecutionClaim(spokenLocal, 'drafted');
           const assistantMessage = finishAssistantTurn(spokenLocal);
           playAssistantResponse(spokenLocal, assistantMessage.id);
@@ -292,18 +295,19 @@ export function useHomeVoiceAssistant() {
           });
           requestAbort.touch();
 
+          const finalized = finalizeTurnReply({
+            messages: getConversationPayloadMessages(
+              useExecutiveConversationStore.getState().messages,
+            ),
+            orchestrator,
+            languageCode: languageCodeRef.current,
+            referenceNow,
+            candidateReply: reply,
+          });
           const spokenReply =
-            formatHomeVoiceReply(
-              finalizeTurnReply({
-                messages: getConversationPayloadMessages(
-                  useExecutiveConversationStore.getState().messages,
-                ),
-                orchestrator,
-                languageCode: languageCodeRef.current,
-                referenceNow,
-                candidateReply: reply,
-              }),
-            ) || reply.trim();
+            (shouldFormatReplyForVoice(turn.executionState)
+              ? formatHomeVoiceReply(finalized)
+              : finalized) || reply.trim();
 
           if (!spokenReply) {
             const recovery = buildAssistantRecoveryMessage(null, 'empty');

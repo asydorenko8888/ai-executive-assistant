@@ -14,7 +14,10 @@ import {
   finalizeTurnReply,
   readFreshConversationMessages,
   resolveAssistantTurn,
+  shouldFormatReplyForVoice,
+  type AssistantTurnRoute,
 } from '@/src/features/agent/conversation/assistantTurnPipeline';
+import type { AssistantExecutionState } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import { executiveChatThread } from '@/src/features/chat/data/chatSeed';
 import {
@@ -53,6 +56,8 @@ type ChatMutationVariables = {
 type ChatMutationResult = {
   reply: string;
   requestId: string;
+  route: AssistantTurnRoute;
+  executionState: AssistantExecutionState;
 };
 
 export function useExecutiveChat() {
@@ -248,6 +253,8 @@ export function useExecutiveChat() {
         return {
           reply: turn.reply,
           requestId,
+          route: turn.route,
+          executionState: turn.executionState,
         };
       }
 
@@ -291,12 +298,16 @@ export function useExecutiveChat() {
         return {
           reply: partial,
           requestId,
+          route: turn.route,
+          executionState: turn.executionState,
         };
       }
 
       return {
         reply: trimmedReply,
         requestId,
+        route: turn.route,
+        executionState: turn.executionState,
       };
     },
     onSuccess: async (result, variables) => {
@@ -323,10 +334,12 @@ export function useExecutiveChat() {
         assistantReply = coordinator.buildRecoveryForRequest(variables.assistantMessageId, 'empty');
       }
 
-      const displayReply = formatVoiceResponse(assistantReply, {
-        maxSentences: 4,
-        locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
-      });
+      const displayReply = shouldFormatReplyForVoice(result.executionState)
+        ? formatVoiceResponse(assistantReply, {
+            maxSentences: 4,
+            locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
+          })
+        : assistantReply;
       const freshMessages = readFreshConversationMessages();
       const orchestrator = await createExecutiveAgentOrchestrator({
         locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
