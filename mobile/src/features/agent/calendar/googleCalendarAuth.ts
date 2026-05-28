@@ -10,6 +10,10 @@ import {
   saveGoogleCalendarSession,
   type GoogleCalendarSession,
 } from '@/src/features/agent/calendar/googleCalendarStorage';
+import {
+  disconnectGoogleCalendarOnBackend,
+  syncGoogleCalendarSessionToBackend,
+} from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import { apiClient } from '@/src/shared/api';
 import { env } from '@/src/shared/config';
 
@@ -22,7 +26,7 @@ export const googleCalendarScopes = [
   'openid',
   'profile',
   'email',
-  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/calendar',
   'https://www.googleapis.com/auth/calendar.events',
 ] as const;
 
@@ -285,6 +289,9 @@ export async function finalizeGoogleCalendarAuthCode(params: {
     const nextSession = normalizeGoogleCalendarBackendTokenResponseToSession(tokenResponse);
 
     await saveGoogleCalendarSession(nextSession);
+    await syncGoogleCalendarSessionToBackend(nextSession).catch((error) => {
+      console.log('[GoogleCalendar] backend session sync failed after web exchange', error);
+    });
     return nextSession;
   }
 
@@ -309,6 +316,9 @@ export async function finalizeGoogleCalendarAuthCode(params: {
   );
 
   await saveGoogleCalendarSession(nextSession);
+  await syncGoogleCalendarSessionToBackend(nextSession).catch((error) => {
+    console.log('[GoogleCalendar] backend session sync failed after native exchange', error);
+  });
   return nextSession;
 }
 
@@ -734,6 +744,9 @@ export async function disconnectGoogleCalendarAccount() {
   }
 
   await clearGoogleCalendarSession();
+  await disconnectGoogleCalendarOnBackend().catch((error) => {
+    console.log('[GoogleCalendar] backend disconnect failed', error);
+  });
 
   return {
     success: true,

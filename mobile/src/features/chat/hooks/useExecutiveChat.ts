@@ -19,6 +19,10 @@ import {
 } from '@/src/features/agent/conversation/assistantTurnPipeline';
 import type { AssistantExecutionState } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import type { AssistantResponseMode } from '@/src/features/agent/factual/factualTimeGrounding';
+import {
+  runCalendarAuthAndResume,
+  type CalendarOperationalUxPhase,
+} from '@/src/features/agent/calendar/calendarOAuthExecutionService';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import { executiveChatThread } from '@/src/features/chat/data/chatSeed';
 import {
@@ -85,6 +89,9 @@ export function useExecutiveChat() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [voiceStatusLabel, setVoiceStatusLabel] = useState<string | null>(null);
   const [voiceStatusTone, setVoiceStatusTone] = useState<'neutral' | 'error'>('neutral');
+  const [calendarOperationalUx, setCalendarOperationalUx] = useState<CalendarOperationalUxPhase>('idle');
+  const [calendarOperationalLabel, setCalendarOperationalLabel] = useState<string | null>(null);
+  const [isCalendarOAuthInFlight, setIsCalendarOAuthInFlight] = useState(false);
   const hasHydratedMemoryRef = useRef(false);
   const hasReceivedStreamTokenRef = useRef(false);
   const voiceSessionRef = useRef<VoiceCaptureSession | null>(null);
@@ -252,6 +259,49 @@ export function useExecutiveChat() {
 
       if (turn.reply) {
         coordinator.touch(requestId);
+
+        if (turn.requiresCalendarAuth) {
+          setCalendarOperationalUx('auth_required');
+          setCalendarOperationalLabel(turn.reply);
+
+          if (Platform.OS === 'web') {
+            setIsCalendarOAuthInFlight(true);
+            const { connectGoogleCalendarAccount } = await import(
+              '@/src/features/agent/calendar/googleCalendarAuth'
+            );
+            void connectGoogleCalendarAccount();
+          } else {
+            setIsCalendarOAuthInFlight(true);
+            setCalendarOperationalUx('connecting');
+
+            const resumedReply = await runCalendarAuthAndResume(voiceLanguage);
+            setIsCalendarOAuthInFlight(false);
+
+            if (resumedReply) {
+              setCalendarOperationalUx('event_created');
+              setCalendarOperationalLabel(null);
+
+              return {
+                reply: resumedReply,
+                requestId,
+                route: turn.route,
+                executionState: 'tool_success',
+                responseMode: 'operational',
+              };
+            }
+
+            setCalendarOperationalUx('auth_required');
+          }
+
+          return {
+            reply: turn.reply,
+            requestId,
+            route: turn.route,
+            executionState: turn.executionState,
+            responseMode: turn.responseMode,
+          };
+        }
+
         return {
           reply: turn.reply,
           requestId,
@@ -595,6 +645,28 @@ export function useExecutiveChat() {
     };
   }, [messages]);
 
+  const connectGoogleCalendarForPendingAction = useCallback(async () => {
+    setIsCalendarOAuthInFlight(true);
+    setCalendarOperationalUx('connecting');
+
+    const resumedReply = await runCalendarAuthAndResume(voiceLanguage);
+    setIsCalendarOAuthInFlight(false);
+
+    if (!resumedReply) {
+      setCalendarOperationalUx('auth_required');
+      return null;
+    }
+
+    setCalendarOperationalUx('event_created');
+    setCalendarOperationalLabel(null);
+
+    const assistantMessage = createConversationMessage('assistant', resumedReply);
+    upsertAssistantMessage(assistantMessage.id, resumedReply);
+    await persistConversation();
+
+    return resumedReply;
+  }, [persistConversation, upsertAssistantMessage, voiceLanguage]);
+
   const resetChatHistory = useCallback(async () => {
     const active = assistantRequestCoordinatorRef.current.getActive();
 
@@ -635,5 +707,9 @@ export function useExecutiveChat() {
     voiceStatusTone,
     voiceLanguage,
     setVoiceLanguage,
+    calendarOperationalUx,
+    calendarOperationalLabel,
+    isCalendarOAuthInFlight,
+    connectGoogleCalendarForPendingAction,
   };
 }

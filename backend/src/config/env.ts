@@ -18,4 +18,5 @@ export const backendEnv = {
   APP_API_KEY: process.env.APP_API_KEY?.trim() ?? '',
   GOOGLE_CALENDAR_WEB_CLIENT_ID: process.env.GOOGLE_CALENDAR_WEB_CLIENT_ID?.trim() ?? '',
   GOOGLE_CALENDAR_WEB_CLIENT_SECRET: process.env.GOOGLE_CALENDAR_WEB_CLIENT_SECRET?.trim() ?? '',
+  BACKEND_SECRETS_KEY: process.env.BACKEND_SECRETS_KEY?.trim() ?? '',
 } as const;

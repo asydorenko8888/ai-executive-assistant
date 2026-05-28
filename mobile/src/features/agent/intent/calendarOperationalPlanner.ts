@@ -11,6 +11,7 @@ import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/o
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import type { ActionExecutionStatus } from '@/src/features/agent/execution/actionExecutionTypes';
+import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
 
 export type CalendarPlannerFailureReason =
   | 'not_calendar_write_intent'
@@ -29,6 +30,9 @@ export type CalendarOperationalPlannerResult = {
   scheduleLabel?: string | null;
   scheduleIso?: string | null;
   actionStatus: ActionExecutionStatus;
+  requiresCalendarAuth?: boolean;
+  operationalUxPhase?: CalendarOperationalUxPhase;
+  pendingActionId?: string;
 };
 
 export type CalendarOperationalPlannerParams = {
@@ -121,12 +125,15 @@ export async function executeCalendarOperationalPlanner(
     }
 
     return {
-      state,
+      state: execution.requiresCalendarAuth ? 'tool_call' : state,
       failureReason: mapErrorCodeToFailureReason(execution.result.errorCode),
       reply: execution.reply,
       scheduleLabel: null,
       scheduleIso: execution.scheduleIso ?? null,
       actionStatus: execution.result.status,
+      requiresCalendarAuth: execution.requiresCalendarAuth,
+      operationalUxPhase: execution.operationalUxPhase,
+      pendingActionId: execution.pendingActionId,
     };
   } catch (error) {
     logPlannerFailure('planner_exception', error);

@@ -4,6 +4,7 @@ import {
   detectHardOperationalIntent,
   type AssistantIntentAnalysis,
 } from '@/src/features/agent/intent/assistantIntentRouter';
+import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
 import { executeCalendarOperationalPlanner } from '@/src/features/agent/intent/calendarOperationalPlanner';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -19,6 +20,9 @@ export type OperationalIntentReplyParams = {
 export type OperationalIntentResult = {
   reply: string;
   executionState: AssistantExecutionState;
+  requiresCalendarAuth?: boolean;
+  operationalUxPhase?: CalendarOperationalUxPhase;
+  pendingActionId?: string;
 };
 
 function buildMessageDraftReply(params: OperationalIntentReplyParams) {
@@ -69,6 +73,9 @@ export async function tryBuildOperationalIntentReply(
     return {
       reply: plannerResult.reply,
       executionState: plannerResult.state,
+      requiresCalendarAuth: plannerResult.requiresCalendarAuth,
+      operationalUxPhase: plannerResult.operationalUxPhase,
+      pendingActionId: plannerResult.pendingActionId,
     };
   }
 

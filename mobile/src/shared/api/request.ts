@@ -3,6 +3,7 @@ import {
   ApiError,
   createApiErrorFromResponse,
 } from '@/src/shared/api/api-error';
+import { getExecutiveDeviceHeaders } from '@/src/shared/device/executiveDeviceSession';
 
 type Primitive = string | number | boolean;
 type QueryParams = Record<string, Primitive | null | undefined>;
@@ -59,11 +60,13 @@ export async function request<TResponse, TBody = unknown>({
   const timeoutId = setTimeout(() => controller.abort(), env.requestTimeoutMs);
 
   try {
+    const deviceHeaders = await getExecutiveDeviceHeaders();
     const response = await fetch(buildUrl(baseUrl, path, query), {
       method,
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
+        ...deviceHeaders,
         ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),

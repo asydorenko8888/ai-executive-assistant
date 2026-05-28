@@ -10,6 +10,7 @@ import {
 
 import { GlassCard } from '@/src/components/ui/GlassCard';
 import { ChatHeader } from '@/src/features/chat/components/ChatHeader';
+import { ChatCalendarAuthBanner } from '@/src/features/chat/components/ChatCalendarAuthBanner';
 import { ChatInputBar } from '@/src/features/chat/components/ChatInputBar';
 import { ChatMessageList } from '@/src/features/chat/components/ChatMessageList';
 import { useExecutiveChat } from '@/src/features/chat/hooks/useExecutiveChat';
@@ -37,6 +38,10 @@ export default function ChatScreen() {
     voiceStatusTone,
     voiceLanguage,
     setVoiceLanguage: setVoiceLanguageCode,
+    calendarOperationalUx,
+    calendarOperationalLabel,
+    isCalendarOAuthInFlight,
+    connectGoogleCalendarForPendingAction,
   } = useExecutiveChat();
 
   const handleHistoryResetRequest = () => {
@@ -88,6 +93,15 @@ export default function ChatScreen() {
             isStreaming={isStreamingAssistant}
           />
         </View>
+
+        <ChatCalendarAuthBanner
+          phase={calendarOperationalUx}
+          statusLabel={calendarOperationalLabel}
+          isConnecting={isCalendarOAuthInFlight}
+          onConnectPress={() => {
+            void connectGoogleCalendarForPendingAction();
+          }}
+        />
 
         {errorMessage ? (
           <ErrorState

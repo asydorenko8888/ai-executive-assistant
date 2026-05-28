@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { useRouter } from 'expo-router';
 
+import { appendResumedCalendarActionReply } from '@/src/features/agent/calendar/calendarAuthPostResume';
 import {
   completeGoogleCalendarWebOAuthRedirect,
   GOOGLE_CALENDAR_WEB_CALLBACK_PATH,
@@ -31,7 +32,8 @@ export default function GoogleCalendarCallbackScreen() {
         return;
       }
 
-      router.replace('/');
+      await appendResumedCalendarActionReply();
+      router.replace('/(tabs)/explore');
     })();
 
     return () => {

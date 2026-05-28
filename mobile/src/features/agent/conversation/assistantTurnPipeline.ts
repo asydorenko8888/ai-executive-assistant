@@ -21,6 +21,7 @@ import {
   isTemporalFactualQuery,
 } from '@/src/features/agent/factual/factualTimeGrounding';
 import { tryBuildFactualTimeReply } from '@/src/features/agent/factual/factualTimeReply';
+import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { tryBuildOperationalIntentReply } from '@/src/features/agent/intent/operationalIntentReply';
 import { guardAgainstRepeatedAssistantResponse, getLatestUserMessage } from '@/src/features/agent/conversation/assistantResponseGuard';
@@ -55,6 +56,9 @@ export type AssistantTurnResolution = {
   operationalStarted: boolean;
   responseMode: AssistantResponseMode;
   factualGroundingStatus: FactualGroundingStatus;
+  requiresCalendarAuth?: boolean;
+  operationalUxPhase?: CalendarOperationalUxPhase;
+  pendingActionId?: string;
 };
 
 export type ResolveAssistantTurnParams = {
@@ -320,6 +324,9 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       latestUserMessageId: userMessage?.id ?? null,
       executionState: operationalResult.executionState,
       operationalStarted: true,
+      requiresCalendarAuth: operationalResult.requiresCalendarAuth,
+      operationalUxPhase: operationalResult.operationalUxPhase,
+      pendingActionId: operationalResult.pendingActionId,
       ...modeDefaults,
     };
   }
