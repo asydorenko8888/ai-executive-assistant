@@ -37,6 +37,7 @@ export function buildCalendarToolReplyBundle(
     requiresCalendarAuth:
       tool.errorCode === 'CALENDAR_AUTH_REQUIRED' ||
       tool.errorCode === 'WRITE_SCOPE_MISSING' ||
+      tool.errorCode === 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED' ||
       tool.errorCode === 'GOOGLE_WRITE_PERMISSION_MISSING',
   };
 }

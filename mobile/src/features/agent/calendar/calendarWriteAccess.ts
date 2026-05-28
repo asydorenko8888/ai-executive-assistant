@@ -3,21 +3,26 @@ import {
   type GoogleCalendarBackendStatus,
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import { getGoogleCalendarConnection } from '@/src/features/agent/calendar/googleCalendarAuth';
+import {
+  scopesIncludeCalendarEventsWrite,
+  scopesIncludeCalendarWrite,
+} from '@/src/features/agent/calendar/googleCalendarScopes';
 import { loadGoogleCalendarSession, type GoogleCalendarSession } from '@/src/features/agent/calendar/googleCalendarStorage';
-
-const WRITE_SCOPE_MARKERS = [
-  'https://www.googleapis.com/auth/calendar.events',
-  'https://www.googleapis.com/auth/calendar',
-] as const;
 
 export function sessionHasCalendarWriteScope(session: GoogleCalendarSession | null) {
   if (!session) {
     return false;
   }
 
-  const joined = session.scopes.join(' ').toLowerCase();
+  return scopesIncludeCalendarWrite(session.scopes);
+}
 
-  return WRITE_SCOPE_MARKERS.some((scope) => joined.includes(scope));
+export function sessionHasCalendarEventsWriteScope(session: GoogleCalendarSession | null) {
+  if (!session) {
+    return false;
+  }
+
+  return scopesIncludeCalendarEventsWrite(session.scopes);
 }
 
 export type CalendarWriteAccessState = {
@@ -38,9 +43,10 @@ function mergeAccessState(
 ): CalendarWriteAccessState {
   const connected = Boolean(backend?.connected || localConnected);
   const backendScopes = backend?.scopes ?? localSession?.scopes ?? [];
-  const hasCalendarEventsScope = backendScopes.some((scope) =>
-    scope.includes('calendar.events'),
-  );
+  const hasCalendarEventsScope =
+    Boolean(backend?.hasCalendarEventsScope) ||
+    scopesIncludeCalendarEventsWrite(backendScopes) ||
+    sessionHasCalendarEventsWriteScope(localSession);
   const hasWriteAccess = Boolean(backend?.hasWriteAccess || localWrite);
   const writeEnabled = Boolean(backend?.writeEnabled ?? hasCalendarEventsScope);
 

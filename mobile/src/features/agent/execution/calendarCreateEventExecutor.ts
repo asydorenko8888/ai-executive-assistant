@@ -128,7 +128,7 @@ export async function executeCalendarCreateEvent(
   if (!access.writeEnabled) {
     const tool = createCalendarToolFailure(
       'WRITE_SCOPE_MISSING',
-      'WRITE_SCOPE_MISSING: https://www.googleapis.com/auth/calendar.events',
+      'WRITE_SCOPE_MISSING: reconnect Google Calendar and grant event write access (calendar.events).',
     );
     endCalendarOperation({ failed: true });
     return finalizeOutcome(buildCalendarToolReplyBundle(tool, params.languageCode), payloadResult.scheduleIso);

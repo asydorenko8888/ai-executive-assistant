@@ -68,10 +68,20 @@ export async function createGoogleCalendarEvent(
       return createCalendarToolFailure('GOOGLE_CALENDAR_NOT_CONNECTED', 'Google Calendar is not connected.');
     }
 
-    if (code === 'WRITE_SCOPE_MISSING' || apiError?.status === 403 || code === 'calendar_write_forbidden') {
+    if (
+      code === 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED' ||
+      code === 'WRITE_SCOPE_MISSING' ||
+      apiError?.status === 403 ||
+      code === 'calendar_write_forbidden'
+    ) {
+      const detail =
+        code === 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED'
+          ? apiError?.message || 'Google Calendar write permission was not granted.'
+          : 'WRITE_SCOPE_MISSING: https://www.googleapis.com/auth/calendar.events';
+
       return createCalendarToolFailure(
-        'WRITE_SCOPE_MISSING',
-        'WRITE_SCOPE_MISSING: https://www.googleapis.com/auth/calendar.events',
+        code === 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED' ? 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED' : 'WRITE_SCOPE_MISSING',
+        detail,
       );
     }
 

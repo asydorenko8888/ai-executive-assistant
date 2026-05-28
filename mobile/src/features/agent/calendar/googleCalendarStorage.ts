@@ -2,9 +2,10 @@ import { Platform } from 'react-native';
 
 import * as SecureStore from 'expo-secure-store';
 
+import { scopesIncludeCalendarEventsWrite } from '@/src/features/agent/calendar/googleCalendarScopes';
 import { getStoredJson, removeStoredItem, setStoredJson } from '@/src/shared/storage';
 
-const GOOGLE_CALENDAR_SESSION_STORAGE_KEY = 'executive-ai.google-calendar.session.v1';
+const GOOGLE_CALENDAR_SESSION_STORAGE_KEY = 'executive-ai.google-calendar.session.v2';
 
 export type GoogleCalendarSession = {
   accessToken: string;
@@ -84,6 +85,15 @@ export async function loadGoogleCalendarSession() {
       platform: Platform.OS,
       storageKey: GOOGLE_CALENDAR_SESSION_STORAGE_KEY,
     });
+    return null;
+  }
+
+  if (!scopesIncludeCalendarEventsWrite(storedSession.scopes)) {
+    console.log('[Calendar Audit] loadGoogleCalendarSession — stale session missing calendar.events; clearing', {
+      platform: Platform.OS,
+      scopes: storedSession.scopes,
+    });
+    await clearGoogleCalendarSession();
     return null;
   }
 

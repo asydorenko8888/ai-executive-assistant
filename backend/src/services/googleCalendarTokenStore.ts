@@ -1,4 +1,10 @@
 import {
+  CALENDAR_EVENTS_WRITE_SCOPE,
+  CALENDAR_FULL_SCOPE,
+  DEFAULT_GOOGLE_CALENDAR_SCOPES,
+  scopesIncludeCalendarEventsWrite as scopesIncludeCalendarEventsWriteFromModule,
+} from './googleCalendarScopes.js';
+import {
   deleteSecurePayload,
   readSecurePayload,
   writeSecurePayload,
@@ -7,8 +13,11 @@ import { refreshGoogleCalendarAccessToken } from './googleOAuthService.js';
 
 const TOKEN_NAMESPACE = 'google-calendar-tokens';
 
-export const CALENDAR_EVENTS_WRITE_SCOPE = 'https://www.googleapis.com/auth/calendar.events';
-export const CALENDAR_FULL_SCOPE = 'https://www.googleapis.com/auth/calendar';
+export { CALENDAR_EVENTS_WRITE_SCOPE, CALENDAR_FULL_SCOPE } from './googleCalendarScopes.js';
+
+export function scopesIncludeCalendarEventsWrite(scopes: string[]) {
+  return scopesIncludeCalendarEventsWriteFromModule(scopes);
+}
 
 export type StoredGoogleCalendarTokens = {
   accessToken: string;
@@ -19,12 +28,6 @@ export type StoredGoogleCalendarTokens = {
   expiresAt: string;
   updatedAt: string;
 };
-
-export function scopesIncludeCalendarEventsWrite(scopes: string[]) {
-  const joined = scopes.join(' ').toLowerCase();
-
-  return joined.includes(CALENDAR_EVENTS_WRITE_SCOPE.toLowerCase());
-}
 
 /** Legacy full calendar scope also grants write. */
 export function scopesIncludeCalendarWrite(scopes: string[]) {
@@ -166,8 +169,8 @@ export function buildStoredTokensFromOAuthResult(params: {
 }) {
   const scopes =
     typeof params.scope === 'string' && params.scope.trim()
-      ? params.scope.split(' ')
-      : [CALENDAR_EVENTS_WRITE_SCOPE, CALENDAR_FULL_SCOPE];
+      ? params.scope.split(/\s+/).filter(Boolean)
+      : [...DEFAULT_GOOGLE_CALENDAR_SCOPES];
 
   return {
     accessToken: params.accessToken,

@@ -3,6 +3,11 @@ import { Router } from 'express';
 
 import { readExecutiveDeviceId } from '../lib/executiveDeviceId.js';
 import { getGoogleCalendarDebugSnapshot } from '../services/googleCalendarDebug.js';
+import {
+  GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+  resolveGrantedScopes,
+  scopesIncludeCalendarEventsWrite,
+} from '../services/googleCalendarScopes.js';
 import { createGoogleCalendarEventForDevice, runGoogleCalendarTestInsert } from '../services/googleCalendarEventService.js';
 import {
   buildStoredTokensFromOAuthResult,
@@ -292,14 +297,39 @@ googleCalendarRouter.post('/google-calendar/exchange', async (request, response)
 
   try {
     const tokenResult = await exchangeGoogleCalendarCode(parsedRequest);
+    const grantedScopes = await resolveGrantedScopes(tokenResult.accessToken, tokenResult.scope);
+    const hasCalendarEventsScope = scopesIncludeCalendarEventsWrite(grantedScopes);
+
+    if (!hasCalendarEventsScope) {
+      if (deviceId) {
+        await clearGoogleCalendarTokens(deviceId);
+      }
+
+      console.log('[GoogleCalendar] exchange rejected — calendar.events scope missing', {
+        deviceId: deviceId?.slice(0, 8) ?? null,
+        grantedScopes,
+      });
+
+      return response.status(403).json({
+        message: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+        code: 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED',
+        scopes: grantedScopes,
+        hasCalendarEventsScope: false,
+      });
+    }
 
     if (deviceId) {
-      const stored = buildStoredTokensFromOAuthResult(tokenResult);
+      const stored = buildStoredTokensFromOAuthResult({
+        ...tokenResult,
+        scope: grantedScopes.join(' '),
+      });
       await saveGoogleCalendarTokens(deviceId, stored);
       console.log('[GoogleCalendar] tokens stored after exchange', {
         deviceId: deviceId.slice(0, 8),
         hasWriteAccess: scopesIncludeCalendarWrite(stored.scopes),
+        hasCalendarEventsScope,
         connectedEmail: stored.connectedEmail ?? null,
+        scopes: stored.scopes,
       });
     }
 
@@ -307,12 +337,11 @@ googleCalendarRouter.post('/google-calendar/exchange', async (request, response)
       accessToken: tokenResult.accessToken,
       refreshToken: tokenResult.refreshToken,
       tokenType: tokenResult.tokenType,
-      scope: tokenResult.scope,
+      scope: grantedScopes.join(' '),
       expiresIn: tokenResult.expiresIn,
       connectedEmail: tokenResult.connectedEmail,
-      hasWriteAccess: scopesIncludeCalendarWrite(
-        typeof tokenResult.scope === 'string' ? tokenResult.scope.split(' ') : [],
-      ),
+      hasWriteAccess: scopesIncludeCalendarWrite(grantedScopes),
+      hasCalendarEventsScope,
       storedOnBackend: Boolean(deviceId),
     });
   } catch (error) {
@@ -338,7 +367,16 @@ googleCalendarRouter.post('/google-calendar/session', async (request, response) 
 
   const scopes =
     parsedRequest.scopes ??
-    (parsedRequest.scope ? parsedRequest.scope.split(' ') : ['https://www.googleapis.com/auth/calendar']);
+    (parsedRequest.scope ? parsedRequest.scope.split(/\s+/).filter(Boolean) : []);
+
+  if (!scopesIncludeCalendarEventsWrite(scopes)) {
+    return response.status(403).json({
+      message: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+      code: 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED',
+      scopes,
+      hasCalendarEventsScope: false,
+    });
+  }
 
   const stored = await saveGoogleCalendarTokens(deviceId, {
     accessToken: parsedRequest.accessToken,

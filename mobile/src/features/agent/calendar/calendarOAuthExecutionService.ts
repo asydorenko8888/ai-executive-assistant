@@ -1,6 +1,7 @@
 import {
   connectGoogleCalendarAccount,
   getGoogleCalendarConnection,
+  GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
 } from '@/src/features/agent/calendar/googleCalendarAuth';
 import {
   resumeGoogleCalendarPendingActions,
@@ -100,11 +101,23 @@ export async function launchGoogleCalendarOAuthForExecution() {
     hasWriteAccess: access.hasWriteAccess,
   });
 
+  if (!access.writeEnabled) {
+    return {
+      success: false as const,
+      cancelled: false,
+      errorMessage: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+      writeScopeGranted: false,
+      connection: await getGoogleCalendarConnection(),
+      hasWriteAccess: false,
+    };
+  }
+
   return {
-    success: access.connected && access.hasWriteAccess,
+    success: access.connected && access.writeEnabled,
     cancelled: false,
     connection: await getGoogleCalendarConnection(),
-    hasWriteAccess: access.hasWriteAccess,
+    hasWriteAccess: access.writeEnabled,
+    writeScopeGranted: true,
   };
 }
 

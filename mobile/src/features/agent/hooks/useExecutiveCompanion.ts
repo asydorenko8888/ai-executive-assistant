@@ -11,12 +11,13 @@ import {
   connectGoogleCalendarAccount,
   disconnectGoogleCalendarAccount,
   extractGoogleCalendarAuthorizationCode,
-  GOOGLE_CALENDAR_DISCOVERY_ISSUER,
-  isLikelyPopupBlockedError,
   finalizeGoogleCalendarAuthCode,
   getGoogleCalendarClientId,
   getGoogleCalendarRedirectUri,
-  googleCalendarScopes,
+  GOOGLE_CALENDAR_DISCOVERY_ISSUER,
+  GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+  googleCalendarOAuthScopes,
+  isLikelyPopupBlockedError,
   startGoogleCalendarWebRedirectFallback,
 } from '@/src/features/agent/calendar';
 import { loadExecutiveCompanionHomeData } from '@/src/features/agent/services/dailySummaryService';
@@ -61,14 +62,14 @@ export function useExecutiveCompanion() {
   const googleCalendarAuthRequestConfig = useMemo(
     () => ({
       clientId: googleCalendarClientId || 'missing-google-calendar-client-id',
-      scopes: [...googleCalendarScopes],
+      scopes: [...googleCalendarOAuthScopes],
       redirectUri: googleCalendarRedirectUri,
       responseType: AuthSession.ResponseType.Code,
       usePKCE: true,
       extraParams: {
         access_type: 'offline',
         include_granted_scopes: 'true',
-        prompt: 'consent',
+        prompt: 'consent select_account',
       },
     }),
     [googleCalendarClientId, googleCalendarRedirectUri],
@@ -177,6 +178,17 @@ export function useExecutiveCompanion() {
         return response;
       } catch (exchangeError) {
         console.log('[Calendar] Exchange error', exchangeError);
+
+        if (
+          exchangeError instanceof Error &&
+          exchangeError.message === GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE
+        ) {
+          return {
+            type: 'error' as const,
+            error: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+          };
+        }
+
         throw exchangeError;
       } finally {
         setIsCalendarSubmitting(false);

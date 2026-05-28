@@ -5,6 +5,13 @@ import * as WebBrowser from 'expo-web-browser';
 
 import type { CalendarConnection } from '@/src/entities/calendar/types';
 import {
+  assertCalendarEventsWriteScopeGranted,
+  GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+  googleCalendarOAuthScopes,
+  resolveGrantedScopes,
+  scopesIncludeCalendarEventsWrite,
+} from '@/src/features/agent/calendar/googleCalendarScopes';
+import {
   clearGoogleCalendarSession,
   loadGoogleCalendarSession,
   saveGoogleCalendarSession,
@@ -22,13 +29,17 @@ WebBrowser.maybeCompleteAuthSession();
 export const GOOGLE_CALENDAR_DISCOVERY_ISSUER = 'https://accounts.google.com';
 export const GOOGLE_CALENDAR_WEB_CALLBACK_PATH = 'google-calendar-callback';
 
-export const googleCalendarScopes = [
-  'openid',
-  'profile',
-  'email',
-  'https://www.googleapis.com/auth/calendar',
-  'https://www.googleapis.com/auth/calendar.events',
-] as const;
+export {
+  CALENDAR_EVENTS_WRITE_SCOPE,
+  CALENDAR_FULL_SCOPE,
+  GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+  googleCalendarOAuthScopes,
+  scopesIncludeCalendarEventsWrite,
+  scopesIncludeCalendarWrite,
+} from '@/src/features/agent/calendar/googleCalendarScopes';
+
+/** @deprecated Import {@link googleCalendarOAuthScopes} from `googleCalendarScopes`. */
+export { googleCalendarOAuthScopes as googleCalendarScopes } from '@/src/features/agent/calendar/googleCalendarScopes';
 
 const GOOGLE_CALENDAR_WEB_PENDING_AUTH_STORAGE_KEY =
   'executive-ai.google-calendar.pending-web-auth.v1';
@@ -50,6 +61,7 @@ type GoogleCalendarBackendTokenResponse = {
   scope?: string;
   expiresIn?: number;
   connectedEmail?: string;
+  hasCalendarEventsScope?: boolean;
 };
 
 type GoogleCalendarOAuthResultLike = {
@@ -213,43 +225,26 @@ async function fetchGoogleProfile(accessToken: string) {
   return payload.email?.trim() || undefined;
 }
 
-function normalizeGoogleCalendarTokenResponseToSession(
-  tokenResponse: AuthSession.TokenResponse,
-  connectedEmail?: string,
-): GoogleCalendarSession {
-  return {
-    accessToken: tokenResponse.accessToken,
-    refreshToken: tokenResponse.refreshToken ?? undefined,
-    tokenType: tokenResponse.tokenType ?? undefined,
-    scopes:
-      typeof tokenResponse.scope === 'string' && tokenResponse.scope.trim()
-        ? tokenResponse.scope.split(' ')
-        : [...googleCalendarScopes],
-    connectedEmail,
-    connectedAt: new Date().toISOString(),
-    expiresAt:
-      typeof tokenResponse.expiresIn === 'number'
-        ? new Date(Date.now() + tokenResponse.expiresIn * 1000).toISOString()
-        : undefined,
-  };
-}
+async function buildGoogleCalendarSessionFromTokens(params: {
+  accessToken: string;
+  refreshToken?: string;
+  tokenType?: string;
+  scope?: string;
+  expiresIn?: number;
+  connectedEmail?: string;
+}): Promise<GoogleCalendarSession> {
+  const scopes = await assertCalendarEventsWriteScopeGranted(params.accessToken, params.scope);
 
-function normalizeGoogleCalendarBackendTokenResponseToSession(
-  tokenResponse: GoogleCalendarBackendTokenResponse,
-): GoogleCalendarSession {
   return {
-    accessToken: tokenResponse.accessToken,
-    refreshToken: tokenResponse.refreshToken ?? undefined,
-    tokenType: tokenResponse.tokenType ?? undefined,
-    scopes:
-      typeof tokenResponse.scope === 'string' && tokenResponse.scope.trim()
-        ? tokenResponse.scope.split(' ')
-        : [...googleCalendarScopes],
-    connectedEmail: tokenResponse.connectedEmail,
+    accessToken: params.accessToken,
+    refreshToken: params.refreshToken,
+    tokenType: params.tokenType,
+    scopes,
+    connectedEmail: params.connectedEmail,
     connectedAt: new Date().toISOString(),
     expiresAt:
-      typeof tokenResponse.expiresIn === 'number'
-        ? new Date(Date.now() + tokenResponse.expiresIn * 1000).toISOString()
+      typeof params.expiresIn === 'number'
+        ? new Date(Date.now() + params.expiresIn * 1000).toISOString()
         : undefined,
   };
 }
@@ -274,6 +269,13 @@ async function refreshGoogleCalendarTokenOnBackend(params: {
   });
 }
 
+async function clearGoogleCalendarAuthState() {
+  await clearGoogleCalendarSession();
+  await disconnectGoogleCalendarOnBackend().catch((error) => {
+    console.log('[GoogleCalendar] backend disconnect during auth reset failed', error);
+  });
+}
+
 export async function finalizeGoogleCalendarAuthCode(params: {
   clientId: string;
   code: string;
@@ -286,12 +288,31 @@ export async function finalizeGoogleCalendarAuthCode(params: {
       redirectUri: params.redirectUri,
       codeVerifier: params.codeVerifier,
     });
-    const nextSession = normalizeGoogleCalendarBackendTokenResponseToSession(tokenResponse);
+
+    if (tokenResponse.hasCalendarEventsScope === false) {
+      await clearGoogleCalendarAuthState();
+      throw new Error(GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE);
+    }
+
+    const nextSession = await buildGoogleCalendarSessionFromTokens({
+      accessToken: tokenResponse.accessToken,
+      refreshToken: tokenResponse.refreshToken,
+      tokenType: tokenResponse.tokenType,
+      scope: tokenResponse.scope,
+      expiresIn: tokenResponse.expiresIn,
+      connectedEmail: tokenResponse.connectedEmail,
+    });
 
     await saveGoogleCalendarSession(nextSession);
     await syncGoogleCalendarSessionToBackend(nextSession).catch((error) => {
       console.log('[GoogleCalendar] backend session sync failed after web exchange', error);
     });
+
+    console.log('[Calendar] OAuth granted scopes verified', {
+      scopes: nextSession.scopes,
+      hasCalendarEventsScope: scopesIncludeCalendarEventsWrite(nextSession.scopes),
+    });
+
     return nextSession;
   }
 
@@ -310,15 +331,25 @@ export async function finalizeGoogleCalendarAuthCode(params: {
   const connectedEmail = tokenResponse.accessToken
     ? await fetchGoogleProfile(tokenResponse.accessToken)
     : undefined;
-  const nextSession = normalizeGoogleCalendarTokenResponseToSession(
-    tokenResponse,
+  const nextSession = await buildGoogleCalendarSessionFromTokens({
+    accessToken: tokenResponse.accessToken,
+    refreshToken: tokenResponse.refreshToken ?? undefined,
+    tokenType: tokenResponse.tokenType ?? undefined,
+    scope: tokenResponse.scope,
+    expiresIn: tokenResponse.expiresIn,
     connectedEmail,
-  );
+  });
 
   await saveGoogleCalendarSession(nextSession);
   await syncGoogleCalendarSessionToBackend(nextSession).catch((error) => {
     console.log('[GoogleCalendar] backend session sync failed after native exchange', error);
   });
+
+  console.log('[Calendar] OAuth granted scopes verified', {
+    scopes: nextSession.scopes,
+    hasCalendarEventsScope: scopesIncludeCalendarEventsWrite(nextSession.scopes),
+  });
+
   return nextSession;
 }
 
@@ -357,15 +388,22 @@ async function refreshGoogleCalendarSession(session: GoogleCalendarSession) {
       const refreshedSession = await refreshGoogleCalendarTokenOnBackend({
         refreshToken: session.refreshToken,
       });
+      const scopes = await resolveGrantedScopes(
+        refreshedSession.accessToken,
+        refreshedSession.scope,
+      );
+
+      if (!scopesIncludeCalendarEventsWrite(scopes)) {
+        await clearGoogleCalendarAuthState();
+        return session;
+      }
+
       const nextSession: GoogleCalendarSession = {
         ...session,
         accessToken: refreshedSession.accessToken,
         refreshToken: refreshedSession.refreshToken ?? session.refreshToken,
         tokenType: refreshedSession.tokenType ?? session.tokenType,
-        scopes:
-          typeof refreshedSession.scope === 'string' && refreshedSession.scope.trim()
-            ? refreshedSession.scope.split(' ')
-            : session.scopes,
+        scopes,
         connectedEmail: refreshedSession.connectedEmail ?? session.connectedEmail,
         expiresAt:
           typeof refreshedSession.expiresIn === 'number'
@@ -386,11 +424,22 @@ async function refreshGoogleCalendarSession(session: GoogleCalendarSession) {
       discovery,
     );
 
+    const scopes = await resolveGrantedScopes(
+      refreshedSession.accessToken,
+      refreshedSession.scope,
+    );
+
+    if (!scopesIncludeCalendarEventsWrite(scopes)) {
+      await clearGoogleCalendarAuthState();
+      return session;
+    }
+
     const nextSession: GoogleCalendarSession = {
       ...session,
       accessToken: refreshedSession.accessToken,
       refreshToken: refreshedSession.refreshToken ?? session.refreshToken,
       tokenType: refreshedSession.tokenType,
+      scopes,
       expiresAt:
         typeof refreshedSession.expiresIn === 'number'
           ? new Date(Date.now() + refreshedSession.expiresIn * 1000).toISOString()
@@ -463,6 +512,14 @@ async function resolveGoogleCalendarWebRedirectIfNeeded() {
     } catch (oauthError) {
       console.log('[Calendar] Exchange error', oauthError);
       console.log('[Calendar] OAuth error', oauthError);
+
+      if (
+        oauthError instanceof Error &&
+        oauthError.message === GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE
+      ) {
+        throw oauthError;
+      }
+
       return null;
     } finally {
       clearPendingGoogleCalendarWebAuth();
@@ -488,10 +545,24 @@ export async function completeGoogleCalendarWebOAuthRedirect(): Promise<{
   success: boolean;
   errorMessage?: string;
 }> {
-  const session = await resolveGoogleCalendarWebRedirectIfNeeded();
+  try {
+    const session = await resolveGoogleCalendarWebRedirectIfNeeded();
 
-  if (session) {
-    return { success: true };
+    if (session) {
+      return { success: true };
+    }
+  } catch (oauthError) {
+    if (
+      oauthError instanceof Error &&
+      oauthError.message === GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE
+    ) {
+      return {
+        success: false,
+        errorMessage: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+      };
+    }
+
+    throw oauthError;
   }
 
   if (Platform.OS !== 'web' || typeof window === 'undefined') {
@@ -504,7 +575,10 @@ export async function completeGoogleCalendarWebOAuthRedirect(): Promise<{
   if (oauthError) {
     return {
       success: false,
-      errorMessage: oauthError,
+      errorMessage:
+        oauthError === 'access_denied'
+          ? GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE
+          : oauthError,
     };
   }
 
@@ -634,6 +708,9 @@ export async function getActiveGoogleCalendarSession() {
 }
 
 export async function connectGoogleCalendarAccount() {
+  console.log('[Calendar] Clearing stored Google Calendar session before OAuth');
+  await disconnectGoogleCalendarAccount();
+
   const clientId = resolveGoogleCalendarClientId();
 
   if (!clientId) {
@@ -650,14 +727,14 @@ export async function connectGoogleCalendarAccount() {
   const redirectUri = buildGoogleCalendarRedirectUri();
   const authRequest = new AuthSession.AuthRequest({
     clientId,
-    scopes: [...googleCalendarScopes],
+    scopes: [...googleCalendarOAuthScopes],
     redirectUri,
     responseType: AuthSession.ResponseType.Code,
     usePKCE: true,
     extraParams: {
       access_type: 'offline',
       include_granted_scopes: 'true',
-      prompt: 'consent',
+      prompt: 'consent select_account',
     },
   });
 
@@ -705,9 +782,22 @@ export async function connectGoogleCalendarAccount() {
     return {
       success: true,
       connection: buildConnectionFromSession(nextSession),
+      writeScopeGranted: scopesIncludeCalendarEventsWrite(nextSession.scopes),
     };
   } catch (oauthError) {
     console.log('[Calendar] OAuth error', oauthError);
+
+    if (
+      oauthError instanceof Error &&
+      oauthError.message === GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE
+    ) {
+      return {
+        success: false,
+        connection: await getGoogleCalendarConnection(),
+        errorMessage: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+        writeScopeGranted: false,
+      };
+    }
 
     if (Platform.OS === 'web' && isLikelyPopupBlockedError(oauthError)) {
       return startGoogleCalendarWebRedirectFallback(authRequest, clientId, redirectUri);
