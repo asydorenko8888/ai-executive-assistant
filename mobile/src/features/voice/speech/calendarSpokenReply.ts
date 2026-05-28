@@ -7,6 +7,8 @@ import {
 import { getMinutesUntilEvent, parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
 import type { VoiceLanguageChatLocale, VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import type { VoiceSessionContext } from '@/src/features/voice/memory/voiceSessionMemory';
+import { enrichTranscriptWithSessionContext } from '@/src/features/voice/memory/voiceSessionMemory';
 import { buildDetailedLunchTimeSpeech } from '@/src/features/voice/speech/calendarLunchTimeSpeech';
 import { buildSituationalSpeechDraft } from '@/src/features/voice/speech/calendarSituationalSpeech';
 import {
@@ -225,14 +227,20 @@ export function tryBuildSpokenCalendarReply(params: {
   visibleEvents: CalendarEvent[];
   languageCode: VoiceLanguageCode;
   referenceNow: Date;
+  sessionContext?: VoiceSessionContext | null;
 }): SpokenCalendarReplyResult | null {
-  if (!isCalendarAwareQuestion(params.transcript)) {
+  const contextualTranscript = enrichTranscriptWithSessionContext(
+    params.transcript,
+    params.sessionContext,
+  );
+
+  if (!isCalendarAwareQuestion(contextualTranscript) && !isCalendarAwareQuestion(params.transcript)) {
     return null;
   }
 
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
   const situation = analyzeCalendarSituation({
-    transcript: params.transcript,
+    transcript: contextualTranscript,
     visibleEvents: params.visibleEvents,
     referenceNow: params.referenceNow,
   });
@@ -299,6 +307,7 @@ export function tryBuildHumanizedCalendarReply(params: {
   visibleEvents: CalendarEvent[];
   languageCode: VoiceLanguageCode;
   referenceNow: Date;
+  sessionContext?: VoiceSessionContext | null;
 }): HumanizedCalendarReplyResult | null {
   const spoken = tryBuildSpokenCalendarReply(params);
 
@@ -328,6 +337,7 @@ export function buildHumanizedCalendarGuidanceLine(params: {
   languageCode: VoiceLanguageCode;
   referenceNow: Date;
   transcript?: string;
+  sessionContext?: VoiceSessionContext | null;
 }): string {
   if (params.visibleEvents.length === 0) {
     return '';
@@ -335,7 +345,10 @@ export function buildHumanizedCalendarGuidanceLine(params: {
 
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
   const situation = analyzeCalendarSituation({
-    transcript: params.transcript ?? 'What is on my schedule?',
+    transcript: enrichTranscriptWithSessionContext(
+      params.transcript ?? 'What is on my schedule?',
+      params.sessionContext,
+    ),
     visibleEvents: params.visibleEvents,
     referenceNow: params.referenceNow,
   });
