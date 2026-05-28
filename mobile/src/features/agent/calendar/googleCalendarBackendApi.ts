@@ -111,6 +111,30 @@ export async function createGoogleCalendarEventOnBackend(payload: CalendarCreate
   });
 }
 
+export async function fetchGoogleCalendarEventsFromBackend(params: {
+  timeMin: string;
+  timeMax: string;
+}) {
+  const query = new URLSearchParams({
+    timeMin: params.timeMin,
+    timeMax: params.timeMax,
+  });
+
+  return apiClient.get<{
+    events: GoogleCalendarBackendEvent[];
+  }>({
+    path: `/google-calendar/events?${query.toString()}`,
+  });
+}
+
+export async function fetchGoogleCalendarEventByIdFromBackend(eventId: string) {
+  return apiClient.get<{
+    event: GoogleCalendarBackendEvent;
+  }>({
+    path: `/google-calendar/events/${encodeURIComponent(eventId)}`,
+  });
+}
+
 export async function enqueueCalendarCreatePendingAction(params: {
   payload: CalendarCreateEventPayload;
   transcript: string;

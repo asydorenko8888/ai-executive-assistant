@@ -6,4 +6,8 @@ export async function refreshHomeBriefing(queryClient: QueryClient) {
   await queryClient.invalidateQueries({
     queryKey: queryKeys.agent.homePreview(),
   });
+
+  await queryClient.refetchQueries({
+    queryKey: queryKeys.agent.homePreview(),
+  });
 }

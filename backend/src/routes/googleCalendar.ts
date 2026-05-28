@@ -10,6 +10,10 @@ import {
 } from '../services/googleCalendarScopes.js';
 import { createGoogleCalendarEventForDevice, runGoogleCalendarTestInsert } from '../services/googleCalendarEventService.js';
 import {
+  getGoogleCalendarEventForDevice,
+  listGoogleCalendarEventsForDevice,
+} from '../services/googleCalendarEventsQueryService.js';
+import {
   buildStoredTokensFromOAuthResult,
   clearGoogleCalendarTokens,
   getGoogleCalendarConnectionStatus,
@@ -243,6 +247,67 @@ googleCalendarRouter.get('/google-calendar/debug', async (request, response) => 
   const debug = await getGoogleCalendarDebugSnapshot(deviceId);
 
   return response.status(200).json(debug);
+});
+
+googleCalendarRouter.get('/google-calendar/events', async (request, response) => {
+  const deviceId = requireDeviceId(request, response);
+
+  if (!deviceId) {
+    return;
+  }
+
+  const timeMin = typeof request.query.timeMin === 'string' ? request.query.timeMin : null;
+  const timeMax = typeof request.query.timeMax === 'string' ? request.query.timeMax : null;
+
+  if (!timeMin || !timeMax) {
+    return response.status(400).json({
+      message: 'timeMin and timeMax query parameters are required.',
+      code: 'GOOGLE_CALENDAR_EVENTS_QUERY_INVALID',
+    });
+  }
+
+  const result = await listGoogleCalendarEventsForDevice(deviceId, { timeMin, timeMax });
+
+  if (!result.ok) {
+    return response.status(result.errorCode === 'calendar_not_connected' ? 401 : 502).json({
+      message: result.message,
+      code: result.errorCode,
+    });
+  }
+
+  return response.status(200).json({
+    events: result.events,
+  });
+});
+
+googleCalendarRouter.get('/google-calendar/events/:eventId', async (request, response) => {
+  const deviceId = requireDeviceId(request, response);
+
+  if (!deviceId) {
+    return;
+  }
+
+  const eventId = request.params.eventId?.trim();
+
+  if (!eventId) {
+    return response.status(400).json({
+      message: 'eventId is required.',
+      code: 'GOOGLE_CALENDAR_EVENT_ID_INVALID',
+    });
+  }
+
+  const result = await getGoogleCalendarEventForDevice(deviceId, eventId);
+
+  if (!result.ok) {
+    return response.status(result.errorCode === 'calendar_not_connected' ? 401 : 404).json({
+      message: result.message,
+      code: result.errorCode,
+    });
+  }
+
+  return response.status(200).json({
+    event: result.event,
+  });
 });
 
 googleCalendarRouter.post('/google-calendar/debug/test-insert', async (request, response) => {

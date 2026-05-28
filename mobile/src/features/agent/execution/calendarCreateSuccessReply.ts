@@ -3,24 +3,6 @@ import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreate
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 
-function formatTitleInSentence(summary: string, locale: 'uk' | 'ru' | 'en') {
-  const trimmed = summary.trim();
-
-  if (!trimmed) {
-    if (locale === 'uk') {
-      return 'подію';
-    }
-
-    if (locale === 'ru') {
-      return 'событие';
-    }
-
-    return 'the event';
-  }
-
-  return trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
-}
-
 function isSameCalendarDay(left: Date, right: Date) {
   return (
     left.getFullYear() === right.getFullYear() &&
@@ -129,23 +111,24 @@ export function buildNaturalCalendarCreateSuccessReply(params: {
   const referenceNow = params.referenceNow ?? new Date();
   const startMs = Date.parse(params.event.startsAt);
   const start = Number.isNaN(startMs) ? referenceNow : new Date(startMs);
-  const title = formatTitleInSentence(params.event.summary, locale);
+  const exactTitle = params.event.summary.trim();
   const dayPhrase = formatDayPhrase(start, referenceNow, locale);
   const timePhrase = formatTimePhrase(start, locale);
+  const scheduleLabel = `${dayPhrase}, ${timePhrase}`;
 
   let reply = '';
 
   if (locale === 'uk') {
-    reply = `Готово. Я додав ${title} ${dayPhrase} на ${timePhrase}.`;
+    reply = `Готово. Я додав: ${exactTitle} — ${scheduleLabel}.`;
   } else if (locale === 'ru') {
-    reply = `Готово. Я добавил ${title} ${dayPhrase} на ${timePhrase}.`;
+    reply = `Готово. Я добавил: ${exactTitle} — ${scheduleLabel}.`;
   } else {
-    reply = `Done. I added ${title} ${dayPhrase} at ${timePhrase}.`;
+    reply = `Done. I added: ${exactTitle} — ${scheduleLabel}.`;
   }
 
   logCalendarCreate('success reply', {
     eventId: params.event.id,
-    summary: params.event.summary,
+    summary: exactTitle,
     startsAt: params.event.startsAt,
     reply,
   });

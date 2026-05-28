@@ -120,6 +120,20 @@ export function getLocalDayBounds(referenceDate: Date) {
   };
 }
 
+/** Today through the next 14 days — used for Home / briefing calendar reads. */
+export function getCalendarAgendaWindow(referenceDate: Date) {
+  const dayStart = getLocalStartOfDay(referenceDate);
+  const horizonEnd = new Date(dayStart);
+  horizonEnd.setDate(horizonEnd.getDate() + 14);
+
+  return {
+    dayStart,
+    horizonEnd,
+    timeMin: formatLocalRfc3339(dayStart),
+    timeMax: formatLocalRfc3339(horizonEnd),
+  };
+}
+
 export function minutesBetweenTimestamps(startTimestamp: number, endTimestamp: number) {
   return Math.max(0, Math.round((endTimestamp - startTimestamp) / 60000));
 }

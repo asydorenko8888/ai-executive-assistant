@@ -1,7 +1,8 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import type { AgendaItem } from '@/src/entities/home/types';
 import { formatLocationShort } from '@/src/features/agent/calendar/calendarLocation';
-import { formatTimeInLocalTimezone } from '@/src/features/agent/calendar/calendarTime';
+import { getEventStartTimestamp } from '@/src/features/agent/calendar/calendarSchedule';
+import { formatTimeInLocalTimezone, getLocalEndOfDay } from '@/src/features/agent/calendar/calendarTime';
 import { filterVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarVisibleEvents';
 
 export { filterVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarVisibleEvents';
@@ -35,6 +36,21 @@ export function mapCalendarEventsToAgenda(
 export function formatEventsTodayLabel(eventCount: number): string {
   const safeCount = Math.max(0, eventCount);
   return `${safeCount} event${safeCount === 1 ? '' : 's'} today`;
+}
+
+export function countUpcomingEventsToday(events: CalendarEvent[], referenceNow: Date) {
+  const nowTimestamp = referenceNow.getTime();
+  const endOfToday = getLocalEndOfDay(referenceNow).getTime();
+
+  return events.filter((event) => {
+    const startTimestamp = getEventStartTimestamp(event);
+
+    return (
+      startTimestamp !== null &&
+      startTimestamp > nowTimestamp &&
+      startTimestamp < endOfToday
+    );
+  }).length;
 }
 
 export function resolveVisibleCalendarAgenda(params: {

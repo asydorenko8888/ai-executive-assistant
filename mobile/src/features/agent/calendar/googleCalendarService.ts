@@ -6,10 +6,16 @@ import type {
   CalendarTimePressure,
 } from '@/src/entities/calendar/types';
 import {
-  getActiveGoogleCalendarSession,
-  getGoogleCalendarConnection,
-} from '@/src/features/agent/calendar/googleCalendarAuth';
+  fetchGoogleCalendarEventsFromBackend,
+  type GoogleCalendarBackendEvent,
+} from '@/src/features/agent/calendar/googleCalendarBackendApi';
+import { getGoogleCalendarConnection } from '@/src/features/agent/calendar/googleCalendarAuth';
 import {
+  getLiveCalendarEvents,
+  mergeCalendarEventLists,
+} from '@/src/features/agent/calendar/calendarLiveState';
+import {
+  getCalendarAgendaWindow,
   getLocalDayBounds,
   getMinutesUntilEvent,
   logCalendarEventTimeDebug,
@@ -18,7 +24,6 @@ import {
   parseGoogleCalendarInstant,
 } from '@/src/features/agent/calendar/calendarTime';
 import type { CalendarIntegrationSnapshot } from '@/src/features/agent/integrations';
-import { humanizeCalendarEventTitle } from '@/src/features/agent/calendar/calendarEventTitle';
 import { formatLocationShort } from '@/src/features/agent/calendar/calendarLocation';
 import {
   buildCalendarAvailabilitySummary,
@@ -32,62 +37,28 @@ import {
   sortEventsChronologically,
 } from '@/src/features/agent/calendar/calendarSchedule';
 
-const GOOGLE_CALENDAR_EVENTS_ENDPOINT = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
-
-type GoogleCalendarEventResponse = {
-  items?: {
-    id?: string;
-    summary?: string;
-    location?: string;
-    attendees?: {
-      email?: string;
-    }[];
-    start?: {
-      dateTime?: string;
-      date?: string;
-    };
-    end?: {
-      dateTime?: string;
-      date?: string;
-    };
-    status?: string;
-  }[];
-};
-
-function normalizeGoogleCalendarEvent(
-  event: NonNullable<GoogleCalendarEventResponse['items']>[number],
-): CalendarEvent | null {
-  const rawStart = event.start?.dateTime ?? event.start?.date;
-  const rawEnd = event.end?.dateTime ?? event.end?.date;
-
-  if (!rawStart || !rawEnd) {
-    return null;
-  }
-
-  if (event.status === 'cancelled') {
-    return null;
-  }
-
-  const isAllDay = !event.start?.dateTime;
-  const startsAt = rawStart;
-  const endsAt = rawEnd;
+function mapBackendEventToCalendarEvent(event: GoogleCalendarBackendEvent): CalendarEvent | null {
+  const startsAt = event.startsAt;
+  const endsAt = event.endsAt;
 
   if (parseGoogleCalendarInstant(startsAt) === null || parseGoogleCalendarInstant(endsAt) === null) {
     return null;
   }
 
-  const rawTitle = event.summary?.trim() || 'Untitled event';
+  const rawTitle = event.summary?.trim();
+
+  if (!rawTitle) {
+    return null;
+  }
 
   return {
-    id: event.id ?? `${startsAt}-${event.summary ?? 'event'}`,
-    title: humanizeCalendarEventTitle(rawTitle),
+    id: event.id,
+    title: rawTitle,
     startsAt,
     endsAt,
     location: event.location?.trim() ? formatLocationShort(event.location) || undefined : undefined,
-    isAllDay,
-    attendees:
-      event.attendees?.map((attendee) => attendee.email?.trim()).filter((email): email is string => Boolean(email)) ??
-      [],
+    isAllDay: !startsAt.includes('T'),
+    attendees: [],
   };
 }
 
@@ -261,33 +232,16 @@ function buildCalendarSummary(
   return calendarSummary;
 }
 
-async function fetchUpcomingGoogleCalendarEvents(accessToken: string, referenceDate: Date) {
-  const { timeMin, timeMax } = getLocalDayBounds(referenceDate);
-
-  const response = await fetch(
-    `${GOOGLE_CALENDAR_EVENTS_ENDPOINT}?singleEvents=true&orderBy=startTime&maxResults=25&timeMin=${encodeURIComponent(
-      timeMin,
-    )}&timeMax=${encodeURIComponent(timeMax)}`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    },
-  );
-
-  if (!response.ok) {
-    console.log('[Calendar Audit] fetchUpcomingGoogleCalendarEvents — API error', {
-      status: response.status,
-      statusText: response.statusText,
-    });
-    throw new Error('Unable to fetch Google Calendar events.');
-  }
-
-  const payload = (await response.json()) as GoogleCalendarEventResponse;
+async function fetchGoogleCalendarEventsForAgenda(referenceDate: Date) {
+  const window = getCalendarAgendaWindow(referenceDate);
+  const response = await fetchGoogleCalendarEventsFromBackend({
+    timeMin: window.timeMin,
+    timeMax: window.timeMax,
+  });
 
   return sortEventsChronologically(
-    (payload.items ?? [])
-      .map(normalizeGoogleCalendarEvent)
+    response.events
+      .map(mapBackendEventToCalendarEvent)
       .filter((event): event is CalendarEvent => Boolean(event)),
   );
 }
@@ -306,18 +260,13 @@ export async function getGoogleCalendarMorningContext(referenceDate: string): Pr
     };
   }
 
-  const activeSession = await getActiveGoogleCalendarSession();
-
-  if (!activeSession) {
-    console.log('[Calendar Audit] getGoogleCalendarMorningContext — no active session', {
+  if (connection.status !== 'connected') {
+    console.log('[Calendar Audit] getGoogleCalendarMorningContext — not connected', {
       connectionStatus: connection.status,
     });
     return {
       availability: connection.status === 'expired' ? 'not_connected' : 'not_connected',
-      connection: {
-        ...connection,
-        status: connection.status === 'expired' ? 'expired' : 'not_connected',
-      },
+      connection,
       upcomingEvents: [],
     };
   }
@@ -327,18 +276,17 @@ export async function getGoogleCalendarMorningContext(referenceDate: string): Pr
     ? new Date()
     : parsedReferenceDate;
 
-  const calendarEvents = await fetchUpcomingGoogleCalendarEvents(
-    activeSession.accessToken,
-    effectiveReferenceDate,
-  );
-
+  const remoteEvents = await fetchGoogleCalendarEventsForAgenda(effectiveReferenceDate);
+  const calendarEvents = mergeCalendarEventLists(getLiveCalendarEvents(), remoteEvents);
   const upcomingEvents = filterUpcomingTimedEvents(calendarEvents, effectiveReferenceDate);
 
   console.log('[Calendar Audit] getGoogleCalendarMorningContext — fetched real events', {
-    totalForDay: calendarEvents.length,
+    remoteCount: remoteEvents.length,
+    liveCount: getLiveCalendarEvents().length,
+    mergedCount: calendarEvents.length,
     upcomingCount: upcomingEvents.length,
     titles: upcomingEvents.slice(0, 8).map((event) => event.title),
-    connectedEmail: activeSession.connectedEmail ?? connection.connectedEmail ?? null,
+    connectedEmail: connection.connectedEmail ?? null,
   });
 
   return {

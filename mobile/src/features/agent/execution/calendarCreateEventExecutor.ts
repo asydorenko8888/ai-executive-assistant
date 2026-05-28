@@ -16,6 +16,7 @@ import {
   shouldBlockCalendarRecreate,
   tryBeginCalendarOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
+import { refreshCalendarStateAfterCreate } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import { logExecutionAudit, logCalendarExecutionStateTransition } from '@/src/features/agent/execution/executionAuditLogger';
 import { enqueueCalendarCreateAction } from '@/src/features/agent/execution/pendingActionQueue';
@@ -183,6 +184,11 @@ export async function executeCalendarCreateEvent(
   let tool: CalendarToolResponse;
 
   try {
+    logCalendarCreate('start/end', {
+      start: payloadResult.payload.start.dateTime,
+      end: payloadResult.payload.end.dateTime,
+      timeZone: payloadResult.payload.start.timeZone,
+    });
     logCalendarCreate('insert started', {
       summary: payloadResult.payload.summary,
       start: payloadResult.payload.start,
@@ -238,6 +244,37 @@ export async function executeCalendarCreateEvent(
     });
 
     endCalendarOperation({ failed: false });
+
+    if (tool.status === 'SUCCESS' && tool.eventId && tool.event) {
+      logCalendarCreate('inserted eventId', { eventId: tool.eventId });
+
+      const refresh = await refreshCalendarStateAfterCreate({
+        eventId: tool.eventId,
+        userTranscript: params.transcript,
+        extractedTitle: payloadResult.payload.summary,
+        startIso: tool.event.startsAt,
+        endIso: tool.event.endsAt,
+        referenceNow: params.referenceNow,
+      }).catch((refreshError) => {
+        console.log('[Calendar Refresh] post-create refresh failed', refreshError);
+        return null;
+      });
+
+      if (refresh?.verifiedEvent) {
+        tool = {
+          ...tool,
+          event: {
+            id: refresh.verifiedEvent.id,
+            summary: refresh.verifiedEvent.title,
+            startsAt: refresh.verifiedEvent.startsAt,
+            endsAt: refresh.verifiedEvent.endsAt,
+            location: refresh.verifiedEvent.location ?? tool.event.location,
+            htmlLink: tool.event.htmlLink,
+          },
+        };
+      }
+    }
+
     return finalizeOutcome(
       buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
       payloadResult.scheduleIso,

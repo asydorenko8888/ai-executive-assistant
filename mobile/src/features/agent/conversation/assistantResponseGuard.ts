@@ -104,6 +104,8 @@ function isFactualOperationalReply(reply: string) {
 
   return (
     normalized.startsWith('Готово.') ||
+    normalized.includes('Я додав:') ||
+    normalized.includes('Я добавил:') ||
     normalized.startsWith('Done.') ||
     normalized.startsWith('FAILURE:') ||
     normalized.startsWith('PENDING:')

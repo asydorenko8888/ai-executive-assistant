@@ -162,6 +162,21 @@ export async function resumePendingCalendarActionAfterAuth(languageCode: VoiceLa
 
   await clearLocalPendingCalendarAction();
 
+  const { refreshCalendarStateAfterCreate } = await import(
+    '@/src/features/agent/calendar/calendarPostCreateRefresh'
+  );
+
+  await refreshCalendarStateAfterCreate({
+    eventId: resumed.event.id,
+    userTranscript: resumed.transcript,
+    extractedTitle: resumed.event.summary,
+    startIso: resumed.event.startsAt,
+    endIso: resumed.event.endsAt,
+    referenceNow: new Date(),
+  }).catch((refreshError) => {
+    console.log('[Calendar Refresh] post-create refresh failed', refreshError);
+  });
+
   logActionExecution('execution_result', {
     phase: 'event_created',
     eventId: resumed.event.id,

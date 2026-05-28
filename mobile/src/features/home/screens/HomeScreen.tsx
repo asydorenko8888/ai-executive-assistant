@@ -6,6 +6,7 @@ import { VoiceAssistantButton } from '@/src/components/ui/VoiceAssistantButton';
 import { useExecutiveCompanion } from '@/src/features/agent';
 import { useHomeVoiceAssistant } from '@/src/features/home/hooks/useHomeVoiceAssistant';
 import {
+  countUpcomingEventsToday,
   formatEventsTodayLabel,
   resolveVisibleCalendarAgenda,
 } from '@/src/features/home/utils/homeCalendarAgenda';
@@ -103,7 +104,7 @@ export default function HomeScreen() {
               ...stat,
               text: formatEventsTodayLabel(
                 isCalendarConnected
-                  ? visibleCalendarAgenda.visibleEvents.length
+                  ? countUpcomingEventsToday(upcomingCalendarEvents, calendarReferenceDate)
                   : visibleCalendarAgenda.visibleCalendarAgendaItems.length,
               ),
             }
@@ -112,7 +113,7 @@ export default function HomeScreen() {
     [
       homeDashboard.quickStats,
       isCalendarConnected,
-      visibleCalendarAgenda.visibleEvents.length,
+      upcomingCalendarEvents,
       visibleCalendarAgenda.visibleCalendarAgendaItems.length,
     ],
   );

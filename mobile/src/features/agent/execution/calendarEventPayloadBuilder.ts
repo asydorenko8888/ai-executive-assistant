@@ -1,5 +1,6 @@
 import type { CalendarCreateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
+import { extractCalendarEventTitle } from '@/src/features/agent/calendar/calendarTitleExtractor';
 import { getBrowserTimezone } from '@/src/features/agent/calendar/calendarTime';
 import { formatLocationShort } from '@/src/features/agent/calendar/calendarLocation';
 import { parseSpokenClockTime } from '@/src/features/reminders/reminderTimeParser';
@@ -189,69 +190,6 @@ export function extractCalendarEventLocation(transcript: string) {
   return null;
 }
 
-function capitalizeTitle(value: string) {
-  const trimmed = value.trim();
-
-  if (!trimmed) {
-    return trimmed;
-  }
-
-  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
-}
-
-export function extractCalendarEventTitle(transcript: string, languageCode: VoiceLanguageCode, location?: string | null) {
-  const taskMatch = transcript.match(
-    /(?:задач[ауеиё]?|task)\s+([\p{L}\d][\p{L}\d\s'-]{1,60}?)(?=\s+(?:сегодня|завтра|tomorrow|today|в\s+\d|на\s+\d|at\s+\d)|\s*$)/iu,
-  );
-
-  if (taskMatch?.[1]) {
-    return capitalizeTitle(taskMatch[1].replace(/\s+/g, ' ').trim());
-  }
-
-  const stripped = transcript
-    .replace(
-      /(?:внеси|внести|добав(?:ь|ить)|создай|запланируй|поставь|add|create|schedule|book).{0,120}?(?:google\s*)?(?:календар[ьяь]?|calendar)/giu,
-      '',
-    )
-    .replace(/\b(?:задач[ауеиё]?|task)\b/giu, '')
-    .replace(/\b(?:на|завтра|tomorrow|today|сьогодні|сегодня)\b/giu, '')
-    .replace(/\b(?:встреч[а-яё]*|зустріч|meeting|event)\b/giu, '')
-    .replace(
-      /\b(?:в|на)\s+\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью)?\b/giu,
-      '',
-    )
-    .replace(/\b\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью)\b/giu, '')
-    .trim();
-
-  const locale = getChatLocaleFromVoiceLanguage(languageCode);
-
-  if (stripped.length >= 2 && stripped.length <= 80) {
-    return capitalizeTitle(stripped);
-  }
-
-  if (location) {
-    if (locale === 'uk') {
-      return `Зустріч — ${location}`;
-    }
-
-    if (locale === 'ru') {
-      return `Встреча — ${location}`;
-    }
-
-    return `Meeting — ${location}`;
-  }
-
-  if (locale === 'uk') {
-    return 'Зустріч';
-  }
-
-  if (locale === 'ru') {
-    return 'Встреча';
-  }
-
-  return 'Meeting';
-}
-
 function toGoogleDateTimeLocal(date: Date) {
   const pad = (value: number) => String(value).padStart(2, '0');
 
@@ -276,7 +214,18 @@ export function buildCalendarCreateEventPayload(params: {
   }
 
   const location = extractCalendarEventLocation(params.transcript);
-  const summary = extractCalendarEventTitle(params.transcript, params.languageCode, location);
+  const summary = extractCalendarEventTitle(params.transcript);
+
+  if (!summary || summary.length < 2) {
+    logCalendarCreate('extracted title', { ok: false, reason: 'empty after extraction' });
+
+    return {
+      ok: false,
+      reason: 'date_parse_failed',
+      detail: 'Could not extract event title from request',
+    };
+  }
+
   const timeZone = getBrowserTimezone();
   const startDate = schedule.date;
   const endDate = new Date(startDate.getTime() + DEFAULT_EVENT_DURATION_MS);
