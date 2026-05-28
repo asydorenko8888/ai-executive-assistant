@@ -7,6 +7,18 @@ import {
 import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
 import { executeCalendarOperationalPlanner } from '@/src/features/agent/intent/calendarOperationalPlanner';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
+import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
+import type { CalendarToolStatus } from '@/src/features/agent/execution/calendarToolContract';
+import {
+  buildCalendarToolReplyFromLastResult,
+  buildCalendarToolReplyBundle,
+} from '@/src/features/agent/execution/calendarToolResponses';
+import {
+  getLastCalendarToolResponse,
+  shouldBlockCalendarRecreate,
+} from '@/src/features/agent/execution/calendarExecutionSession';
+import { createCalendarToolFailure } from '@/src/features/agent/execution/calendarToolContract';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 
@@ -21,45 +33,93 @@ export type OperationalIntentResult = {
   reply: string;
   spokenReply: string;
   executionState: AssistantExecutionState;
-  calendarExecutionState?: import('@/src/features/agent/execution/calendarExecutionStates').CalendarExecutionState;
+  toolStatus: CalendarToolStatus;
+  calendarExecutionState?: CalendarExecutionState;
   verified?: boolean;
   requiresCalendarAuth?: boolean;
   operationalUxPhase?: CalendarOperationalUxPhase;
   pendingActionId?: string;
 };
 
-function buildMessageDraftReply(params: OperationalIntentReplyParams) {
-  const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
-
-  if (locale === 'uk') {
-    return 'Текст готовий — надішлю формулювання, а ти відправиш одним дотиком, як тільки SMS підключимо.';
+function mapAssistantState(toolStatus: CalendarToolStatus, calendarState: CalendarExecutionState): AssistantExecutionState {
+  if (toolStatus === 'SUCCESS') {
+    return 'tool_success';
   }
 
-  if (locale === 'ru') {
-    return 'Текст готов — дам формулировку, а ты отправишь одним касанием, как только SMS подключим.';
+  if (toolStatus === 'PENDING') {
+    return 'tool_call';
   }
 
-  return 'The message is ready — I will give you the wording, and you can send it in one tap once SMS is connected.';
+  if (calendarState === 'authenticating') {
+    return 'tool_call';
+  }
+
+  return 'tool_failure';
 }
 
-function buildGenericOperationalReply(params: OperationalIntentReplyParams, analysis: AssistantIntentAnalysis) {
-  const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
-  const subtype = analysis.operationalSubtype ?? 'action';
+function bundleToOperationalResult(bundle: ReturnType<typeof buildCalendarToolReplyBundle>): OperationalIntentResult {
+  return {
+    reply: bundle.reply,
+    spokenReply: bundle.spokenReply,
+    executionState: mapAssistantState(bundle.tool.status, bundle.executionState),
+    toolStatus: bundle.tool.status,
+    calendarExecutionState: bundle.executionState,
+    verified: bundle.tool.verified,
+    requiresCalendarAuth: bundle.requiresCalendarAuth,
+    operationalUxPhase:
+      bundle.executionState === 'authenticating'
+        ? 'connecting'
+        : bundle.executionState === 'success'
+          ? 'event_created'
+          : bundle.executionState === 'failed'
+            ? 'failed'
+            : 'verifying_event',
+  };
+}
 
-  if (locale === 'uk') {
-    return `Зрозумів запит (${subtype}) — підготую наступний крок; автоматично виконаю, коли канал буде підключений.`;
+function buildTerminalCalendarBlockedReply(languageCode: VoiceLanguageCode): OperationalIntentResult {
+  const last = getLastCalendarToolResponse();
+
+  if (last) {
+    return bundleToOperationalResult(buildCalendarToolReplyFromLastResult(languageCode, last));
   }
 
-  if (locale === 'ru') {
-    return `Понял запрос (${subtype}) — подготовлю следующий шаг; автоматически выполню, когда канал будет подключён.`;
-  }
+  const tool = createCalendarToolFailure(
+    'CALENDAR_MAX_RETRIES_EXCEEDED',
+    'Calendar operation blocked to prevent retry loop.',
+  );
 
-  return `Got the ${subtype} request — I will prepare the next step; automatic execution waits on the channel being connected.`;
+  return bundleToOperationalResult(buildCalendarToolReplyBundle(tool, languageCode));
 }
 
 export async function tryBuildOperationalIntentReply(
   params: OperationalIntentReplyParams,
 ): Promise<OperationalIntentResult | null> {
+  if (isOperationalCalendarWriteRequest(params.transcript)) {
+    if (shouldBlockCalendarRecreate(params.transcript)) {
+      return buildTerminalCalendarBlockedReply(params.languageCode);
+    }
+
+    const execution = await executeCalendarCreateEvent({
+      transcript: params.transcript,
+      languageCode: params.languageCode,
+      calendarConnected: params.calendarConnected,
+      referenceNow: params.referenceNow,
+    });
+
+    return {
+      reply: execution.reply,
+      spokenReply: execution.spokenReply,
+      executionState: mapAssistantState(execution.tool.status, execution.executionState),
+      toolStatus: execution.tool.status,
+      calendarExecutionState: execution.executionState,
+      verified: execution.verified,
+      requiresCalendarAuth: execution.requiresCalendarAuth,
+      operationalUxPhase: execution.operationalUxPhase,
+      pendingActionId: execution.pendingActionId,
+    };
+  }
+
   const analysis = classifyAssistantIntent(params.transcript);
 
   if (!analysis.shouldBypassEmotionalRouting && !detectHardOperationalIntent(params.transcript)) {
@@ -77,6 +137,7 @@ export async function tryBuildOperationalIntentReply(
       reply: plannerResult.reply,
       spokenReply: plannerResult.spokenReply,
       executionState: plannerResult.state,
+      toolStatus: plannerResult.verified ? 'SUCCESS' : plannerResult.requiresCalendarAuth ? 'PENDING' : 'FAILURE',
       calendarExecutionState: plannerResult.executionState,
       verified: plannerResult.verified,
       requiresCalendarAuth: plannerResult.requiresCalendarAuth,
@@ -85,28 +146,19 @@ export async function tryBuildOperationalIntentReply(
     };
   }
 
-  if (isOperationalCalendarWriteRequest(params.transcript)) {
-    const reply = buildGenericOperationalReply(params, analysis);
-    return {
-      reply,
-      spokenReply: reply,
-      executionState: 'tool_failure',
-    };
-  }
+  const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
+  const reply =
+    locale === 'ru'
+      ? 'Не удалось выполнить операцию — уточни запрос.'
+      : locale === 'uk'
+        ? 'Не вдалося виконати операцію — уточни запит.'
+        : 'Could not run the operation — clarify the request.';
 
-  if (analysis.operationalSubtype === 'message_draft') {
-    const reply = buildMessageDraftReply(params);
-    return {
-      reply,
-      spokenReply: reply,
-      executionState: 'conversational',
-    };
-  }
-
-  const reply = buildGenericOperationalReply(params, analysis);
   return {
     reply,
     spokenReply: reply,
-    executionState: 'planning',
+    executionState: 'tool_failure',
+    toolStatus: 'FAILURE',
+    verified: false,
   };
 }

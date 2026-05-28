@@ -294,6 +294,54 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const calendarConnected =
     params.orchestrator.snapshot.calendarConnection?.status === 'connected';
 
+  if (isOperationalCalendarWriteRequest(userTranscript)) {
+    const operationalResult = await tryBuildOperationalIntentReply({
+      transcript: userTranscript,
+      languageCode: params.languageCode,
+      calendarConnected,
+      referenceNow: params.referenceNow,
+    });
+
+    if (!operationalResult?.reply) {
+      logTurnPipeline('calendar tool missing terminal reply — blocking LLM fallback', {
+        operationalStarted: true,
+      });
+    }
+
+    const calendarReply = operationalResult?.reply ?? 'I could not confirm event creation.';
+    const guarded = guardAgainstRepeatedAssistantResponse({
+      messages: params.messages,
+      candidateReply: calendarReply,
+      languageCode: params.languageCode,
+      calendarConnected,
+      referenceNow: params.referenceNow,
+    });
+
+    logTurnPipeline('route selected', {
+      route: 'operational_local',
+      toolStatus: operationalResult?.toolStatus ?? 'FAILURE',
+      emotionalFallback: false,
+      blockLlm: true,
+    });
+
+    return {
+      route: 'operational_local',
+      intent,
+      reply: guarded,
+      intentPrompt: buildIntentPrioritySystemPrompt(intent),
+      userTranscript,
+      latestUserMessageId: userMessage?.id ?? null,
+      executionState: operationalResult?.executionState ?? 'tool_failure',
+      operationalStarted: true,
+      requiresCalendarAuth: operationalResult?.requiresCalendarAuth,
+      operationalUxPhase: operationalResult?.operationalUxPhase,
+      pendingActionId: operationalResult?.pendingActionId,
+      spokenReply: operationalResult?.spokenReply,
+      calendarVerified: operationalResult?.verified,
+      ...modeDefaults,
+    };
+  }
+
   const operationalResult = await tryBuildOperationalIntentReply({
     transcript: userTranscript,
     languageCode: params.languageCode,
@@ -372,22 +420,30 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   }
 
   if (intent.shouldBypassEmotionalRouting || operationalStarted) {
+    const locale = params.languageCode === 'ru-RU' ? 'ru' : params.languageCode === 'uk-UA' ? 'uk' : 'en';
+    const terminalReply =
+      locale === 'ru'
+        ? 'Не удалось подтвердить выполнение. Повторную попытку не запускаю.'
+        : locale === 'uk'
+          ? 'Не вдалося підтвердити виконання. Повторну спробу не запускаю.'
+          : 'I could not confirm execution. I am not starting another attempt.';
+
     logTurnPipeline('route selected', {
-      route: 'llm',
-      plannerExecution: 'deferred_llm_operational',
+      route: 'operational_local',
+      plannerExecution: 'terminal_no_llm_operational',
       emotionalFallback: false,
-      executionState: 'planning',
-      operationalStarted: true,
+      blockLlm: true,
     });
 
     return {
-      route: 'llm',
+      route: 'operational_local',
       intent,
-      reply: null,
+      reply: terminalReply,
+      spokenReply: terminalReply,
       intentPrompt: buildIntentPrioritySystemPrompt(intent),
       userTranscript,
       latestUserMessageId: userMessage?.id ?? null,
-      executionState: 'planning',
+      executionState: 'tool_failure',
       operationalStarted: true,
       ...modeDefaults,
     };

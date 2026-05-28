@@ -3,6 +3,7 @@ import {
   isEmotionalEmptyDayFallback,
   logFallbackActivation,
 } from '@/src/features/agent/conversation/assistantExecutionObservability';
+import { blockConversationalCalendarRetryLoop } from '@/src/features/agent/execution/calendarRetryPhraseGuard';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
@@ -106,6 +107,11 @@ export function guardAgainstRepeatedAssistantResponse(params: {
   referenceNow: Date;
 }) {
   let reply = blockEmotionalFallbackAfterOperational(params);
+  const latestUser = getLatestUserMessage(params.messages);
+  reply = blockConversationalCalendarRetryLoop({
+    userTranscript: latestUser?.content.trim() ?? '',
+    candidateReply: reply,
+  });
 
   if (
     !isRepeatedAssistantResponse({
@@ -115,8 +121,6 @@ export function guardAgainstRepeatedAssistantResponse(params: {
   ) {
     return reply;
   }
-
-  const latestUser = getLatestUserMessage(params.messages);
 
   console.error('[Repeated Assistant Response]', {
     latestUserMessage: latestUser?.content?.slice(0, 120),

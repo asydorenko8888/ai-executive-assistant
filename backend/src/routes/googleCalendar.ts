@@ -390,9 +390,15 @@ googleCalendarRouter.post('/google-calendar/events', async (request, response) =
   const result = await createGoogleCalendarEventForDevice(deviceId, parsedRequest);
 
   if (!result.ok) {
+    const code =
+      result.errorCode === 'calendar_write_forbidden'
+        ? 'GOOGLE_WRITE_PERMISSION_MISSING'
+        : result.errorCode;
+
     return response.status(result.httpStatus ?? 502).json({
       message: result.errorMessage,
-      code: result.errorCode,
+      code,
+      status: 'FAILURE',
       executionState: result.executionState,
       verified: result.verified,
       verificationFetched: result.verificationFetched,
@@ -400,7 +406,9 @@ googleCalendarRouter.post('/google-calendar/events', async (request, response) =
   }
 
   return response.status(201).json({
+    status: 'SUCCESS',
     event: result.event,
+    eventId: result.event.id,
     verified: result.verified,
     verificationFetched: result.verificationFetched,
     executionState: result.executionState,

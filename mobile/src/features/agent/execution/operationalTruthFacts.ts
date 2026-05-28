@@ -39,6 +39,13 @@ export function buildOperationalTruthFact(params: {
   pendingSummary?: string;
   pendingSchedule?: { startsAt: string; location?: string };
 }): OperationalTruthFact {
+  if (
+    params.errorCode === 'GOOGLE_WRITE_PERMISSION_MISSING' ||
+    params.errorCode === 'calendar_write_forbidden'
+  ) {
+    return { kind: 'calendar_create_failed', reason: 'auth_required' };
+  }
+
   if (params.executionState === 'authenticating' || params.errorCode === 'calendar_auth_required') {
     return { kind: 'calendar_create_authenticating' };
   }

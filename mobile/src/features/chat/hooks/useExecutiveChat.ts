@@ -17,6 +17,7 @@ import {
   shouldFormatReplyForVoice,
   type AssistantTurnRoute,
 } from '@/src/features/agent/conversation/assistantTurnPipeline';
+import { blockConversationalCalendarRetryLoop } from '@/src/features/agent/execution/calendarRetryPhraseGuard';
 import type { AssistantExecutionState } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import type { AssistantResponseMode } from '@/src/features/agent/factual/factualTimeGrounding';
 import {
@@ -263,6 +264,18 @@ export function useExecutiveChat() {
         coordinator.touch(requestId);
 
         if (turn.requiresCalendarAuth) {
+          if (isCalendarOAuthInFlight) {
+            return {
+              reply: turn.reply,
+              spokenReply: turn.spokenReply,
+              requestId,
+              route: turn.route,
+              executionState: turn.executionState,
+              responseMode: turn.responseMode,
+              calendarVerified: false,
+            };
+          }
+
           setCalendarOperationalUx('auth_required');
           setCalendarOperationalLabel(turn.reply);
 
@@ -414,12 +427,18 @@ export function useExecutiveChat() {
         chatMessages: freshMessages,
       });
       const referenceNow = new Date(orchestrator.context.now);
-      const committed = finalizeTurnReply({
+      let committed = finalizeTurnReply({
         messages: freshMessages,
         orchestrator,
         languageCode: voiceLanguage,
         referenceNow,
         candidateReply: displayReply || assistantReply,
+      });
+
+      const latestUser = [...freshMessages].reverse().find((message) => message.role === 'user');
+      committed = blockConversationalCalendarRetryLoop({
+        userTranscript: latestUser?.content.trim() ?? '',
+        candidateReply: committed,
       });
 
       warnIfFalseExecutionClaim(committed, result.calendarVerified ? 'executed' : 'drafted');

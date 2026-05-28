@@ -1,54 +1,16 @@
 import { createGoogleCalendarEventOnBackend } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import type { CalendarCreateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
-import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
+import {
+  createCalendarToolFailure,
+  createCalendarToolSuccess,
+  type CalendarToolResponse,
+} from '@/src/features/agent/execution/calendarToolContract';
 import { logExecutionAudit } from '@/src/features/agent/execution/executionAuditLogger';
-import type { VerifiedCalendarEvent } from '@/src/features/agent/execution/actionExecutionTypes';
 import { ApiError } from '@/src/shared/api/api-error';
-
-export type GoogleCalendarWriteResult =
-  | {
-      ok: true;
-      verified: true;
-      verificationFetched: true;
-      executionState: 'success';
-      event: VerifiedCalendarEvent;
-    }
-  | {
-      ok: false;
-      verified: false;
-      verificationFetched: boolean;
-      executionState: CalendarExecutionState;
-      errorCode: string;
-      errorMessage: string;
-      httpStatus?: number;
-    };
-
-function mapBackendEvent(event: {
-  id: string;
-  summary: string;
-  location?: string;
-  startsAt: string;
-  endsAt: string;
-  htmlLink?: string;
-}): VerifiedCalendarEvent {
-  return {
-    id: event.id,
-    summary: event.summary,
-    location: event.location,
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    htmlLink: event.htmlLink,
-  };
-}
 
 export async function createGoogleCalendarEvent(
   payload: CalendarCreateEventPayload,
-): Promise<GoogleCalendarWriteResult> {
-  logExecutionAudit('request', {
-    tool: 'google_calendar_create_event',
-    summary: payload.summary,
-  });
-
+): Promise<CalendarToolResponse> {
   logExecutionAudit('tool_call', {
     operation: 'POST /google-calendar/events',
     summary: payload.summary,
@@ -70,19 +32,12 @@ export async function createGoogleCalendarEvent(
       !response.verificationFetched ||
       !response.event?.id
     ) {
-      logExecutionAudit('verification_response', {
-        verified: false,
-        reason: 'backend_did_not_confirm',
-      });
+      logExecutionAudit('verification_response', { verified: false, reason: 'backend_did_not_confirm' });
 
-      return {
-        ok: false,
-        verified: false,
-        verificationFetched: Boolean(response.verificationFetched),
-        executionState: response.executionState === 'success' ? 'failed' : response.executionState,
-        errorCode: 'calendar_verification_failed',
-        errorMessage: 'Google Calendar did not return a verified event.',
-      };
+      return createCalendarToolFailure(
+        'CALENDAR_VERIFICATION_FAILED',
+        'Google Calendar did not return a verified event.',
+      );
     }
 
     logExecutionAudit('verification_response', {
@@ -90,39 +45,43 @@ export async function createGoogleCalendarEvent(
       eventId: response.event.id,
     });
 
-    return {
-      ok: true,
-      verified: true,
-      verificationFetched: true,
-      executionState: 'success',
-      event: mapBackendEvent(response.event),
-    };
+    return createCalendarToolSuccess({
+      id: response.event.id,
+      summary: response.event.summary,
+      location: response.event.location,
+      startsAt: response.event.startsAt,
+      endsAt: response.event.endsAt,
+      htmlLink: response.event.htmlLink,
+    });
   } catch (error) {
     const apiError = error instanceof ApiError ? error : null;
-    const errorCode =
-      apiError?.code ??
-      (apiError?.status === 401
-        ? 'calendar_not_connected'
-        : apiError?.status === 403
-          ? 'calendar_write_forbidden'
-          : apiError?.status === 408
-            ? 'calendar_confirmation_timeout'
-            : 'calendar_api_unavailable');
+    const code = apiError?.code;
 
     logExecutionAudit('api_response', {
       ok: false,
-      errorCode,
+      status: apiError?.status,
+      code,
       message: apiError?.message,
     });
 
-    return {
-      ok: false,
-      verified: false,
-      verificationFetched: false,
-      executionState: errorCode === 'calendar_confirmation_timeout' ? 'failed' : 'failed',
-      errorCode,
-      errorMessage: apiError?.message || 'Google Calendar API unavailable.',
-      httpStatus: apiError?.status,
-    };
+    if (apiError?.status === 401 || code === 'calendar_not_connected') {
+      return createCalendarToolFailure('GOOGLE_CALENDAR_NOT_CONNECTED', 'Google Calendar is not connected.');
+    }
+
+    if (apiError?.status === 403 || code === 'calendar_write_forbidden') {
+      return createCalendarToolFailure('GOOGLE_WRITE_PERMISSION_MISSING', 'GOOGLE_WRITE_PERMISSION_MISSING');
+    }
+
+    if (code === 'calendar_confirmation_timeout') {
+      return createCalendarToolFailure(
+        'CALENDAR_CONFIRMATION_TIMEOUT',
+        'Still waiting for confirmation from Google Calendar.',
+      );
+    }
+
+    return createCalendarToolFailure(
+      'CALENDAR_API_UNAVAILABLE',
+      apiError?.message || 'Google Calendar API unavailable.',
+    );
   }
 }
