@@ -16,6 +16,7 @@ import {
   shouldBlockCalendarRecreate,
   tryBeginCalendarOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
+import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import { logExecutionAudit, logCalendarExecutionStateTransition } from '@/src/features/agent/execution/executionAuditLogger';
 import { enqueueCalendarCreateAction } from '@/src/features/agent/execution/pendingActionQueue';
 import {
@@ -94,6 +95,10 @@ function finalizeOutcome(
 export async function executeCalendarCreateEvent(
   params: CalendarCreateExecutionParams,
 ): Promise<CalendarCreateExecutionOutcome> {
+  logCalendarCreate('routing', {
+    action: 'executeCalendarCreateEvent',
+    transcriptPreview: params.transcript.slice(0, 120),
+  });
   logExecutionAudit('request', { transcriptPreview: params.transcript.slice(0, 120) });
 
   if (shouldBlockCalendarRecreate(params.transcript)) {
@@ -163,7 +168,22 @@ export async function executeCalendarCreateEvent(
   let tool: CalendarToolResponse;
 
   try {
+    logCalendarCreate('insert started', {
+      summary: payloadResult.payload.summary,
+      start: payloadResult.payload.start,
+    });
     tool = await createGoogleCalendarEvent(payloadResult.payload);
+    logCalendarCreate('insert result', {
+      status: tool.status,
+      errorCode: tool.errorCode ?? null,
+      eventId: tool.eventId ?? null,
+      verified: tool.verified,
+    });
+    logCalendarCreate('verification result', {
+      verified: tool.verified,
+      eventId: tool.eventId ?? null,
+      errorCode: tool.errorCode ?? null,
+    });
 
     if (tool.status === 'FAILURE' && tool.errorCode === 'GOOGLE_CALENDAR_NOT_CONNECTED') {
       await enqueueCalendarCreateAction({

@@ -1,10 +1,17 @@
 const MERIDIEM_PATTERN = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)\b/i;
 const TWENTY_FOUR_HOUR_PATTERN = /\b([01]?\d|2[0-3]):([0-5]\d)\b/;
 
+export type ParseSpokenClockTimeOptions = {
+  /** When false, do not roll a same-calendar-day time into tomorrow if it is in the past. */
+  rollToNextDayIfPast?: boolean;
+};
+
 export function parseSpokenClockTime(
   rawTime: string,
   referenceNow = new Date(),
+  options: ParseSpokenClockTimeOptions = {},
 ): Date | null {
+  const rollToNextDayIfPast = options.rollToNextDayIfPast !== false;
   const normalized = rawTime.trim().toLowerCase().replace(/\./g, '');
 
   const meridiemMatch = normalized.match(MERIDIEM_PATTERN);
@@ -22,32 +29,64 @@ export function parseSpokenClockTime(
       hours = 0;
     }
 
-    return buildLocalDateTime(referenceNow, hours, minutes);
+    return buildLocalDateTime(
+      referenceNow,
+      applyRussianMeridiemHint(hours, normalized),
+      minutes,
+      rollToNextDayIfPast,
+    );
   }
 
   const twentyFourHourMatch = normalized.match(TWENTY_FOUR_HOUR_PATTERN);
 
   if (twentyFourHourMatch) {
-    const hours = Number(twentyFourHourMatch[1]);
+    const hours = applyRussianMeridiemHint(Number(twentyFourHourMatch[1]), normalized);
     const minutes = Number(twentyFourHourMatch[2]);
 
-    return buildLocalDateTime(referenceNow, hours, minutes);
+    return buildLocalDateTime(referenceNow, hours, minutes, rollToNextDayIfPast);
   }
 
   const bareHourMatch = normalized.match(/\b(\d{1,2})\b/);
 
   if (bareHourMatch) {
-    const hours = Number(bareHourMatch[1]);
+    let hours = Number(bareHourMatch[1]);
 
     if (hours >= 0 && hours <= 23) {
-      return buildLocalDateTime(referenceNow, hours, 0);
+      hours = applyRussianMeridiemHint(hours, normalized);
+      return buildLocalDateTime(referenceNow, hours, 0, rollToNextDayIfPast);
     }
   }
 
   return null;
 }
 
-function buildLocalDateTime(referenceNow: Date, hours: number, minutes: number) {
+function applyRussianMeridiemHint(hours: number, normalizedFragment: string) {
+  // Note: \b word boundaries are unreliable with Cyrillic in JS — use substring checks.
+  if (/вечер/ui.test(normalizedFragment) && hours >= 1 && hours <= 11) {
+    return hours + 12;
+  }
+
+  if (/утр/ui.test(normalizedFragment) && hours === 12) {
+    return 0;
+  }
+
+  if (/(?:дня|днём|днем)/ui.test(normalizedFragment) && hours >= 1 && hours <= 11) {
+    return hours + 12;
+  }
+
+  if (/ноч/ui.test(normalizedFragment) && hours >= 1 && hours <= 11) {
+    return hours + 12;
+  }
+
+  return hours;
+}
+
+function buildLocalDateTime(
+  referenceNow: Date,
+  hours: number,
+  minutes: number,
+  rollToNextDayIfPast: boolean,
+) {
   const candidate = new Date(
     referenceNow.getFullYear(),
     referenceNow.getMonth(),
@@ -58,7 +97,7 @@ function buildLocalDateTime(referenceNow: Date, hours: number, minutes: number) 
     0,
   );
 
-  if (candidate.getTime() <= referenceNow.getTime()) {
+  if (rollToNextDayIfPast && candidate.getTime() <= referenceNow.getTime()) {
     candidate.setDate(candidate.getDate() + 1);
   }
 

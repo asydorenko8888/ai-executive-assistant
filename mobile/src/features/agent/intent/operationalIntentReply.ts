@@ -19,6 +19,7 @@ import {
   shouldBlockCalendarRecreate,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 import { createCalendarToolFailure } from '@/src/features/agent/execution/calendarToolContract';
+import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 export type OperationalIntentReplyParams = {
   transcript: string;
@@ -94,6 +95,12 @@ export async function tryBuildOperationalIntentReply(
   params: OperationalIntentReplyParams,
 ): Promise<OperationalIntentResult | null> {
   if (isOperationalCalendarWriteRequest(params.transcript)) {
+    logCalendarCreate('routing', {
+      action: 'tryBuildOperationalIntentReply',
+      matched: 'calendar_write',
+      transcriptPreview: params.transcript.slice(0, 120),
+    });
+
     if (shouldBlockCalendarRecreate(params.transcript)) {
       return buildTerminalCalendarBlockedReply(params.languageCode);
     }

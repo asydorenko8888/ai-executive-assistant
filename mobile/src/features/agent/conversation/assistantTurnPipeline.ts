@@ -89,6 +89,13 @@ function tryEmotionalRoute(
   fromState: AssistantExecutionState,
   responseMode: AssistantResponseMode,
 ): AssistantTurnResolution | null {
+  if (isOperationalCalendarWriteRequest(userTranscript)) {
+    logFallbackActivation('emotional route blocked — calendar write must execute', {
+      userTranscript: userTranscript.slice(0, 120),
+    });
+    return null;
+  }
+
   if (responseMode === 'factual' || responseMode === 'operational') {
     logFallbackActivation('emotional route blocked — factual/operational mode locked', {
       responseMode,
@@ -295,6 +302,10 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     params.orchestrator.snapshot.calendarConnection?.status === 'connected';
 
   if (isOperationalCalendarWriteRequest(userTranscript)) {
+    logTurnPipeline('calendar write intent — executing immediately', {
+      transcriptPreview: userTranscript.slice(0, 120),
+    });
+
     const operationalResult = await tryBuildOperationalIntentReply({
       transcript: userTranscript,
       languageCode: params.languageCode,

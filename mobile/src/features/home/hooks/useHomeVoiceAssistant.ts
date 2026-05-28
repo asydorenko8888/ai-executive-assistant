@@ -30,6 +30,7 @@ import {
   getConversationPayloadMessages,
   useExecutiveConversationStore,
 } from '@/src/features/chat/store/executiveConversationStore';
+import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import {
@@ -218,21 +219,23 @@ export function useHomeVoiceAssistant() {
         const payloadMessages = getConversationPayloadMessages(
           useExecutiveConversationStore.getState().messages,
         );
-        const reminderResult = await processVoiceReminderTranscript({
-          transcript: trimmedTranscript,
-          languageCode: languageCodeRef.current,
-        });
-
-        if (reminderResult) {
-          await queryClient.invalidateQueries({
-            queryKey: queryKeys.agent.homePreview(),
+        if (!isOperationalCalendarWriteRequest(trimmedTranscript)) {
+          const reminderResult = await processVoiceReminderTranscript({
+            transcript: trimmedTranscript,
+            languageCode: languageCodeRef.current,
           });
 
-          const spokenReminder = formatHomeVoiceReply(reminderResult.confirmation);
-          warnIfFalseExecutionClaim(spokenReminder, 'executed');
-          const assistantMessage = finishAssistantTurn(spokenReminder);
-          playAssistantResponse(spokenReminder, assistantMessage.id);
-          return;
+          if (reminderResult) {
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.agent.homePreview(),
+            });
+
+            const spokenReminder = formatHomeVoiceReply(reminderResult.confirmation);
+            warnIfFalseExecutionClaim(spokenReminder, 'executed');
+            const assistantMessage = finishAssistantTurn(spokenReminder);
+            playAssistantResponse(spokenReminder, assistantMessage.id);
+            return;
+          }
         }
 
         const orchestrator = await createExecutiveAgentOrchestrator({

@@ -260,13 +260,17 @@ export function useExecutiveChat() {
         enableVoiceShortcuts: false,
       });
 
-      if (turn.reply) {
+      if (turn.operationalStarted || turn.route === 'operational_local') {
+        const operationalReply =
+          turn.reply?.trim() ||
+          'FAILURE: CALENDAR_EXECUTION_MISSING: calendar write did not produce a terminal reply.';
+
         coordinator.touch(requestId);
 
         if (turn.requiresCalendarAuth) {
           if (isCalendarOAuthInFlight) {
             return {
-              reply: turn.reply,
+              reply: operationalReply,
               spokenReply: turn.spokenReply,
               requestId,
               route: turn.route,
@@ -277,7 +281,7 @@ export function useExecutiveChat() {
           }
 
           setCalendarOperationalUx('auth_required');
-          setCalendarOperationalLabel(turn.reply);
+          setCalendarOperationalLabel(operationalReply);
 
           if (Platform.OS === 'web') {
             setIsCalendarOAuthInFlight(true);
@@ -311,13 +315,27 @@ export function useExecutiveChat() {
           }
 
           return {
-            reply: turn.reply,
+            reply: operationalReply,
             requestId,
             route: turn.route,
             executionState: turn.executionState,
             responseMode: turn.responseMode,
           };
         }
+
+        return {
+          reply: operationalReply,
+          spokenReply: turn.spokenReply,
+          requestId,
+          route: turn.route,
+          executionState: turn.executionState,
+          responseMode: 'operational',
+          calendarVerified: turn.calendarVerified,
+        };
+      }
+
+      if (turn.reply) {
+        coordinator.touch(requestId);
 
         return {
           reply: turn.reply,

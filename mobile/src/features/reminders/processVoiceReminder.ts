@@ -5,6 +5,7 @@ import {
 import type { ChatMessage } from '@/src/entities/chat/types';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { parseReminderIntent } from '@/src/features/reminders/reminderIntentParser';
 import {
   buildVoiceReminderConfirmation,
@@ -28,6 +29,10 @@ export async function processVoiceReminderTranscript(params: {
   transcript: string;
   languageCode: VoiceLanguageCode;
 }) {
+  if (isOperationalCalendarWriteRequest(params.transcript)) {
+    return null;
+  }
+
   const referenceNow = new Date();
   const orchestrator = await createExecutiveAgentOrchestrator({
     locale: getChatLocaleFromVoiceLanguage(params.languageCode),

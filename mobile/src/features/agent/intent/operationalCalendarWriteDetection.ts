@@ -7,14 +7,22 @@ const OPERATIONAL_WRITE_VERBS =
   /(?:add|put|create|book|set\s*up|insert|update|move|reschedule|shift|schedule|cancel|delete|remove|внеси|внести|добав(?:ь|ьте|ить)|создай|создать|перенеси|перенести|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|перенеси|заплануй)/iu;
 
 const CALENDAR_DOMAIN =
-  /(?:google\s*)?calendar|google\s+календар|календар|зустріч|встреч|meeting|event/iu;
+  /(?:google\s*)?calendar|google\s+календар[ьяь]?|календар[ьяь]?|зустріч|встреч|meeting|events?/iu;
 
-/** "внеси … google календарь … завтра … встречу" */
+/** "внеси … google календарь …" */
 const RU_UK_CALENDAR_WRITE_PHRASE =
-  /(?:внеси|внести|добав(?:ь|ить)|создай|перенеси|запланируй|поставь|занеси|додай|створи|заплануй).{0,100}(?:google\s*)?(?:календар|calendar)/iu;
+  /(?:внеси|внести|добав(?:ь|ить)|создай|перенеси|запланируй|поставь|занеси|додай|створи|заплануй).{0,120}(?:google\s*)?(?:календар[ьяь]?|calendar)/iu;
 
 const EN_CALENDAR_WRITE_PHRASE =
-  /(?:add|put|create|move|insert|update|schedule|book).{0,100}(?:google\s*)?calendar/iu;
+  /(?:add|put|create|move|insert|update|schedule|book).{0,120}(?:google\s*)?calendar/iu;
+
+/** Calendar domain + write verb anywhere in the utterance. */
+const CALENDAR_WRITE_LOOSE =
+  /(?:внеси|внести|добав(?:ь|ить)|создай|запланируй|поставь|занеси|додай|створи|заплануй|add|create|schedule|book).{0,160}(?:календар|calendar|google)/iu;
+
+/** "напомни" only when calendar is explicitly mentioned. */
+const REMIND_INTO_CALENDAR =
+  /(?:напомни|нагадай|remind).{0,80}(?:календар|calendar|google)/iu;
 
 export function isOperationalCalendarWriteRequest(transcript: string) {
   const normalized = transcript.trim();
@@ -23,7 +31,12 @@ export function isOperationalCalendarWriteRequest(transcript: string) {
     return false;
   }
 
-  if (RU_UK_CALENDAR_WRITE_PHRASE.test(normalized) || EN_CALENDAR_WRITE_PHRASE.test(normalized)) {
+  if (
+    RU_UK_CALENDAR_WRITE_PHRASE.test(normalized) ||
+    EN_CALENDAR_WRITE_PHRASE.test(normalized) ||
+    CALENDAR_WRITE_LOOSE.test(normalized) ||
+    REMIND_INTO_CALENDAR.test(normalized)
+  ) {
     return true;
   }
 

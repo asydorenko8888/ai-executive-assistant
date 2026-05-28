@@ -1,4 +1,5 @@
 import type { CalendarCreateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
+import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import { getBrowserTimezone } from '@/src/features/agent/calendar/calendarTime';
 import { formatLocationShort } from '@/src/features/agent/calendar/calendarLocation';
 import { parseSpokenClockTime } from '@/src/features/reminders/reminderTimeParser';
@@ -13,6 +14,7 @@ export type OperationalScheduleParseResult =
       ok: true;
       date: Date;
       hasExplicitTime: boolean;
+      explicitDayOffset: number | null;
     }
   | {
       ok: false;
@@ -22,6 +24,8 @@ export type OperationalScheduleParseResult =
 
 function extractClockFragment(transcript: string) {
   const patterns = [
+    /\b(?:в|на)\s+(\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью)?)/iu,
+    /\b(\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью))/iu,
     /\b(?:at|@|о|в|на)\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?)/i,
     /\b(?:на|в)\s+(\d{1,2}(?::\d{2})?)\b/i,
     /\b(\d{1,2}:\d{2})\b/,
@@ -32,7 +36,7 @@ function extractClockFragment(transcript: string) {
     const match = transcript.match(pattern);
 
     if (match) {
-      return match[1] ?? match[0];
+      return (match[1] ?? match[0]).trim();
     }
   }
 
@@ -96,6 +100,7 @@ function resolveDayOffset(transcript: string) {
 export function parseOperationalScheduleHint(transcript: string, referenceNow: Date): OperationalScheduleParseResult {
   const dayOffset = resolveDayOffset(transcript);
   const clockFragment = extractClockFragment(transcript);
+  const hasExplicitDay = dayOffset !== null;
 
   if (dayOffset === null && !clockFragment) {
     return {
@@ -108,6 +113,7 @@ export function parseOperationalScheduleHint(transcript: string, referenceNow: D
   const base = new Date(referenceNow);
 
   if (dayOffset !== null) {
+    base.setHours(0, 0, 0, 0);
     base.setDate(base.getDate() + dayOffset);
   }
 
@@ -117,11 +123,18 @@ export function parseOperationalScheduleHint(transcript: string, referenceNow: D
       ok: true,
       date: base,
       hasExplicitTime: false,
+      explicitDayOffset: dayOffset,
     };
   }
 
   try {
-    const parsedTime = parseSpokenClockTime(clockFragment, base);
+    const clockParseInput = /вечер|утр|дн[её]м|ноч/ui.test(clockFragment)
+      ? clockFragment
+      : `${clockFragment} ${transcript}`;
+
+    const parsedTime = parseSpokenClockTime(clockParseInput, base, {
+      rollToNextDayIfPast: !hasExplicitDay,
+    });
 
     if (!parsedTime) {
       return {
@@ -131,14 +144,23 @@ export function parseOperationalScheduleHint(transcript: string, referenceNow: D
       };
     }
 
-    if (dayOffset !== null) {
+    if (hasExplicitDay) {
       parsedTime.setFullYear(base.getFullYear(), base.getMonth(), base.getDate());
+    }
+
+    if (hasExplicitDay && dayOffset === 0 && parsedTime.getTime() <= referenceNow.getTime()) {
+      return {
+        ok: false,
+        reason: 'date_parse_failed',
+        detail: 'Requested time already passed today',
+      };
     }
 
     return {
       ok: true,
       date: parsedTime,
       hasExplicitTime: true,
+      explicitDayOffset: dayOffset,
     };
   } catch (error) {
     return {
@@ -167,22 +189,44 @@ export function extractCalendarEventLocation(transcript: string) {
   return null;
 }
 
+function capitalizeTitle(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
 export function extractCalendarEventTitle(transcript: string, languageCode: VoiceLanguageCode, location?: string | null) {
+  const taskMatch = transcript.match(
+    /(?:задач[ауеиё]?|task)\s+([\p{L}\d][\p{L}\d\s'-]{1,60}?)(?=\s+(?:сегодня|завтра|tomorrow|today|в\s+\d|на\s+\d|at\s+\d)|\s*$)/iu,
+  );
+
+  if (taskMatch?.[1]) {
+    return capitalizeTitle(taskMatch[1].replace(/\s+/g, ' ').trim());
+  }
+
   const stripped = transcript
     .replace(
-      /(?:внеси|внести|добав(?:ь|ить)|создай|запланируй|поставь|add|create|schedule|book).{0,120}?(?:google\s*)?(?:календар|calendar)/giu,
+      /(?:внеси|внести|добав(?:ь|ить)|создай|запланируй|поставь|add|create|schedule|book).{0,120}?(?:google\s*)?(?:календар[ьяь]?|calendar)/giu,
       '',
     )
+    .replace(/\b(?:задач[ауеиё]?|task)\b/giu, '')
     .replace(/\b(?:на|завтра|tomorrow|today|сьогодні|сегодня)\b/giu, '')
     .replace(/\b(?:встреч[а-яё]*|зустріч|meeting|event)\b/giu, '')
-    .replace(/\b(?:в|у|at)\s+\d{1,2}(?::\d{2})?\b/giu, '')
-    .replace(/\b(?:на|в|at)\s+\d{1,2}(?::\d{2})?\b/giu, '')
+    .replace(
+      /\b(?:в|на)\s+\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью)?\b/giu,
+      '',
+    )
+    .replace(/\b\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью)\b/giu, '')
     .trim();
 
   const locale = getChatLocaleFromVoiceLanguage(languageCode);
 
-  if (stripped.length >= 3 && stripped.length <= 80) {
-    return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+  if (stripped.length >= 2 && stripped.length <= 80) {
+    return capitalizeTitle(stripped);
   }
 
   if (location) {
@@ -222,6 +266,12 @@ export function buildCalendarCreateEventPayload(params: {
   const schedule = parseOperationalScheduleHint(params.transcript, params.referenceNow);
 
   if (!schedule.ok) {
+    logCalendarCreate('parsed payload', {
+      ok: false,
+      reason: schedule.detail,
+      transcriptPreview: params.transcript.slice(0, 120),
+    });
+
     return schedule;
   }
 
@@ -243,6 +293,22 @@ export function buildCalendarCreateEventPayload(params: {
       timeZone,
     },
   };
+
+  const parsedForLog = {
+    title: summary,
+    date:
+      schedule.explicitDayOffset === 0
+        ? 'TODAY'
+        : schedule.explicitDayOffset === 1
+          ? 'TOMORROW'
+          : 'RELATIVE',
+    time: `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}`,
+    calendarAction: 'create_event',
+    timeZone,
+    startIso: startDate.toISOString(),
+  };
+
+  logCalendarCreate('parsed payload', parsedForLog);
 
   logActionExecution('payload_generated', {
     summary: payload.summary,

@@ -5,6 +5,7 @@ import {
   createCalendarToolSuccess,
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
+import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import { logExecutionAudit } from '@/src/features/agent/execution/executionAuditLogger';
 import { ApiError } from '@/src/shared/api/api-error';
 
@@ -17,7 +18,18 @@ export async function createGoogleCalendarEvent(
   });
 
   try {
+    logCalendarCreate('insert started', { path: 'POST /google-calendar/events', summary: payload.summary });
     const response = await createGoogleCalendarEventOnBackend(payload);
+    logCalendarCreate('insert result', {
+      executionState: response.executionState,
+      verified: response.verified,
+      eventId: response.event?.id ?? null,
+    });
+    logCalendarCreate('verification result', {
+      verified: response.verified,
+      verificationFetched: response.verificationFetched,
+      eventId: response.event?.id ?? null,
+    });
 
     logExecutionAudit('api_response', {
       executionState: response.executionState,

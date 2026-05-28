@@ -99,6 +99,17 @@ export function forceRegenerateOperationalReply(params: {
   return 'Got it — what time and title should I use for the calendar event?';
 }
 
+function isFactualOperationalReply(reply: string) {
+  const normalized = reply.trim();
+
+  return (
+    normalized === 'Event created.' ||
+    normalized.startsWith('Event created.') ||
+    normalized.startsWith('FAILURE:') ||
+    normalized.startsWith('PENDING:')
+  );
+}
+
 export function guardAgainstRepeatedAssistantResponse(params: {
   messages: ChatMessage[];
   candidateReply: string;
@@ -106,12 +117,22 @@ export function guardAgainstRepeatedAssistantResponse(params: {
   calendarConnected: boolean;
   referenceNow: Date;
 }) {
-  let reply = blockEmotionalFallbackAfterOperational(params);
   const latestUser = getLatestUserMessage(params.messages);
+  const userTranscript = latestUser?.content.trim() ?? '';
+  const isCalendarWrite = isOperationalCalendarWriteRequest(userTranscript);
+
+  let reply = isCalendarWrite
+    ? params.candidateReply
+    : blockEmotionalFallbackAfterOperational(params);
+
   reply = blockConversationalCalendarRetryLoop({
-    userTranscript: latestUser?.content.trim() ?? '',
+    userTranscript,
     candidateReply: reply,
   });
+
+  if (isCalendarWrite || isFactualOperationalReply(reply)) {
+    return reply;
+  }
 
   if (
     !isRepeatedAssistantResponse({
@@ -128,7 +149,7 @@ export function guardAgainstRepeatedAssistantResponse(params: {
   });
 
   return forceRegenerateOperationalReply({
-    transcript: latestUser?.content.trim() ?? '',
+    transcript: userTranscript,
     languageCode: params.languageCode,
     calendarConnected: params.calendarConnected,
     referenceNow: params.referenceNow,
