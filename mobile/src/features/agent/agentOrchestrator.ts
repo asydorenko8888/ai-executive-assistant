@@ -171,7 +171,7 @@ export function buildAgentRuntimeContext(
     .join(' ');
 }
 
-/** System context blocks for chat/voice — capability honesty always included. */
+/** System context blocks for chat/voice — operational realism briefing always included. */
 export function buildAgentSystemContextSegments(
   orchestrator: ExecutiveAgentOrchestrator,
   languageCode?: VoiceLanguageCode,
