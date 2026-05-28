@@ -11,10 +11,8 @@ import {
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
 import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
-import {
-  executiveChatThread,
-  executiveChatMessages,
-} from '@/src/features/chat/data/chatSeed';
+import { executiveChatThread } from '@/src/features/chat/data/chatSeed';
+import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
 import {
   extractMeaningfulMemories,
   loadLongTermMemories,
@@ -25,31 +23,15 @@ import { streamExecutiveChatMessage } from '@/src/features/chat/services/chatPro
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 import {
-  clearChatHistoryStorage,
-  loadChatHistory,
-  saveChatHistory,
-} from '@/src/features/chat/storage/chatHistoryStorage';
+  createConversationMessage,
+  useExecutiveConversationStore,
+} from '@/src/features/chat/store/executiveConversationStore';
+import { buildVoiceSessionContext } from '@/src/features/voice/memory';
+import { buildVoiceSessionMemoryFromMessages } from '@/src/features/voice/memory/voiceSessionFromMessages';
 import { startVoiceCapture, type VoiceCaptureSession } from '@/src/features/voice/voiceCapture';
 import { toApiError } from '@/src/shared/api';
 
 const assistantTypingLabel = 'Executive AI is structuring a recommendation';
-
-function createMessage(role: ChatMessage['role'], content: string, createdAt: string): ChatMessage {
-  return {
-    id: `${role}-${createdAt}-${Math.random().toString(36).slice(2, 8)}`,
-    role,
-    content,
-    createdAt,
-    status: role === 'assistant' ? 'read' : 'sent',
-  };
-}
-
-function getCurrentTimeLabel() {
-  return new Date().toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 export function useExecutiveChat() {
   const {
@@ -57,7 +39,13 @@ export function useExecutiveChat() {
     recognitionLocale,
     setVoiceLanguage,
   } = useVoiceLanguage();
-  const [messages, setMessages] = useState<ChatMessage[]>(executiveChatMessages);
+  const isHistoryHydrated = useHydrateExecutiveConversation();
+  const messages = useExecutiveConversationStore((state) => state.messages);
+  const appendUserMessage = useExecutiveConversationStore((state) => state.appendUserMessage);
+  const appendAssistantToken = useExecutiveConversationStore((state) => state.appendAssistantToken);
+  const upsertAssistantMessage = useExecutiveConversationStore((state) => state.upsertAssistantMessage);
+  const clearConversation = useExecutiveConversationStore((state) => state.clearConversation);
+  const persistConversation = useExecutiveConversationStore((state) => state.persist);
   const [draft, setDraft] = useState('');
   const [typingState, setTypingState] = useState<ChatTypingState>({
     isActive: false,
@@ -68,8 +56,6 @@ export function useExecutiveChat() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [voiceStatusLabel, setVoiceStatusLabel] = useState<string | null>(null);
   const [voiceStatusTone, setVoiceStatusTone] = useState<'neutral' | 'error'>('neutral');
-  const [isHistoryHydrated, setIsHistoryHydrated] = useState(false);
-  const hasRestoredHistoryRef = useRef(false);
   const hasHydratedMemoryRef = useRef(false);
   const hasReceivedStreamTokenRef = useRef(false);
   const voiceSessionRef = useRef<VoiceCaptureSession | null>(null);
@@ -119,93 +105,25 @@ export function useExecutiveChat() {
 
   useEffect(() => clearTimers, [clearTimers]);
 
-  useEffect(() => {
-    if (hasRestoredHistoryRef.current) {
-      return;
-    }
+  const finalizeAssistantMessage = useCallback(
+    (assistantMessageId: string, content: string) => {
+      upsertAssistantMessage(assistantMessageId, content, 'read');
+    },
+    [upsertAssistantMessage],
+  );
 
-    hasRestoredHistoryRef.current = true;
-    let isMounted = true;
+  const demoteStreamingMessage = useCallback(
+    (assistantMessageId: string) => {
+      const existing = useExecutiveConversationStore
+        .getState()
+        .messages.find((message) => message.id === assistantMessageId);
 
-    const restoreChatHistory = async () => {
-      const restoredMessages = await loadChatHistory(executiveChatMessages);
-
-      if (!isMounted) {
-        return;
+      if (existing) {
+        upsertAssistantMessage(assistantMessageId, existing.content, 'delivered');
       }
-
-      setMessages(restoredMessages);
-      setIsHistoryHydrated(true);
-    };
-
-    void restoreChatHistory();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  const appendStreamToken = useCallback((assistantMessageId: string, token: string) => {
-    setMessages((currentMessages) => {
-      const existingMessage = currentMessages.find((message) => message.id === assistantMessageId);
-
-      if (!existingMessage) {
-        const nextAssistantMessage = createMessage('assistant', token, getCurrentTimeLabel());
-
-        return [
-          ...currentMessages,
-          {
-            ...nextAssistantMessage,
-            id: assistantMessageId,
-            status: 'streaming',
-          },
-        ];
-      }
-
-      return currentMessages.map((message) =>
-        message.id === assistantMessageId
-          ? {
-              ...message,
-              content: `${message.content}${token}`,
-              status: 'streaming',
-            }
-          : message,
-      );
-    });
-  }, []);
-
-  const finalizeAssistantMessage = useCallback((assistantMessageId: string, content: string) => {
-    setMessages((currentMessages) => {
-      const existingMessage = currentMessages.find((message) => message.id === assistantMessageId);
-
-      if (!existingMessage) {
-        return [...currentMessages, createMessage('assistant', content, getCurrentTimeLabel())];
-      }
-
-      return currentMessages.map((message) =>
-        message.id === assistantMessageId
-          ? {
-              ...message,
-              content: content || message.content,
-              status: 'read',
-            }
-          : message,
-      );
-    });
-  }, []);
-
-  const demoteStreamingMessage = useCallback((assistantMessageId: string) => {
-    setMessages((currentMessages) =>
-      currentMessages.map((message) =>
-        message.id === assistantMessageId && message.status === 'streaming'
-          ? {
-              ...message,
-              status: 'delivered',
-            }
-          : message,
-      ),
-    );
-  }, []);
+    },
+    [upsertAssistantMessage],
+  );
 
   const resetStreamingState = useCallback(() => {
     hasReceivedStreamTokenRef.current = false;
@@ -250,10 +168,9 @@ export function useExecutiveChat() {
       }
 
       return [
-        createMessage(
+        createConversationMessage(
           'system',
           `Executive runtime context: ${runtimeContext} Use it subtly and only when it genuinely sharpens the reply.`,
-          getCurrentTimeLabel(),
         ),
       ];
     },
@@ -279,11 +196,15 @@ export function useExecutiveChat() {
       if (latestUserMessage?.content.trim()) {
         console.log('[Voice Test] transcript', latestUserMessage.content.trim());
 
+        const sessionContext = buildVoiceSessionContext(
+          buildVoiceSessionMemoryFromMessages(nextMessages),
+        );
         const humanizedReply = tryBuildHumanizedCalendarReply({
           transcript: latestUserMessage.content.trim(),
           visibleEvents: calendarEvents,
           languageCode: voiceLanguage,
           referenceNow,
+          sessionContext,
         });
 
         if (humanizedReply) {
@@ -307,7 +228,7 @@ export function useExecutiveChat() {
             label: assistantTypingLabel,
           });
           setIsStreamingAssistant(true);
-          appendStreamToken(assistantMessageId, token);
+          appendAssistantToken(assistantMessageId, token);
         },
       });
     },
@@ -319,9 +240,10 @@ export function useExecutiveChat() {
       console.log('[Voice Test] responseText', displayReply || assistantReply);
       finalizeAssistantMessage(variables.assistantMessageId, displayReply || assistantReply);
       resetStreamingState();
+      void persistConversation();
       void syncLongTermMemory([
         ...variables.nextMessages,
-        createMessage('assistant', assistantReply, getCurrentTimeLabel()),
+        createConversationMessage('assistant', assistantReply),
       ]);
     },
     onError: (error, variables) => {
@@ -345,8 +267,8 @@ export function useExecutiveChat() {
       return;
     }
 
-    void saveChatHistory(messages);
-  }, [chatMutation.isPending, isHistoryHydrated, isStreamingAssistant, messages, typingState.isActive]);
+    void persistConversation();
+  }, [chatMutation.isPending, isHistoryHydrated, isStreamingAssistant, messages, persistConversation, typingState.isActive]);
 
   useEffect(() => {
     if (!isHistoryHydrated || hasHydratedMemoryRef.current) {
@@ -371,13 +293,12 @@ export function useExecutiveChat() {
     clearTimers();
     setErrorMessage(null);
 
-    const createdAt = getCurrentTimeLabel();
-    const userMessage = createMessage('user', trimmedMessage, createdAt);
-    const nextMessages = [...messages, userMessage];
+    appendUserMessage(trimmedMessage);
+    const nextMessages = [...useExecutiveConversationStore.getState().messages];
     const assistantMessageId = `assistant-stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     hasReceivedStreamTokenRef.current = false;
-    setMessages(nextMessages);
+    void persistConversation();
     setTypingState({
       isActive: true,
       label: assistantTypingLabel,
@@ -511,9 +432,8 @@ export function useExecutiveChat() {
     setErrorMessage(null);
     setIsVoiceProcessing(false);
     clearVoiceStatus();
-    setMessages(executiveChatMessages);
-    await clearChatHistoryStorage();
-  }, [chatMutation, clearTimers, clearVoiceStatus, resetStreamingState]);
+    await clearConversation();
+  }, [chatMutation, clearConversation, clearTimers, clearVoiceStatus, resetStreamingState]);
 
   return {
     thread,

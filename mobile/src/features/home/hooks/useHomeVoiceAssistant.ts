@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
 import { useQueryClient } from '@tanstack/react-query';
@@ -10,26 +10,29 @@ import {
 } from '@/src/features/agent';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
 import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
-import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
+import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
+import { prepareMemoryPromptContext } from '@/src/features/chat/memory';
 import { sendExecutiveChatMessage } from '@/src/features/chat/services/chatProxyService';
+import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import {
+  createConversationMessage,
+  getConversationPayloadMessages,
+  selectConversationMessages,
+  useExecutiveConversationStore,
+} from '@/src/features/chat/store/executiveConversationStore';
+import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import {
   isSpeechSynthesisSupported,
   speakText,
   stopSpeech,
 } from '@/src/features/chat/services/speechSynthesis';
-import { prepareMemoryPromptContext } from '@/src/features/chat/memory';
-import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import {
-  appendVoiceSessionAssistantMessage,
-  appendVoiceSessionUserMessage,
   buildVoiceSessionContext,
   buildVoiceSessionSystemPrompt,
-  createVoiceSessionMemory,
-  getVoiceSessionMessagesForPayload,
-  type VoiceSessionMemory,
 } from '@/src/features/voice/memory';
+import { buildVoiceSessionMemoryFromMessages } from '@/src/features/voice/memory/voiceSessionFromMessages';
 import {
   tryBuildGymLunchPivotReply,
   tryBuildVoiceSessionFollowUpReply,
@@ -46,23 +49,18 @@ export type HomeVoiceStatus =
   | 'answered'
   | 'error';
 
-function createChatMessage(role: ChatMessage['role'], content: string): ChatMessage {
-  const createdAt = new Date().toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  return {
-    id: `${role}-voice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    role,
-    content,
-    createdAt,
-    status: role === 'assistant' ? 'read' : 'sent',
-  };
-}
-
 export function useHomeVoiceAssistant() {
   const queryClient = useQueryClient();
+  useHydrateExecutiveConversation();
+
+  const conversationMessages = useExecutiveConversationStore((state) =>
+    selectConversationMessages(state.messages),
+  );
+  const appendUserMessage = useExecutiveConversationStore((state) => state.appendUserMessage);
+  const appendAssistantMessage = useExecutiveConversationStore((state) => state.appendAssistantMessage);
+  const clearConversation = useExecutiveConversationStore((state) => state.clearConversation);
+  const persistConversation = useExecutiveConversationStore((state) => state.persist);
+
   const {
     languageCode,
     recognitionLocale,
@@ -74,8 +72,8 @@ export function useHomeVoiceAssistant() {
   const [statusText, setStatusText] = useState('Tap the microphone to speak.');
   const [liveTranscript, setLiveTranscript] = useState('');
   const [heardTranscript, setHeardTranscript] = useState('');
-  const [assistantResponse, setAssistantResponse] = useState('');
   const [isSpeechMuted, setIsSpeechMuted] = useState(false);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const voiceCaptureSessionRef = useRef<VoiceCaptureSession | null>(null);
   const microphoneStreamRef = useRef<MediaStream | null>(null);
   const [microphoneStream, setMicrophoneStream] = useState<MediaStream | null>(null);
@@ -83,7 +81,6 @@ export function useHomeVoiceAssistant() {
   const isSpeechMutedRef = useRef(isSpeechMuted);
   const languageCodeRef = useRef(languageCode);
   const recognitionLocaleRef = useRef(recognitionLocale);
-  const voiceSessionRef = useRef<VoiceSessionMemory>(createVoiceSessionMemory());
 
   useEffect(() => {
     isSpeechMutedRef.current = isSpeechMuted;
@@ -128,56 +125,70 @@ export function useHomeVoiceAssistant() {
     [],
   );
 
-  const playAssistantResponse = useCallback((reply: string) => {
-    const speechText = reply.trim();
+  const resolveVoiceSession = useCallback(
+    (messages: ChatMessage[]) => buildVoiceSessionMemoryFromMessages(messages),
+    [],
+  );
 
-    if (isSpeechMutedRef.current || !isSpeechSynthesisSupported()) {
-      setVoiceStatus('answered');
-      setStatusText('Answer ready');
-      return;
-    }
+  const playAssistantResponse = useCallback(
+    (reply: string, assistantMessageId: string) => {
+      const speechText = reply.trim();
+      setHighlightedMessageId(assistantMessageId);
 
-    if (!speechText) {
-      setVoiceStatus('answered');
-      setStatusText('Answer ready');
-      return;
-    }
-
-    setVoiceStatus('speaking');
-    setStatusText('Speaking...');
-
-    speakText(speechText, {
-      languageCode: languageCodeRef.current,
-      lang: recognitionLocaleRef.current,
-      onStart: () => {
-        setVoiceStatus('speaking');
-        setStatusText('Speaking...');
-      },
-      onEnd: () => {
+      if (isSpeechMutedRef.current || !isSpeechSynthesisSupported()) {
         setVoiceStatus('answered');
         setStatusText('Answer ready');
-      },
-      onError: () => {
+        return;
+      }
+
+      if (!speechText) {
         setVoiceStatus('answered');
-        setStatusText('Answer ready (speech unavailable)');
-      },
-    });
-  }, []);
+        setStatusText('Answer ready');
+        return;
+      }
 
-  const finishVoiceSessionTurn = useCallback((assistantText: string) => {
-    const assistantMessage = createChatMessage('assistant', assistantText);
-    voiceSessionRef.current = appendVoiceSessionAssistantMessage(
-      voiceSessionRef.current,
-      assistantMessage,
-    );
+      setVoiceStatus('speaking');
+      setStatusText('Speaking...');
 
-    console.log('[Voice Session] state', {
-      turns: voiceSessionRef.current.messages.length,
-      facts: voiceSessionRef.current.state.facts,
-      userLocation: voiceSessionRef.current.state.userLocation,
-      lastAdvice: voiceSessionRef.current.state.lastAssistantRecommendation?.slice(0, 80),
-    });
-  }, []);
+      speakText(speechText, {
+        languageCode: languageCodeRef.current,
+        lang: recognitionLocaleRef.current,
+        onStart: () => {
+          setVoiceStatus('speaking');
+          setStatusText('Speaking...');
+        },
+        onEnd: () => {
+          setVoiceStatus('answered');
+          setStatusText('Answer ready');
+          setHighlightedMessageId(null);
+        },
+        onError: () => {
+          setVoiceStatus('answered');
+          setStatusText('Answer ready (speech unavailable)');
+          setHighlightedMessageId(null);
+        },
+      });
+    },
+    [],
+  );
+
+  const finishAssistantTurn = useCallback(
+    (assistantText: string) => {
+      const message = appendAssistantMessage(assistantText);
+      void persistConversation();
+
+      const session = resolveVoiceSession(useExecutiveConversationStore.getState().messages);
+      console.log('[Voice Session] state', {
+        turns: session.messages.length,
+        facts: session.state.facts,
+        userLocation: session.state.userLocation,
+        lastAdvice: session.state.lastAssistantRecommendation?.slice(0, 80),
+      });
+
+      return message;
+    },
+    [appendAssistantMessage, persistConversation, resolveVoiceSession],
+  );
 
   const sendTranscriptToAssistant = useCallback(
     async (transcript: string) => {
@@ -188,6 +199,8 @@ export function useHomeVoiceAssistant() {
       isSendingRef.current = true;
       stopSpeech();
       const trimmedTranscript = transcript.trim();
+      setHeardTranscript('');
+      setLiveTranscript('');
       console.log('[Voice Test] transcript', trimmedTranscript);
       console.log('[Voice] Sending to assistant');
 
@@ -195,10 +208,16 @@ export function useHomeVoiceAssistant() {
         setVoiceStatus('processing');
         setStatusText('Thinking...');
 
-        const userMessage = createChatMessage('user', trimmedTranscript);
-        voiceSessionRef.current = appendVoiceSessionUserMessage(voiceSessionRef.current, userMessage);
-        const sessionContext = buildVoiceSessionContext(voiceSessionRef.current);
-        const sessionMessages = getVoiceSessionMessagesForPayload(voiceSessionRef.current);
+        appendUserMessage(trimmedTranscript);
+        void persistConversation();
+
+        const payloadMessages = getConversationPayloadMessages(
+          useExecutiveConversationStore.getState().messages,
+        );
+        const voiceSession = resolveVoiceSession(
+          useExecutiveConversationStore.getState().messages,
+        );
+        const sessionContext = buildVoiceSessionContext(voiceSession);
 
         const reminderResult = await processVoiceReminderTranscript({
           transcript: trimmedTranscript,
@@ -211,29 +230,19 @@ export function useHomeVoiceAssistant() {
           });
 
           const spokenReminder = formatHomeVoiceReply(reminderResult.confirmation);
-          console.log('[Voice] Assistant response', spokenReminder);
-          setAssistantResponse(spokenReminder);
-          finishVoiceSessionTurn(spokenReminder);
-          playAssistantResponse(spokenReminder);
+          const assistantMessage = finishAssistantTurn(spokenReminder);
+          playAssistantResponse(spokenReminder, assistantMessage.id);
           return;
         }
 
         const orchestrator = await createExecutiveAgentOrchestrator({
           locale: getChatLocaleFromVoiceLanguage(languageCodeRef.current),
-          chatMessages: sessionMessages,
+          chatMessages: payloadMessages,
         });
         const referenceNow = new Date(orchestrator.context.now);
         const calendarEvents = getAssistantVisibleCalendarEvents(
           orchestrator.snapshot,
           referenceNow,
-        );
-        console.log(
-          '[Voice Test] assistantPayload.calendarEvents',
-          calendarEvents.map((event) => ({
-            title: event.title,
-            startsAt: event.startsAt,
-            location: event.location ?? null,
-          })),
         );
 
         const gymLunchPivot = tryBuildGymLunchPivotReply({
@@ -244,10 +253,8 @@ export function useHomeVoiceAssistant() {
 
         if (gymLunchPivot) {
           const spokenPivot = formatHomeVoiceReply(gymLunchPivot, 'relaxed');
-          console.log('[Voice Session] gymLunchPivot', spokenPivot);
-          setAssistantResponse(spokenPivot);
-          finishVoiceSessionTurn(spokenPivot);
-          playAssistantResponse(spokenPivot);
+          const assistantMessage = finishAssistantTurn(spokenPivot);
+          playAssistantResponse(spokenPivot, assistantMessage.id);
           return;
         }
 
@@ -260,10 +267,8 @@ export function useHomeVoiceAssistant() {
         });
 
         if (humanizedReply) {
-          console.log('[Voice Test] responseText', humanizedReply.responseText);
-          setAssistantResponse(humanizedReply.responseText);
-          finishVoiceSessionTurn(humanizedReply.responseText);
-          playAssistantResponse(humanizedReply.responseText);
+          const assistantMessage = finishAssistantTurn(humanizedReply.responseText);
+          playAssistantResponse(humanizedReply.responseText, assistantMessage.id);
           return;
         }
 
@@ -277,10 +282,8 @@ export function useHomeVoiceAssistant() {
 
         if (sessionFollowUp) {
           const spokenFollowUp = formatHomeVoiceReply(sessionFollowUp, 'soon');
-          console.log('[Voice Session] followUp', spokenFollowUp);
-          setAssistantResponse(spokenFollowUp);
-          finishVoiceSessionTurn(spokenFollowUp);
-          playAssistantResponse(spokenFollowUp);
+          const assistantMessage = finishAssistantTurn(spokenFollowUp);
+          playAssistantResponse(spokenFollowUp, assistantMessage.id);
           return;
         }
 
@@ -289,35 +292,27 @@ export function useHomeVoiceAssistant() {
           languageCodeRef.current,
           trimmedTranscript,
         );
-        const memoryContext = await prepareMemoryPromptContext(sessionMessages);
-        const voiceSessionPrompt = buildVoiceSessionSystemPrompt(voiceSessionRef.current);
+        const memoryContext = await prepareMemoryPromptContext(payloadMessages);
+        const voiceSessionPrompt = buildVoiceSessionSystemPrompt(voiceSession);
         const systemMessages = [
           ...memoryContext.systemMessages,
           ...(voiceSessionPrompt
-            ? [
-                createChatMessage(
-                  'system',
-                  voiceSessionPrompt,
-                ),
-              ]
+            ? [createConversationMessage('system', voiceSessionPrompt)]
             : []),
           ...(runtimeContext
             ? [
-                createChatMessage(
+                createConversationMessage(
                   'system',
                   `Executive runtime context: ${runtimeContext} Use it subtly and only when it genuinely sharpens the reply.`,
                 ),
               ]
             : []),
         ];
-        const reply = await sendExecutiveChatMessage(sessionMessages, systemMessages);
+        const reply = await sendExecutiveChatMessage(payloadMessages, systemMessages);
 
         const spokenReply = formatHomeVoiceReply(reply);
-        console.log('[Voice Test] responseText', spokenReply);
-        console.log('[Voice] Assistant response', spokenReply);
-        setAssistantResponse(spokenReply);
-        finishVoiceSessionTurn(spokenReply);
-        playAssistantResponse(spokenReply);
+        const assistantMessage = finishAssistantTurn(spokenReply);
+        playAssistantResponse(spokenReply, assistantMessage.id);
       } catch (error) {
         const apiError = toApiError(error);
         console.log('[Voice] Error', apiError.message);
@@ -327,8 +322,26 @@ export function useHomeVoiceAssistant() {
         isSendingRef.current = false;
       }
     },
-    [formatHomeVoiceReply, finishVoiceSessionTurn, playAssistantResponse, queryClient],
+    [
+      appendUserMessage,
+      finishAssistantTurn,
+      formatHomeVoiceReply,
+      persistConversation,
+      playAssistantResponse,
+      queryClient,
+      resolveVoiceSession,
+    ],
   );
+
+  const handleClearConversation = useCallback(() => {
+    stopAllVoiceOutput();
+    setVoiceStatus('idle');
+    setStatusText('Conversation cleared. Tap the microphone to speak.');
+    setLiveTranscript('');
+    setHeardTranscript('');
+    setHighlightedMessageId(null);
+    void clearConversation();
+  }, [clearConversation, stopAllVoiceOutput]);
 
   const toggleSpeechMute = useCallback(() => {
     setIsSpeechMuted((currentValue) => {
@@ -339,10 +352,10 @@ export function useHomeVoiceAssistant() {
         if (voiceStatus === 'speaking') {
           setVoiceStatus('answered');
           setStatusText('Answer ready (muted)');
+          setHighlightedMessageId(null);
         }
       }
 
-      console.log('[Voice] Speech mute', nextValue);
       return nextValue;
     });
   }, [voiceStatus]);
@@ -357,6 +370,7 @@ export function useHomeVoiceAssistant() {
       stopSpeech();
       setVoiceStatus('answered');
       setStatusText('Ready');
+      setHighlightedMessageId(null);
       return;
     }
 
@@ -365,7 +379,6 @@ export function useHomeVoiceAssistant() {
     }
 
     stopAllVoiceOutput();
-    setAssistantResponse('');
     setHeardTranscript('');
     setLiveTranscript('');
 
@@ -435,24 +448,39 @@ export function useHomeVoiceAssistant() {
     }
   }, [releaseMicrophoneStream, sendTranscriptToAssistant, stopAllVoiceOutput, stopVoiceCapture, voiceStatus]);
 
-  const displayTranscript = heardTranscript || liveTranscript;
+  const pendingUserTranscript = useMemo(() => {
+    if (voiceStatus === 'listening') {
+      return liveTranscript.trim() || undefined;
+    }
+
+    if (voiceStatus === 'processing' && heardTranscript.trim()) {
+      return undefined;
+    }
+
+    return undefined;
+  }, [heardTranscript, liveTranscript, voiceStatus]);
+
   const isVoiceBusy =
     voiceStatus === 'listening' || voiceStatus === 'processing' || voiceStatus === 'speaking';
 
   return {
     voiceStatus,
     statusText,
-    displayTranscript,
-    assistantResponse,
+    conversationMessages,
+    pendingUserTranscript,
+    highlightedMessageId,
+    isProcessing: voiceStatus === 'processing',
     isSpeechMuted,
     isSpeechSupported: isSpeechSynthesisSupported(),
     voiceLanguage: languageCode,
     voiceLanguageLabel: activeLanguageLabel,
     isVoiceLanguageHydrated,
     isVoiceLanguageDisabled: isVoiceBusy,
+    canClearConversation: conversationMessages.length > 0,
     setVoiceLanguage,
     microphoneStream,
     handleMicrophonePress,
+    handleClearConversation,
     toggleSpeechMute,
   };
 }

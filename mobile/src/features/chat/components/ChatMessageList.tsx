@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import { FlatList, StyleSheet, View } from 'react-native';
 
@@ -15,6 +15,10 @@ type ChatMessageListProps = {
 
 export function ChatMessageList({ messages, typingState, isStreaming }: ChatMessageListProps) {
   const flatListRef = useRef<FlatList<ChatMessage> | null>(null);
+  const visibleMessages = useMemo(
+    () => messages.filter((message) => message.role === 'user' || message.role === 'assistant'),
+    [messages],
+  );
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -26,12 +30,12 @@ export function ChatMessageList({ messages, typingState, isStreaming }: ChatMess
     return () => {
       clearTimeout(timeout);
     };
-  }, [isStreaming, messages, typingState.isActive]);
+  }, [isStreaming, typingState.isActive, visibleMessages]);
 
   return (
     <FlatList
       ref={flatListRef}
-      data={messages}
+      data={visibleMessages}
       keyExtractor={(item) => item.id}
       renderItem={({ item }) => <ChatMessageBubble message={item} />}
       contentContainerStyle={styles.content}

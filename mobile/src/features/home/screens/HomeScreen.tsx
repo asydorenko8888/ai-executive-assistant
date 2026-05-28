@@ -25,16 +25,20 @@ export default function HomeScreen() {
   const {
     voiceStatus,
     statusText,
-    displayTranscript,
-    assistantResponse,
+    conversationMessages,
+    pendingUserTranscript,
+    highlightedMessageId,
+    isProcessing,
     isSpeechMuted,
     isSpeechSupported,
     voiceLanguage,
     voiceLanguageLabel,
     isVoiceLanguageDisabled,
+    canClearConversation,
     setVoiceLanguage,
     microphoneStream,
     handleMicrophonePress,
+    handleClearConversation,
     toggleSpeechMute,
   } = useHomeVoiceAssistant();
   const { activeAlerts, dismissAlert } = useReminderMonitor({
@@ -121,12 +125,16 @@ export default function HomeScreen() {
           void handleMicrophonePress();
         }}
         onToggleMute={toggleSpeechMute}
+        onClearConversation={handleClearConversation}
         label="Voice Assistant"
         hint="Tap to speak · tap again while speaking to interrupt"
         microphoneStream={microphoneStream}
         statusText={statusText}
-        transcriptText={displayTranscript || undefined}
-        assistantResponseText={assistantResponse || undefined}
+        conversationMessages={conversationMessages}
+        pendingUserTranscript={pendingUserTranscript}
+        highlightedMessageId={highlightedMessageId}
+        isProcessing={isProcessing}
+        canClearConversation={canClearConversation}
         statusType={voiceStatus}
         isSpeechMuted={isSpeechMuted}
         isSpeechSupported={isSpeechSupported}

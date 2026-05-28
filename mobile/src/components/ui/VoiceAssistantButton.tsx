@@ -1,6 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Animated, { FadeIn, FadeInDown, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 
 import { VoiceLanguageSelector } from '@/src/components/ui/VoiceLanguageSelector';
 import {
@@ -9,6 +8,8 @@ import {
   VoiceStatusIndicator,
   type VoiceAssistantStatusType,
 } from '@/src/components/ui/voice-orb';
+import type { ChatMessage } from '@/src/entities/chat/types';
+import { VoiceConversationHistory } from '@/src/features/voice/components/VoiceConversationHistory';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { colors, fontSizes, fontWeights, radii, spacing } from '@/src/theme';
 
@@ -17,11 +18,15 @@ export type { VoiceAssistantStatusType } from '@/src/components/ui/voice-orb';
 type VoiceAssistantButtonProps = {
   onPress?: () => void;
   onToggleMute?: () => void;
+  onClearConversation?: () => void;
   label: string;
   hint: string;
   statusText?: string;
-  transcriptText?: string;
-  assistantResponseText?: string;
+  conversationMessages?: ChatMessage[];
+  pendingUserTranscript?: string;
+  highlightedMessageId?: string | null;
+  isProcessing?: boolean;
+  canClearConversation?: boolean;
   statusType?: VoiceAssistantStatusType;
   isSpeechMuted?: boolean;
   isSpeechSupported?: boolean;
@@ -32,37 +37,18 @@ type VoiceAssistantButtonProps = {
   microphoneStream?: MediaStream | null;
 };
 
-function AssistantResponseCard({
-  text,
-  highlighted,
-}: {
-  text: string;
-  highlighted: boolean;
-}) {
-  const glow = useAnimatedStyle(() => ({
-    borderColor: withTiming(highlighted ? colors.borderStrong : colors.border, { duration: 320 }),
-    backgroundColor: withTiming(
-      highlighted ? colors.overlayBlueSoft : colors.surfaceElevated,
-      { duration: 320 },
-    ),
-  }));
-
-  return (
-    <Animated.View entering={FadeInDown.duration(320).springify()} style={[styles.responseCard, glow]}>
-      <Text style={styles.responseLabel}>Assistant</Text>
-      <Text style={styles.responseText}>{text}</Text>
-    </Animated.View>
-  );
-}
-
 export function VoiceAssistantButton({
   onPress,
   onToggleMute,
+  onClearConversation,
   label,
   hint,
   statusText,
-  transcriptText,
-  assistantResponseText,
+  conversationMessages = [],
+  pendingUserTranscript,
+  highlightedMessageId = null,
+  isProcessing = false,
+  canClearConversation = false,
   statusType = 'idle',
   isSpeechMuted = false,
   isSpeechSupported = true,
@@ -116,15 +102,14 @@ export function VoiceAssistantButton({
         </Pressable>
       ) : null}
 
-      {transcriptText ? (
-        <Animated.Text entering={FadeIn.duration(200)} style={styles.transcript}>
-          {transcriptText}
-        </Animated.Text>
-      ) : null}
-
-      {assistantResponseText ? (
-        <AssistantResponseCard text={assistantResponseText} highlighted={statusType === 'speaking'} />
-      ) : null}
+      <VoiceConversationHistory
+        messages={conversationMessages}
+        pendingUserTranscript={pendingUserTranscript}
+        isProcessing={isProcessing}
+        highlightedMessageId={highlightedMessageId}
+        onClearConversation={onClearConversation}
+        canClear={canClearConversation}
+      />
     </View>
   );
 }
@@ -168,38 +153,5 @@ const styles = StyleSheet.create({
   },
   muteLabelMuted: {
     color: colors.textMuted,
-  },
-  transcript: {
-    color: colors.textMuted,
-    fontSize: fontSizes.sm,
-    textAlign: 'center',
-    lineHeight: 20,
-    paddingHorizontal: spacing.md,
-  },
-  responseCard: {
-    width: '100%',
-    marginTop: spacing.xs,
-    padding: spacing.md,
-    borderRadius: radii.lg,
-    backgroundColor: colors.surfaceElevated,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.xs,
-    shadowColor: colors.accentBlue,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 16,
-    elevation: 4,
-  },
-  responseLabel: {
-    color: colors.textSecondary,
-    fontSize: fontSizes.xs,
-    fontWeight: fontWeights.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  responseText: {
-    color: colors.textPrimary,
-    fontSize: fontSizes.md,
-    lineHeight: 24,
   },
 });
