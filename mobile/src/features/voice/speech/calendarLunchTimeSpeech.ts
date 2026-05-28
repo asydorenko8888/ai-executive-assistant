@@ -1,11 +1,19 @@
 import {
   computeLunchTimeBudget,
   formatSpeechMinuteRange,
+  type LunchTimeBudget,
   wantsDetailedLunchTimeBreakdown,
 } from '@/src/features/agent/calendar/calendarLunchTimeBudget';
 import type { CalendarSituationAnalysis } from '@/src/features/agent/calendar/calendarSituationalReasoning';
 import type { VoiceLanguageChatLocale } from '@/src/features/chat/services/voiceLanguage';
 import { formatSpokenMinutesUntil } from '@/src/features/voice/speech/voiceSpeechFormatter';
+
+type CompanionSpeechParts = {
+  opener?: string;
+  assessment: string;
+  recommendation: string;
+  warning?: string;
+};
 
 function shortPlace(location?: string | null) {
   if (!location?.trim()) {
@@ -25,91 +33,68 @@ function shortPlace(location?: string | null) {
   return value.split(',')[0]?.trim() ?? value;
 }
 
-function formatLeaveByHint(
-  referenceNow: Date,
-  leaveInMinutes: number,
-  locale: VoiceLanguageChatLocale,
-) {
-  const leaveAt = new Date(referenceNow.getTime() + leaveInMinutes * 60_000);
-  const timeLabel = leaveAt.toLocaleTimeString(
-  locale === 'uk' ? 'uk-UA' : locale === 'ru' ? 'ru-RU' : 'en-US',
-  {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: false,
-  },
-);
+function formatLeaveWithinPhrase(leaveInMinutes: number, locale: VoiceLanguageChatLocale) {
+  const minutes = Math.max(5, Math.round(leaveInMinutes / 5) * 5);
 
   if (locale === 'uk') {
-    return `виходи орієнтовно о ${timeLabel} (за ${leaveInMinutes} хвилин)`;
+    if (minutes <= 25) {
+      return 'через 20–25 хвилин';
+    }
+
+    if (minutes <= 40) {
+      return 'максимум через півгодини';
+    }
+
+    return `орієнтовно через ${minutes} хвилин`;
   }
 
   if (locale === 'ru') {
-    return `выходи ориентировочно в ${timeLabel} (через ${leaveInMinutes} минут)`;
+    if (minutes <= 25) {
+      return 'через 20–25 минут';
+    }
+
+    if (minutes <= 40) {
+      return 'максимум через полчаса';
+    }
+
+    return `примерно через ${minutes} минут`;
   }
 
-  return `head out around ${timeLabel} (in about ${leaveInMinutes} minutes)`;
+  if (minutes <= 25) {
+    return 'within about 20–25 minutes';
+  }
+
+  if (minutes <= 40) {
+    return 'within the next half hour';
+  }
+
+  return `in about ${minutes} minutes`;
 }
 
-function buildRiskRecommendation(
-  budget: NonNullable<ReturnType<typeof computeLunchTimeBudget>>,
+function ensureSentence(value: string) {
+  const trimmed = value.trim();
+  const capitalized = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+
+  if (/[.!?…]$/.test(capitalized)) {
+    return capitalized;
+  }
+
+  return `${capitalized}.`;
+}
+
+function joinCompanionParts(parts: CompanionSpeechParts, maxSentences = 4) {
+  return [parts.opener, parts.assessment, parts.recommendation, parts.warning]
+    .map((sentence) => (sentence ? ensureSentence(sentence) : null))
+    .filter(Boolean)
+    .slice(0, maxSentences)
+    .join(' ');
+}
+
+function buildTravelWarning(
+  budget: LunchTimeBudget,
+  destination: string,
   locale: VoiceLanguageChatLocale,
 ) {
-  if (locale === 'uk') {
-    switch (budget.riskLevel) {
-      case 'safe':
-        return 'часу достатньо — не розтягуй обід без потреби';
-      case 'moderate':
-        return 'краще швидко';
-      case 'tight':
-        return 'лише короткий обід, інакше буде важко';
-      default:
-        return 'краще легкий перекус — повноцінний обід уже ризиковано';
-    }
-  }
-
-  if (locale === 'ru') {
-    switch (budget.riskLevel) {
-      case 'safe':
-        return 'времени хватает — не затягивай обед';
-      case 'moderate':
-        return 'лучше быстро';
-      case 'tight':
-        return 'только короткий обед';
-      default:
-        return 'лучше перекус — полноценный обед уже рискованно';
-    }
-  }
-
-  switch (budget.riskLevel) {
-    case 'safe':
-      return 'you have enough room — do not stretch lunch';
-    case 'moderate':
-      return 'keep it brisk';
-    case 'tight':
-      return 'only a short lunch window';
-    default:
-      return 'stick to a quick bite — a long sit-down lunch is risky';
-  }
-}
-
-export function buildDetailedLunchTimeSpeech(
-  analysis: CalendarSituationAnalysis,
-  locale: VoiceLanguageChatLocale,
-  referenceNow: Date,
-): string | null {
-  if (!wantsDetailedLunchTimeBreakdown(analysis)) {
-    return null;
-  }
-
-  const budget = computeLunchTimeBudget(analysis);
-
-  if (!budget) {
-    return null;
-  }
-
-  const destination = shortPlace(analysis.destinationEvent?.location);
-  const meetingLabel = formatSpokenMinutesUntil(budget.minutesUntilMeeting, locale, 'precise');
   const travelReserve = formatSpeechMinuteRange(
     budget.travelKnown ? budget.travelMinutesMin : budget.travelMinutesMin,
     budget.travelKnown
@@ -117,65 +102,223 @@ export function buildDetailedLunchTimeSpeech(
       : budget.travelMinutesMax,
     locale,
   );
-  const lunchWindow = formatSpeechMinuteRange(budget.lunchMinutesMin, budget.lunchMinutesMax, locale);
-  const leaveHint = formatLeaveByHint(referenceNow, budget.leaveInMinutes, locale);
-  const recommendation = buildRiskRecommendation(budget, locale);
 
   if (locale === 'uk') {
-    const meetingRef = 'зустрічі';
-    const travelClause = budget.travelKnown
-      ? `залиш собі хоча б ${travelReserve} на дорогу і буфер`
-      : `дорогу точно не знаю — заклади консервативний запас ${travelReserve} на дорогу і буфер`;
-    const lunchClause =
-      budget.lunchMinutesMax <= 0
-        ? 'на повноцінний обід часу практично немає'
-        : `на сам обід маєш приблизно ${lunchWindow}`;
+    if (destination && budget.travelKnown) {
+      return `заклади ${travelReserve} на дорогу в ${destination} — виходи ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`;
+    }
 
-    return [
-      `До ${meetingRef} ${meetingLabel}.`,
-      budget.lunchMinutesMax > 0
-        ? `Так, пообідати встигаєш — ${recommendation}: ${travelClause}.`
-        : `Пообідати вже щільно: ${travelClause}.`,
-      `${lunchClause.charAt(0).toUpperCase()}${lunchClause.slice(1)}.`,
-      leaveHint.charAt(0).toUpperCase() + leaveHint.slice(1) + '.',
-    ].join(' ');
+    if (destination) {
+      return `дорогу в ${destination} не знаю точно — візьми запас ${travelReserve} і виходи ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`;
+    }
+
+    return budget.travelKnown
+      ? `на дорогу й буфер залиш ${travelReserve}, виходи ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`
+      : `дорогу не знаю — заклади запас ${travelReserve} і не сиди довго за столом`;
   }
 
   if (locale === 'ru') {
-    const meetingRef = destination ? `встреча в ${destination}` : 'встреча';
-    const travelClause = budget.travelKnown
-      ? `заложи минимум ${travelReserve} на дорогу и буфер`
-      : `дорогу точно не знаю — заложи запас ${travelReserve} на дорогу и буфер`;
-    const lunchClause =
-      budget.lunchMinutesMax <= 0
-        ? 'на полноценный обед времени почти нет'
-        : `на сам обед останется примерно ${lunchWindow}`;
+    if (destination && budget.travelKnown) {
+      return `заложи ${travelReserve} на дорогу в ${destination} — выезжай ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`;
+    }
 
-    return [
-      `До ${meetingRef} ${meetingLabel}.`,
-      budget.lunchMinutesMax > 0
-        ? `Да, пообедать успеешь, но ${recommendation}: ${travelClause}.`
-        : `Пообедать уже туго: ${travelClause}.`,
-      `${lunchClause.charAt(0).toUpperCase()}${lunchClause.slice(1)}.`,
-      leaveHint.charAt(0).toUpperCase() + leaveHint.slice(1) + '.',
-    ].join(' ');
+    if (destination) {
+      return `дорогу в ${destination} точно не знаю — возьми запас ${travelReserve} и выезжай ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`;
+    }
+
+    return budget.travelKnown
+      ? `на дорогу и буфер оставь ${travelReserve}, выезжай ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`
+      : `дорогу не знаю — заложи запас ${travelReserve} и не затягивай за столом`;
   }
 
-  const meetingRef = destination ? `the meeting in ${destination}` : 'the meeting';
-  const travelClause = budget.travelKnown
-    ? `reserve at least ${travelReserve} for the drive and buffer`
-    : `I do not know the exact drive time — use a conservative ${travelReserve} for travel and buffer`;
-  const lunchClause =
-    budget.lunchMinutesMax <= 0
-      ? 'there is practically no time for a real lunch'
-      : `that leaves about ${lunchWindow} to actually eat`;
+  if (destination && budget.travelKnown) {
+    return `save ${travelReserve} for the drive to ${destination} and head out ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`;
+  }
 
-  return [
-    `${meetingLabel} until ${meetingRef}.`,
-    budget.lunchMinutesMax > 0
-      ? `Yes, you can do lunch, but ${recommendation}: ${travelClause}.`
-      : `Lunch is tight: ${travelClause}.`,
-    `${lunchClause.charAt(0).toUpperCase()}${lunchClause.slice(1)}.`,
-    leaveHint.charAt(0).toUpperCase() + leaveHint.slice(1) + '.',
-  ].join(' ');
+  if (destination) {
+    return `I do not know the exact drive to ${destination} — budget ${travelReserve} and leave ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`;
+  }
+
+  return budget.travelKnown
+    ? `keep ${travelReserve} for travel and buffer, and leave ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`
+    : `drive time is unclear — use a ${travelReserve} cushion and do not linger`;
+}
+
+function buildCompanionParts(
+  budget: LunchTimeBudget,
+  destination: string,
+  locale: VoiceLanguageChatLocale,
+): CompanionSpeechParts {
+  const meetingMinutes = formatSpokenMinutesUntil(budget.minutesUntilMeeting, locale, 'precise');
+  const lunchWindow = formatSpeechMinuteRange(budget.lunchMinutesMin, budget.lunchMinutesMax, locale);
+  const destPhrase = destination ? ` в ${destination}` : '';
+
+  if (locale === 'uk') {
+    switch (budget.riskLevel) {
+      case 'safe':
+        return {
+          assessment: `Зараз у тебе нормальний запас — до зустрічі ще ${meetingMinutes}`,
+          recommendation: 'Можеш спокійно пообідати, без паніки',
+          warning: destination
+            ? `але не розпускайся надто довго — ${buildTravelWarning(budget, destination, locale)}`
+            : undefined,
+        };
+      case 'moderate':
+        return destination
+          ? {
+              opener: 'Чесно?',
+              assessment: `Я б не затягував. На їжу орієнтовно ${lunchWindow}, а тобі ще їхати в ${destination}`,
+              recommendation: 'Візьми щось поруч — швидкий ланч, не довгий обід',
+              warning: `Виходи ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`,
+            }
+          : {
+              opener: 'Чесно?',
+              assessment: `Поїсти встигаєш — це швидкий ланч. До зустрічі ${meetingMinutes}`,
+              recommendation: 'Візьми щось поруч',
+              warning: buildTravelWarning(budget, destination, locale),
+            };
+      case 'tight':
+        return {
+          opener: 'Якщо швидко — встигнеш',
+          assessment: `Але зараз уже не час для довгого обіду — на їжу лишається ${lunchWindow}`,
+          recommendation: 'Краще щось легке поруч',
+          warning: buildTravelWarning(budget, destination, locale),
+        };
+      default:
+        return {
+          opener: 'Чесно — вже щільно',
+          assessment: `Повноцінний обід${destPhrase} уже ризикований`,
+          recommendation: destination
+            ? `Краще легкий перекус і рухайся в бік ${destination}`
+            : 'Краще перекус і збирайся',
+          warning: buildTravelWarning(budget, destination, locale),
+        };
+    }
+  }
+
+  if (locale === 'ru') {
+    switch (budget.riskLevel) {
+      case 'safe':
+        return {
+          assessment: `Сейчас запас нормальный — до встречи ещё ${meetingMinutes}`,
+          recommendation: 'Можешь спокойно поесть, без суеты',
+          warning: destination
+            ? `но не расслабляйся слишком долго — ${buildTravelWarning(budget, destination, locale)}`
+            : undefined,
+        };
+      case 'moderate':
+        return destination
+          ? {
+              opener: 'Честно?',
+              assessment: `Я бы не затягивал. Времени немного, а тебе ещё ехать в ${destination}`,
+              recommendation: 'Возьми что-то рядом — быстрый ланч, не длинный обед',
+              warning: `Выезжай ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`,
+            }
+          : {
+              opener: 'Честно?',
+              assessment: `Поесть успеешь — это быстрый ланч. До встречи ${meetingMinutes}`,
+              recommendation: 'Возьми что-то рядом',
+              warning: buildTravelWarning(budget, destination, locale),
+            };
+      case 'tight':
+        return {
+          opener: 'Если быстро — успеваешь',
+          assessment: `Но сейчас уже не время для длинного обеда — на стол остаётся ${lunchWindow}`,
+          recommendation: 'Возьми что-то рядом',
+          warning: buildTravelWarning(budget, destination, locale),
+        };
+      default:
+        return {
+          opener: 'Честно — уже туго',
+          assessment: `Нормальный обед${destPhrase} уже рискованный`,
+          recommendation: destination
+            ? `Лучше перекус и двигайся к ${destination}`
+            : 'Лучше перекус и собирайся',
+          warning: buildTravelWarning(budget, destination, locale),
+        };
+    }
+  }
+
+  switch (budget.riskLevel) {
+    case 'safe':
+      return {
+        assessment: `You're in decent shape — about ${meetingMinutes} before the meeting`,
+        recommendation: 'Go ahead and eat without rushing',
+        warning: destination
+          ? `just do not lose track of time — ${buildTravelWarning(budget, destination, locale)}`
+          : undefined,
+      };
+    case 'moderate':
+      return destination
+        ? {
+            opener: 'Honestly?',
+            assessment: `I would not stretch it. You have about ${lunchWindow} to eat, and you still need to get to ${destination}`,
+            recommendation: 'Grab something nearby — quick lunch, not a long sit-down',
+            warning: `Head out ${formatLeaveWithinPhrase(budget.leaveInMinutes, locale)}`,
+          }
+        : {
+            opener: 'Honestly?',
+            assessment: `You can eat — think quick lunch. ${meetingMinutes} until the meeting`,
+            recommendation: 'Keep it nearby and do not linger',
+            warning: buildTravelWarning(budget, destination, locale),
+          };
+    case 'tight':
+      return {
+        opener: 'If you move fast, you can make it',
+        assessment: `This is not a long lunch moment — you've got about ${lunchWindow} to eat`,
+        recommendation: 'Keep it light and nearby',
+        warning: buildTravelWarning(budget, destination, locale),
+      };
+    default:
+      return {
+        opener: 'Honestly — you are tight',
+        assessment: `A full lunch${destPhrase ? ` before ${destination}` : ''} is risky now`,
+        recommendation: destination
+          ? `I'd grab a quick bite and start heading toward ${destination}`
+          : 'I would snack now and get moving',
+        warning: buildTravelWarning(budget, destination, locale),
+      };
+  }
+}
+
+export function buildCompanionLunchTimeSpeech(
+  analysis: CalendarSituationAnalysis,
+  locale: VoiceLanguageChatLocale,
+  maxSentences = 4,
+): string | null {
+  const budget = computeLunchTimeBudget(analysis);
+
+  if (!budget) {
+    return null;
+  }
+
+  const destination = shortPlace(analysis.destinationEvent?.location);
+  const parts = buildCompanionParts(budget, destination, locale);
+
+  return joinCompanionParts(parts, maxSentences);
+}
+
+/** Full judgment for explicit "how much time / can I lunch" questions. */
+export function buildDetailedLunchTimeSpeech(
+  analysis: CalendarSituationAnalysis,
+  locale: VoiceLanguageChatLocale,
+  _referenceNow: Date,
+): string | null {
+  if (!wantsDetailedLunchTimeBreakdown(analysis)) {
+    return null;
+  }
+
+  return buildCompanionLunchTimeSpeech(analysis, locale, 4);
+}
+
+/** Shorter companion take for situational intercept (2–3 sentences). */
+export function buildCompanionLunchBrief(
+  analysis: CalendarSituationAnalysis,
+  locale: VoiceLanguageChatLocale,
+): string | null {
+  if (!analysis.modifiers.mentionsLunch && analysis.category !== 'travel_awareness') {
+    return null;
+  }
+
+  return buildCompanionLunchTimeSpeech(analysis, locale, 3);
 }

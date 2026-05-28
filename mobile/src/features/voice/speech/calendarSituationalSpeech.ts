@@ -1,5 +1,6 @@
 import type { CalendarSituationAnalysis } from '@/src/features/agent/calendar/calendarSituationalReasoning';
 import type { VoiceLanguageChatLocale } from '@/src/features/chat/services/voiceLanguage';
+import { buildCompanionLunchBrief } from '@/src/features/voice/speech/calendarLunchTimeSpeech';
 import { joinSpokenClauses } from '@/src/features/voice/speech/voiceSpeechFormatter';
 
 function shortPlace(location?: string | null) {
@@ -58,27 +59,27 @@ export function buildSituationalSpeechDraft(
           destination ? `головне — не затягни перед ${destination}` : 'головне — не затягни надто довго',
         ]);
       case 'travel_awareness':
-      case 'lunch_free_time':
-        if (windowTone === 'comfortable') {
-          return joinSpokenClauses([
-            'На обід часу вистачає',
-            destination ? `але до ${destination} ще треба закласти дорогу` : 'але на наступну треба вийти вчасно',
-          ]);
+      case 'lunch_free_time': {
+        const companion = buildCompanionLunchBrief(analysis, locale);
+
+        if (companion) {
+          return companion;
         }
 
-        if (windowTone === 'moderate') {
+        if (windowTone === 'comfortable') {
           return joinSpokenClauses([
-            lunchPlace ? `Обід у ${lunchPlace} норм` : 'На обід час є',
-            destination
-              ? `але я б не розтягував — ${destination} ще їхати`
-              : 'але не сидів занадто довго',
+            'Можеш пообідати спокійно',
+            destination ? `головне — не забудь про дорогу в ${destination}` : 'головне — не втрачай ритм',
           ]);
         }
 
         return joinSpokenClauses([
-          'Обід можна встигнути',
-          destination ? `але тільки коротко — ${destination} уже скоро` : 'але часу не дуже багато',
+          'Чесно?',
+          destination
+            ? `Поїсти встигаєш, але я б не затягував — ${destination} ще попереду`
+            : 'Поїсти встигаєш, але тільки швидко',
         ]);
+      }
       case 'late_risk':
         return joinSpokenClauses([
           'Чесно, часу мало',
@@ -114,11 +115,19 @@ export function buildSituationalSpeechDraft(
           destination ? `главное — не затягивать перед ${destination}` : 'главное — не затягивать',
         ]);
       case 'travel_awareness':
-      case 'lunch_free_time':
-        return joinSpokenClauses([
-          lunchPlace ? `Пообедать в ${lunchPlace} можно` : 'На обед время есть',
-          destination ? `но до ${destination} ещё дорога` : 'но лучше не затягивать',
-        ]);
+      case 'lunch_free_time': {
+        const companion = buildCompanionLunchBrief(analysis, locale);
+
+        return (
+          companion ??
+          joinSpokenClauses([
+            'Если быстро — успеваешь',
+            destination
+              ? `но это не длинный обед — ${destination} ещё впереди`
+              : 'но лучше не затягивать',
+          ])
+        );
+      }
       case 'late_risk':
         return joinSpokenClauses([
           'Времени мало',
@@ -145,27 +154,20 @@ export function buildSituationalSpeechDraft(
           : 'just keep it moving',
       ]);
     case 'travel_awareness':
-    case 'lunch_free_time':
-      if (windowTone === 'comfortable') {
-        return joinSpokenClauses([
-          'You should be fine for lunch',
-          destination ? `but save time for the drive to ${destination}` : 'but leave a little buffer before the next stop',
-        ]);
-      }
+    case 'lunch_free_time': {
+      const companion = buildCompanionLunchBrief(analysis, locale);
 
-      if (windowTone === 'moderate') {
-        return joinSpokenClauses([
-          lunchPlace ? `Lunch around ${lunchPlace} is okay` : 'You can grab lunch',
-          destination
-            ? `but I would not make it too long — ${destination} is still a drive away`
-            : 'but keep it reasonably short',
-        ]);
+      if (companion) {
+        return companion;
       }
 
       return joinSpokenClauses([
-        'You can eat, but keep it quick',
-        destination ? `${destination} is coming up faster than it feels` : 'time is tighter than it looks',
+        'Honestly?',
+        destination
+          ? `You can eat — quick lunch, not a long one. I would not stretch it with ${destination} still ahead`
+          : 'You can eat, but keep it brisk',
       ]);
+    }
     case 'late_risk':
       return joinSpokenClauses([
         'Honestly, you are tight on time',

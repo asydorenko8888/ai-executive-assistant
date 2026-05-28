@@ -341,7 +341,7 @@ export function buildHumanizedCalendarGuidanceLine(params: {
   });
 
   const banned =
-    'Voice-first: max 2 short sentences, natural pauses, no robotic calendar phrasing, no identical templates.';
+    'Companion voice: calm, slightly caring, practical. Structure — optional human opener, situation assessment, clear recommendation, travel/leave warning. No calendar dumps, no passive time-only answers.';
 
-  return `${banned} ${buildSituationContextForLlm(situation)} Respond in ${locale === 'uk' ? 'Ukrainian' : locale === 'ru' ? 'Russian' : 'English'} with real-life reasoning.`;
+  return `${banned} ${buildSituationContextForLlm(situation)} Respond in ${locale === 'uk' ? 'Ukrainian' : locale === 'ru' ? 'Russian' : 'English'}.`;
 }

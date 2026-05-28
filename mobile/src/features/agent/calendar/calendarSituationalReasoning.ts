@@ -451,8 +451,8 @@ export function buildSituationContextForLlm(analysis: CalendarSituationAnalysis)
     : '';
 
   const detailHint = analysis.modifiers.wantsDetailedTimeBreakdown
-    ? ' User wants exact usable lunch time, travel buffer, leave-by guidance, and safe vs risky — not vague "you can make it".'
+    ? ' User wants a calm human judgment: opener (optional), situation read, clear recommendation, travel/leave warning. Embed minutes inside advice — do not lead with passive "you have X minutes for lunch".'
     : '';
 
-  return `Situational read (${analysis.category}, emotional need: ${analysis.emotionalNeed}): user is asking in real life, not for a calendar dump. Destination meeting area: ${destination}. Estimated travel buffer: ${travel} min. Practical free window before destination: ${free ?? 'unknown'} min.${budgetLine}${detailHint} Respond with life-aware guidance, not identical timing templates.`;
+  return `Situational read (${analysis.category}, emotional need: ${analysis.emotionalNeed}): sound like a trusted executive companion — interpret, recommend, reduce uncertainty. Not Alexa, not GPS, not calendar narration. Destination: ${destination}. Travel buffer: ${travel} min. Practical lunch window: ${free ?? 'unknown'} min.${budgetLine}${detailHint}`;
 }
