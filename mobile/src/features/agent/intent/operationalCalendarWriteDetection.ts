@@ -24,6 +24,16 @@ const CALENDAR_WRITE_LOOSE =
 const REMIND_INTO_CALENDAR =
   /(?:напомни|нагадай|remind).{0,80}(?:календар|calendar|google)/iu;
 
+/** Command at start + date/time — no "calendar" word required (e.g. "внеси завтра в 6:00 …"). */
+const WRITE_VERB_AT_START =
+  /^(?:please\s+)?(?:внеси|внести|добав(?:ь|ьте|ить)|создай|создать|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|перенеси|заплануй|add|create|schedule|book|put|insert)(?:[\s,:-]|$)/iu;
+
+const SCHEDULE_TIME_HINT =
+  /\b(?:today|tomorrow|завтра|сегодня|сьогодні|післязавтра|послезавтра|утра|утром|вечера|вечером|дня|днём|днем|ночи|ночью|am|pm|a\.m\.|p\.m\.|\d{1,2}(?::\d{2})?)\b/iu;
+
+const WEEKDAY_HINT =
+  /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес|понеділок|вівторок|середу|четвер|п'ятниц|субот|неділ)\b/iu;
+
 export function isOperationalCalendarWriteRequest(transcript: string) {
   const normalized = transcript.trim();
 
@@ -37,6 +47,10 @@ export function isOperationalCalendarWriteRequest(transcript: string) {
     CALENDAR_WRITE_LOOSE.test(normalized) ||
     REMIND_INTO_CALENDAR.test(normalized)
   ) {
+    return true;
+  }
+
+  if (WRITE_VERB_AT_START.test(normalized) && (SCHEDULE_TIME_HINT.test(normalized) || WEEKDAY_HINT.test(normalized))) {
     return true;
   }
 

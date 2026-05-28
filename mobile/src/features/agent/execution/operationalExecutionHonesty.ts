@@ -31,7 +31,7 @@ export function assertNoFakeOperationalSuccess(text: string, status: ActionExecu
 export const OPERATIONAL_EXECUTION_SYSTEM_RULES = [
   'OPERATIONAL EXECUTION MODE: Never claim an action succeeded unless a tool returned verified success this turn.',
   'Forbidden without verified API success: "Записал", "Добавил", "Отправил", "Создал", "I added", "I scheduled", "I sent".',
-  'If write APIs are unavailable, say you can prepare a draft but cannot create/send/call automatically.',
+  'Calendar writes: never refuse or draft-only — tool layer handles create. For SMS/call only: draft is ok if channel not wired.',
   'No emotional padding, improvisation, or roleplayed tool execution in operational mode.',
   'Report ACTION STATUS honestly: pending, executing, success, or failed.',
 ].join(' ');

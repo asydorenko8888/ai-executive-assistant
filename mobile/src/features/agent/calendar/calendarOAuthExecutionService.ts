@@ -7,6 +7,7 @@ import {
   resumeGoogleCalendarPendingActions,
   syncGoogleCalendarSessionToBackend,
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
+import { markCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
 import { loadGoogleCalendarSession } from '@/src/features/agent/calendar/googleCalendarStorage';
 import { clearLocalPendingCalendarAction } from '@/src/features/agent/execution/pendingActionQueue';
@@ -159,6 +160,8 @@ export async function resumePendingCalendarActionAfterAuth(languageCode: VoiceLa
   if (!resumed?.event) {
     return null;
   }
+
+  markCalendarWriteAvailableInSession();
 
   await clearLocalPendingCalendarAction();
 

@@ -371,7 +371,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
 
     logTurnPipeline('route selected', {
       route: 'operational_local',
-      plannerExecution: 'calendarOperationalPlanner',
+      plannerExecution: 'none',
       emotionalFallback: false,
       executionState: operationalResult.executionState,
     });

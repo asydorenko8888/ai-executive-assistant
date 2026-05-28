@@ -4,6 +4,8 @@ import {
   logFallbackActivation,
 } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import { blockConversationalCalendarRetryLoop } from '@/src/features/agent/execution/calendarRetryPhraseGuard';
+import { isSoftCalendarRefusalReply } from '@/src/features/agent/execution/calendarSoftRefusalGuard';
+import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
@@ -127,12 +129,28 @@ export function guardAgainstRepeatedAssistantResponse(params: {
     ? params.candidateReply
     : blockEmotionalFallbackAfterOperational(params);
 
+  if (isCalendarWrite && isSoftCalendarRefusalReply(reply)) {
+    logCalendarDecision('reasonForRefusal', {
+      reason: 'blocked_soft_llm_refusal',
+      preview: reply.slice(0, 120),
+    });
+
+    const lastFailure =
+      'FAILURE: CALENDAR_SOFT_REFUSAL_BLOCKED: calendar write must use API, not assistant fallback.';
+
+    return lastFailure;
+  }
+
   reply = blockConversationalCalendarRetryLoop({
     userTranscript,
     candidateReply: reply,
   });
 
-  if (isCalendarWrite || isFactualOperationalReply(reply)) {
+  if (isCalendarWrite) {
+    return reply;
+  }
+
+  if (isFactualOperationalReply(reply)) {
     return reply;
   }
 

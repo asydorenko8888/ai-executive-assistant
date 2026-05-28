@@ -17,6 +17,8 @@ import {
   tryBeginCalendarOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 import { refreshCalendarStateAfterCreate } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
+import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
+import { markCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import { logExecutionAudit, logCalendarExecutionStateTransition } from '@/src/features/agent/execution/executionAuditLogger';
 import { enqueueCalendarCreateAction } from '@/src/features/agent/execution/pendingActionQueue';
@@ -137,7 +139,19 @@ export async function executeCalendarCreateEvent(
 
   const access = await resolveCalendarWriteAccessState();
 
+  logCalendarDecision('writeAvailable', {
+    connected: access.connected,
+    writeEnabled: access.writeEnabled,
+  });
+  logCalendarDecision('writeScope', {
+    scopes: access.scopes,
+    hasCalendarEventsScope: access.hasCalendarEventsScope,
+  });
+
   if (!access.writeEnabled) {
+    logCalendarDecision('reasonForRefusal', {
+      reason: 'write_scope_missing',
+    });
     const tool = createCalendarToolFailure(
       'WRITE_SCOPE_MISSING',
       'WRITE_SCOPE_MISSING: reconnect Google Calendar and grant event write access (calendar.events).',
@@ -165,6 +179,10 @@ export async function executeCalendarCreateEvent(
   }
 
   if (!tryBeginCalendarOperation(params.transcript)) {
+    logCalendarDecision('reasonForRefusal', {
+      reason: 'operation_blocked_or_in_progress',
+    });
+
     const tool = createCalendarToolFailure(
       'CALENDAR_OPERATION_IN_PROGRESS',
       'Calendar operation already in progress.',
@@ -246,6 +264,12 @@ export async function executeCalendarCreateEvent(
     endCalendarOperation({ failed: false });
 
     if (tool.status === 'SUCCESS' && tool.eventId && tool.event) {
+      markCalendarWriteAvailableInSession();
+      logCalendarDecision('createAttemptSucceeded', {
+        eventId: tool.eventId,
+        verified: tool.verified,
+      });
+
       logCalendarCreate('inserted eventId', { eventId: tool.eventId });
 
       const refresh = await refreshCalendarStateAfterCreate({

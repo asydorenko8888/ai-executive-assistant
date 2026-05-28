@@ -183,7 +183,7 @@ export function buildAgentSystemContextSegments(
     languageCode,
     userTranscript,
   });
-  const capabilityHonesty = buildCapabilityHonestyContextFromOrchestrator(orchestrator);
+  const capabilityHonesty = buildCapabilityHonestyContextFromOrchestrator(orchestrator, userTranscript);
   const runtimeContext = buildAgentRuntimeContext(orchestrator, languageCode, userTranscript);
 
   return [factualGrounding.systemPromptBlock, capabilityHonesty, runtimeContext].filter(Boolean);

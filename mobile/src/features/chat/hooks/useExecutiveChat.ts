@@ -42,6 +42,9 @@ import {
   isAbortError,
   logAssistantConversation,
 } from '@/src/features/chat/services/assistantConversationLifecycle';
+import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
+import { isSoftCalendarRefusalReply } from '@/src/features/agent/execution/calendarSoftRefusalGuard';
+import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { refreshHomeBriefing } from '@/src/features/home/services/refreshHomeBriefing';
 import { streamExecutiveChatMessage } from '@/src/features/chat/services/chatProxyService';
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
@@ -447,17 +450,38 @@ export function useExecutiveChat() {
         chatMessages: freshMessages,
       });
       const referenceNow = new Date(orchestrator.context.now);
+      const latestUser = [...freshMessages].reverse().find((message) => message.role === 'user');
+      const latestUserTranscript = latestUser?.content.trim() ?? '';
+      let candidateReply = displayReply || assistantReply;
+
+      if (
+        result.route === 'llm' &&
+        latestUserTranscript &&
+        isOperationalCalendarWriteRequest(latestUserTranscript) &&
+        isSoftCalendarRefusalReply(candidateReply)
+      ) {
+        const calendarConnected =
+          orchestrator.snapshot.calendarConnection?.status === 'connected';
+        const recovery = await executeCalendarCreateEvent({
+          transcript: latestUserTranscript,
+          languageCode: voiceLanguage,
+          calendarConnected,
+          referenceNow,
+        });
+
+        candidateReply = recovery.reply;
+      }
+
       let committed = finalizeTurnReply({
         messages: freshMessages,
         orchestrator,
         languageCode: voiceLanguage,
         referenceNow,
-        candidateReply: displayReply || assistantReply,
+        candidateReply,
       });
 
-      const latestUser = [...freshMessages].reverse().find((message) => message.role === 'user');
       committed = blockConversationalCalendarRetryLoop({
-        userTranscript: latestUser?.content.trim() ?? '',
+        userTranscript: latestUserTranscript,
         candidateReply: committed,
       });
 

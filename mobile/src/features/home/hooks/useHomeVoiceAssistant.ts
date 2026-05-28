@@ -32,6 +32,8 @@ import {
   getConversationPayloadMessages,
   useExecutiveConversationStore,
 } from '@/src/features/chat/store/executiveConversationStore';
+import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
+import { isSoftCalendarRefusalReply } from '@/src/features/agent/execution/calendarSoftRefusalGuard';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
@@ -307,6 +309,24 @@ export function useHomeVoiceAssistant() {
           });
           requestAbort.touch();
 
+          let candidateReply = reply;
+
+          if (
+            isOperationalCalendarWriteRequest(trimmedTranscript) &&
+            isSoftCalendarRefusalReply(candidateReply)
+          ) {
+            const calendarConnected =
+              orchestrator.snapshot.calendarConnection?.status === 'connected';
+            const recovery = await executeCalendarCreateEvent({
+              transcript: trimmedTranscript,
+              languageCode: languageCodeRef.current,
+              calendarConnected,
+              referenceNow,
+            });
+
+            candidateReply = recovery.reply;
+          }
+
           const finalized = finalizeTurnReply({
             messages: getConversationPayloadMessages(
               useExecutiveConversationStore.getState().messages,
@@ -314,7 +334,7 @@ export function useHomeVoiceAssistant() {
             orchestrator,
             languageCode: languageCodeRef.current,
             referenceNow,
-            candidateReply: reply,
+            candidateReply,
           });
           const spokenReply =
             (shouldFormatReplyForVoice(turn.executionState, turn.responseMode)

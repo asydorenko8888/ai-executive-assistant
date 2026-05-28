@@ -1,5 +1,7 @@
 import type { AgentCapabilitySnapshot, ExecutiveAgentSnapshot } from '@/src/features/agent/types';
 import { containsFakeOperationalSuccessClaim } from '@/src/features/agent/execution/operationalExecutionHonesty';
+import { isCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
+import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 
 /** How the assistant should frame an offered or completed action in conversation. */
 export type ConversationExecutionState =
@@ -48,7 +50,15 @@ const COMPANION_VOICE_RULES = [
   'Warm, confident, minimal words. One soft framing line, then move to the draft, reminder, or next step. No bureaucratic refusals.',
 ].join(' ');
 
-export function buildCapabilityHonestySystemPrompt(context: CapabilityHonestyContext): string {
+export function buildCapabilityHonestySystemPrompt(
+  context: CapabilityHonestyContext,
+  options?: { calendarWriteProven?: boolean; userTranscript?: string },
+): string {
+  const calendarWriteTurn =
+    Boolean(options?.userTranscript) && isOperationalCalendarWriteRequest(options!.userTranscript!);
+  const calendarDirectWrite =
+    context.calendarConnected && (options?.calendarWriteProven || calendarWriteTurn);
+
   const snapshot = [
     describeOpsSnapshot('Google Calendar', context.capabilities.calendar, context.calendarConnected),
     describeOpsSnapshot('Email', context.capabilities.email),
@@ -63,21 +73,37 @@ export function buildCapabilityHonestySystemPrompt(context: CapabilityHonestyCon
     'Client directory: only what the user shares in conversation',
   ];
 
+  const calendarWriteRule = calendarDirectWrite
+    ? 'This turn is a calendar write: do not say "не могу внести", "могу подготовить", "when possible", or any soft refusal — the app creates the event via API.'
+    : null;
+
   return [
     'Operational realism (internal briefing — do not quote or list this block to the user):',
     `What's wired right now: ${snapshot.join('; ')}.`,
+    calendarWriteRule,
     COMPANION_VOICE_RULES,
-  ].join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 }
 
-export function buildCapabilityHonestyContextFromOrchestrator(orchestrator: {
-  capabilities: AgentCapabilitySnapshot;
-  snapshot: ExecutiveAgentSnapshot;
-}) {
-  return buildCapabilityHonestySystemPrompt({
-    capabilities: orchestrator.capabilities,
-    calendarConnected: orchestrator.snapshot.calendarConnection?.status === 'connected',
-  });
+export function buildCapabilityHonestyContextFromOrchestrator(
+  orchestrator: {
+    capabilities: AgentCapabilitySnapshot;
+    snapshot: ExecutiveAgentSnapshot;
+  },
+  userTranscript?: string,
+) {
+  return buildCapabilityHonestySystemPrompt(
+    {
+      capabilities: orchestrator.capabilities,
+      calendarConnected: orchestrator.snapshot.calendarConnection?.status === 'connected',
+    },
+    {
+      calendarWriteProven: isCalendarWriteAvailableInSession(),
+      userTranscript,
+    },
+  );
 }
 
 const FALSE_PAST_TENSE_EXECUTION =

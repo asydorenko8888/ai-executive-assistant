@@ -7,6 +7,7 @@ import {
   scopesIncludeCalendarEventsWrite,
   scopesIncludeCalendarWrite,
 } from '@/src/features/agent/calendar/googleCalendarScopes';
+import { isCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
 import { loadGoogleCalendarSession, type GoogleCalendarSession } from '@/src/features/agent/calendar/googleCalendarStorage';
 
 export function sessionHasCalendarWriteScope(session: GoogleCalendarSession | null) {
@@ -71,5 +72,17 @@ export async function resolveCalendarWriteAccessState(): Promise<CalendarWriteAc
   const localConnected = localConnection.status === 'connected';
   const localWrite = sessionHasCalendarWriteScope(localSession);
 
-  return mergeAccessState(backendStatus, localConnected, localWrite, localSession);
+  const merged = mergeAccessState(backendStatus, localConnected, localWrite, localSession);
+
+  if (isCalendarWriteAvailableInSession() && merged.connected) {
+    return {
+      ...merged,
+      hasWriteAccess: true,
+      writeEnabled: true,
+      hasCalendarEventsScope: true,
+      source: 'merged',
+    };
+  }
+
+  return merged;
 }

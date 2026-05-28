@@ -1,12 +1,9 @@
 import type { AssistantExecutionState } from '@/src/features/agent/conversation/assistantExecutionObservability';
-import {
-  classifyAssistantIntent,
-  detectHardOperationalIntent,
-  type AssistantIntentAnalysis,
-} from '@/src/features/agent/intent/assistantIntentRouter';
+import { detectHardOperationalIntent } from '@/src/features/agent/intent/assistantIntentRouter';
 import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
-import { executeCalendarOperationalPlanner } from '@/src/features/agent/intent/calendarOperationalPlanner';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
+import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
 import type { CalendarToolStatus } from '@/src/features/agent/execution/calendarToolContract';
@@ -119,6 +116,19 @@ export async function tryBuildOperationalIntentReply(
       referenceNow: params.referenceNow,
     });
 
+    if (execution.tool.status === 'SUCCESS') {
+      logCalendarDecision('createAttemptSucceeded', {
+        eventId: execution.tool.eventId ?? null,
+        verified: execution.verified,
+      });
+    } else if (execution.tool.status === 'FAILURE') {
+      logCalendarDecision('reasonForRefusal', {
+        reason: 'api_failure',
+        errorCode: execution.tool.errorCode ?? null,
+        error: execution.tool.error ?? null,
+      });
+    }
+
     return {
       reply: execution.reply,
       spokenReply: execution.spokenReply,
@@ -132,39 +142,14 @@ export async function tryBuildOperationalIntentReply(
     };
   }
 
-  const analysis = classifyAssistantIntent(params.transcript);
-
-  if (!analysis.shouldBypassEmotionalRouting && !detectHardOperationalIntent(params.transcript)) {
+  if (!detectHardOperationalIntent(params.transcript)) {
     return null;
   }
 
-  if (analysis.operationalSubtype === 'reminder') {
-    return null;
-  }
+  logCalendarDecision('reasonForRefusal', {
+    reason: 'non_calendar_operational_not_supported',
+    transcriptPreview: params.transcript.slice(0, 120),
+  });
 
-  const plannerResult = await executeCalendarOperationalPlanner(params);
-
-  if (plannerResult) {
-    return {
-      reply: plannerResult.reply,
-      spokenReply: plannerResult.spokenReply,
-      executionState: plannerResult.state,
-      toolStatus: plannerResult.verified ? 'SUCCESS' : plannerResult.requiresCalendarAuth ? 'PENDING' : 'FAILURE',
-      calendarExecutionState: plannerResult.executionState,
-      verified: plannerResult.verified,
-      requiresCalendarAuth: plannerResult.requiresCalendarAuth,
-      operationalUxPhase: plannerResult.operationalUxPhase,
-      pendingActionId: plannerResult.pendingActionId,
-    };
-  }
-
-  const reply = 'FAILURE: OPERATION_NOT_SUPPORTED: no operational handler for this request.';
-
-  return {
-    reply,
-    spokenReply: reply,
-    executionState: 'tool_failure',
-    toolStatus: 'FAILURE',
-    verified: false,
-  };
+  return null;
 }
