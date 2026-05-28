@@ -4,6 +4,7 @@ export * from './userPreferences';
 export * from './integrations';
 export * from './tools';
 export * from './actionExecution';
+export * from './capabilityHonesty';
 export * from './morningBriefingPipeline';
 export * from './agentOrchestrator';
 export * from './hooks/useExecutiveCompanion';

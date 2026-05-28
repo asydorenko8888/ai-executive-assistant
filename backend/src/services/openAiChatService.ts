@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import type { ChatCompletionCreateParamsNonStreaming, ChatCompletionCreateParamsStreaming } from 'openai/resources/chat/completions';
 
 import { backendEnv } from '../config/env.js';
+import { capabilityHonestyPrompt } from './capabilityHonesty.js';
 import { executiveSystemPrompt } from './executivePrompt.js';
 import { normalizeAssistantReply } from './responsePostProcessing.js';
 import type { BackendChatMessage } from '../types/chat.js';
@@ -13,7 +14,7 @@ const EXECUTIVE_CHAT_TEMPERATURE = 0.8;
 const EXECUTIVE_CHAT_FREQUENCY_PENALTY = 0.24;
 const EXECUTIVE_CHAT_PRESENCE_PENALTY = 0.12;
 const conversationalStyleReminder =
-  'Reply as raw conversational text. No markdown headings, no section titles, no educational formatting, no essay structure, and no bullet-point decomposition by default. Be direct, human, grounded, understated, and natural. Match the rhythm and phrasing of the user language naturally. Do not add forced empathy, therapy language, motivational reassurance, diplomatic balancing, assistant-style endings, automatic follow-up questions, or default advice/coaching language. Shorter is often better.';
+  'Reply as raw conversational text. No markdown headings, no section titles, no educational formatting, no essay structure, and no bullet-point decomposition by default. Be direct, human, grounded, understated, and natural. Match the rhythm and phrasing of the user language naturally. Do not add forced empathy, therapy language, motivational reassurance, diplomatic balancing, assistant-style endings, automatic follow-up questions, or default advice/coaching language. Shorter is often better. Never claim you already called, texted, emailed, or contacted someone unless execution truly happened — offer drafts and reminders instead.';
 
 function createOpenAiClient() {
   const apiKey = backendEnv.OPENAI_API_KEY.trim();
@@ -84,6 +85,10 @@ function mapMessages(messages: BackendChatMessage[]) {
       role: message.role,
       content: message.content,
     })),
+    {
+      role: 'system' as const,
+      content: capabilityHonestyPrompt,
+    },
     {
       role: 'system' as const,
       content: conversationalStyleReminder,

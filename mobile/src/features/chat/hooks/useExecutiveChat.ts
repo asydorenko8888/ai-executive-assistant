@@ -5,11 +5,12 @@ import { useMutation } from '@tanstack/react-query';
 
 import type { ChatMessage, ChatTypingState } from '@/src/entities/chat/types';
 import {
-  buildAgentRuntimeContext,
+  buildAgentSystemContextSegments,
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
 import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
+import { warnIfFalseExecutionClaim } from '@/src/features/agent/capabilityHonesty';
 import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import { executiveChatThread } from '@/src/features/chat/data/chatSeed';
 import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
@@ -152,8 +153,6 @@ export function useExecutiveChat() {
     ) => {
       const referenceNow = new Date(orchestrator.context.now);
       const calendarEvents = getAssistantVisibleCalendarEvents(orchestrator.snapshot, referenceNow);
-      const runtimeContext = buildAgentRuntimeContext(orchestrator, voiceLanguage, userTranscript);
-
       console.log(
         '[Voice Test] assistantPayload.calendarEvents',
         calendarEvents.map((event) => ({
@@ -163,16 +162,13 @@ export function useExecutiveChat() {
         })),
       );
 
-      if (!runtimeContext) {
-        return [] as ChatMessage[];
-      }
-
-      return [
-        createConversationMessage(
-          'system',
-          `Executive runtime context: ${runtimeContext} Use it subtly and only when it genuinely sharpens the reply.`,
-        ),
-      ];
+      return buildAgentSystemContextSegments(orchestrator, voiceLanguage, userTranscript).map(
+        (segment) =>
+          createConversationMessage(
+            'system',
+            `${segment} Use it subtly and only when it genuinely sharpens the reply.`,
+          ),
+      );
     },
     [voiceLanguage],
   );
@@ -237,6 +233,7 @@ export function useExecutiveChat() {
         maxSentences: 4,
         locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
       });
+      warnIfFalseExecutionClaim(displayReply || assistantReply, 'drafted');
       console.log('[Voice Test] responseText', displayReply || assistantReply);
       finalizeAssistantMessage(variables.assistantMessageId, displayReply || assistantReply);
       resetStreamingState();

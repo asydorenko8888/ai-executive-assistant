@@ -1,9 +1,10 @@
 import type { ChatMessage } from '@/src/entities/chat/types';
 import {
-  buildAgentRuntimeContext,
+  buildAgentSystemContextSegments,
   createExecutiveAgentOrchestrator,
   type ExecutiveAgentOrchestrator,
 } from '@/src/features/agent/agentOrchestrator';
+import { createConversationMessage } from '@/src/features/chat/store/executiveConversationStore';
 import { loadAgentWorkspace } from '@/src/features/agent/storage/agentWorkspaceStorage';
 import type { MorningBriefing } from '@/src/features/agent/types';
 import { executiveChatMessages } from '@/src/features/chat/data/chatSeed';
@@ -75,25 +76,6 @@ function buildFallbackSummary(briefing: MorningBriefing) {
   return briefing.headline;
 }
 
-function createSystemMemoryMessages(baseMessages: ChatMessage[], preferenceContext: string): ChatMessage[] {
-  const createdAt = new Date().toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-
-  const preferenceMessage: ChatMessage | null = preferenceContext
-    ? {
-        id: `agent-preferences-${Date.now()}`,
-        role: 'system',
-        content: `User preference context: ${preferenceContext} Use only when helpful and keep it subtle.`,
-        createdAt,
-        status: 'read',
-      }
-    : null;
-
-  return [...baseMessages, ...(preferenceMessage ? [preferenceMessage] : [])];
-}
-
 async function generateAssistantSummary(
   locale: string,
   chatMessages: ChatMessage[],
@@ -102,11 +84,12 @@ async function generateAssistantSummary(
 ) {
   try {
     const memoryPromptContext = await prepareMemoryPromptContext(chatMessages);
-    const runtimeContext = buildAgentRuntimeContext(orchestrator);
-    const systemMessages = createSystemMemoryMessages(
-      memoryPromptContext.systemMessages,
-      runtimeContext,
-    );
+    const systemMessages = [
+      ...memoryPromptContext.systemMessages,
+      ...buildAgentSystemContextSegments(orchestrator).map((segment) =>
+        createConversationMessage('system', segment),
+      ),
+    ];
     const promptMessage: ChatMessage = {
       id: `agent-daily-summary-${Date.now()}`,
       role: 'user',

@@ -18,6 +18,7 @@ import type {
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { buildAssistantCalendarContextLines } from '@/src/features/agent/calendar/calendarAssistantContext';
 import { areCalendarPhrasesEquivalent } from '@/src/features/agent/calendar/calendarNaturalLanguage';
+import { buildCapabilityHonestyContextFromOrchestrator } from '@/src/features/agent/capabilityHonesty';
 import { loadResolvedExecutiveUserPreferences } from '@/src/features/agent/userPreferences';
 
 type CreateExecutiveAgentOrchestratorOptions = {
@@ -168,4 +169,16 @@ export function buildAgentRuntimeContext(
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+/** System context blocks for chat/voice — capability honesty always included. */
+export function buildAgentSystemContextSegments(
+  orchestrator: ExecutiveAgentOrchestrator,
+  languageCode?: VoiceLanguageCode,
+  userTranscript?: string,
+) {
+  const capabilityHonesty = buildCapabilityHonestyContextFromOrchestrator(orchestrator);
+  const runtimeContext = buildAgentRuntimeContext(orchestrator, languageCode, userTranscript);
+
+  return [capabilityHonesty, runtimeContext].filter(Boolean);
 }

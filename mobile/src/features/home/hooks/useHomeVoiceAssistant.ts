@@ -5,9 +5,10 @@ import { useQueryClient } from '@tanstack/react-query';
 
 import type { ChatMessage } from '@/src/entities/chat/types';
 import {
-  buildAgentRuntimeContext,
+  buildAgentSystemContextSegments,
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
+import { warnIfFalseExecutionClaim } from '@/src/features/agent/capabilityHonesty';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
 import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
@@ -231,6 +232,7 @@ export function useHomeVoiceAssistant() {
           });
 
           const spokenReminder = formatHomeVoiceReply(reminderResult.confirmation);
+          warnIfFalseExecutionClaim(spokenReminder, 'executed');
           const assistantMessage = finishAssistantTurn(spokenReminder);
           playAssistantResponse(spokenReminder, assistantMessage.id);
           return;
@@ -288,11 +290,6 @@ export function useHomeVoiceAssistant() {
           return;
         }
 
-        const runtimeContext = buildAgentRuntimeContext(
-          orchestrator,
-          languageCodeRef.current,
-          trimmedTranscript,
-        );
         const memoryContext = await prepareMemoryPromptContext(payloadMessages);
         const voiceSessionPrompt = buildVoiceSessionSystemPrompt(voiceSession);
         const systemMessages = [
@@ -300,18 +297,21 @@ export function useHomeVoiceAssistant() {
           ...(voiceSessionPrompt
             ? [createConversationMessage('system', voiceSessionPrompt)]
             : []),
-          ...(runtimeContext
-            ? [
-                createConversationMessage(
-                  'system',
-                  `Executive runtime context: ${runtimeContext} Use it subtly and only when it genuinely sharpens the reply.`,
-                ),
-              ]
-            : []),
+          ...buildAgentSystemContextSegments(
+            orchestrator,
+            languageCodeRef.current,
+            trimmedTranscript,
+          ).map((segment) =>
+            createConversationMessage(
+              'system',
+              `${segment} Use it subtly and only when it genuinely sharpens the reply.`,
+            ),
+          ),
         ];
         const reply = await sendExecutiveChatMessage(payloadMessages, systemMessages);
 
         const spokenReply = formatHomeVoiceReply(reply);
+        warnIfFalseExecutionClaim(spokenReply, 'drafted');
         const assistantMessage = finishAssistantTurn(spokenReply);
         playAssistantResponse(spokenReply, assistantMessage.id);
       } catch (error) {
