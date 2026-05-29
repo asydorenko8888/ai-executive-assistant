@@ -5,6 +5,13 @@ import {
   CALENDAR_WORD_EDGE,
   CALENDAR_WORD_END,
 } from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
+import {
+  computeDayOffsetFromInstant,
+  formatResolvedDateLabel,
+  formatResolvedTimeLabel,
+  parseRelativeTimeOffset,
+} from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
+import { logDateParser } from '@/src/features/agent/calendarIntelligence/calendarDateParseDiagnostics';
 import type { CalendarDayContext } from '@/src/features/agent/calendarIntelligence/types';
 import {
   DEFAULT_CALENDAR_INTELLIGENCE_TIMEZONE,
@@ -294,7 +301,31 @@ export function parseCalendarPointSchedule(
   timeZone = DEFAULT_CALENDAR_INTELLIGENCE_TIMEZONE,
 ): CalendarPointSchedule {
   const day = resolveTargetDayContext(transcript, referenceNow, timeZone);
+  const relative = parseRelativeTimeOffset(transcript);
   const startMinutes = parseCalendarClockMinutes(transcript, day);
+
+  if (
+    relative &&
+    (relative.kind === 'minutes' || relative.kind === 'hours' || relative.kind === 'days') &&
+    startMinutes === null
+  ) {
+    const startMs = referenceNow.getTime() + relative.offsetMs;
+    const endMs = startMs + 60 * 60 * 1000;
+
+    logDateParser({
+      original: transcript,
+      resolvedDate: formatResolvedDateLabel(startMs, timeZone),
+      resolvedTime: formatResolvedTimeLabel(startMs, timeZone),
+    });
+
+    return {
+      ok: true,
+      startMs,
+      endMs,
+      hasExplicitTime: true,
+      explicitDayOffset: computeDayOffsetFromInstant(referenceNow, startMs, timeZone),
+    };
+  }
 
   if (startMinutes === null) {
     return {
@@ -323,6 +354,12 @@ export function parseCalendarPointSchedule(
     }
   }
 
+  logDateParser({
+    original: transcript,
+    resolvedDate: formatResolvedDateLabel(startMs, timeZone),
+    resolvedTime: formatResolvedTimeLabel(startMs, timeZone),
+  });
+
   return {
     ok: true,
     startMs,
@@ -347,7 +384,7 @@ export function parseCalendarTimeShift(
     };
   }
 
-  const dayOffset = resolveDayOffset(transcript);
+  const dayOffset = resolveDayOffset(transcript, referenceNow, timeZone);
   const hasExplicitDay = dayOffset !== null;
   const day = resolveTargetDayContext(transcript, referenceNow, timeZone);
 

@@ -12,7 +12,8 @@
     "test:calendar-intelligence": "npx tsx --test src/features/agent/calendarIntelligence/calendarIntelligence.test.ts src/features/agent/calendarIntelligence/calendarExactTimeReadDetection.test.ts src/features/agent/calendarIntelligence/calendarReadTimeIntent.test.ts",
     "test:calendar-update": "npx tsx --test src/features/agent/calendar/calendarUpdate.test.ts",
     "test:calendar-delete": "npx tsx --test src/features/agent/calendar/calendarDelete.test.ts",
-    "test:calendar-create": "npx tsx --test src/features/agent/calendar/calendarCreate.test.ts"
+    "test:calendar-create": "npx tsx --test src/features/agent/calendar/calendarCreate.test.ts",
+    "test:calendar-date-parser": "npx tsx --test src/features/agent/calendarIntelligence/calendarNaturalDateParser.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",

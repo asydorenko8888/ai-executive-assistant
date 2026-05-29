@@ -1,5 +1,6 @@
 import { logCreateParse } from '@/src/features/agent/calendar/calendarCreateParseDiagnostics';
 import { stripCalendarClockPhrases } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
+import { stripNaturalDatePhrases } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
 import {
   CALENDAR_WORD_EDGE,
   CALENDAR_WORD_END,
@@ -134,6 +135,7 @@ export function extractCreateEventTitle(
   let text = isolateLastCreateCommandSegment(originalText);
   text = stripCreateVerbs(text);
   text = stripCalendarClockPhrases(text);
+  text = stripNaturalDatePhrases(text);
   text = text.replace(RELATIVE_DAY_PHRASES, ' ');
   text = text.replace(MERIDIEM_WORDS, ' ');
   text = text.replace(CALENDAR_PHRASES, ' ');

@@ -1,4 +1,8 @@
 import { parseSpokenClockTime } from '@/src/features/reminders/reminderTimeParser';
+import {
+  parseNaturalDayOffset,
+} from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
+import { DEFAULT_CALENDAR_INTELLIGENCE_TIMEZONE } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
 
 export type OperationalScheduleParseResult =
   | {
@@ -34,7 +38,17 @@ function extractClockFragment(transcript: string) {
   return null;
 }
 
-export function resolveDayOffset(transcript: string) {
+export function resolveDayOffset(
+  transcript: string,
+  referenceNow = new Date(),
+  timeZone = DEFAULT_CALENDAR_INTELLIGENCE_TIMEZONE,
+) {
+  const natural = parseNaturalDayOffset(transcript, referenceNow, timeZone);
+
+  if (natural) {
+    return natural.dayOffset;
+  }
+
   const normalized = transcript.toLowerCase();
 
   if (/\b(?:tomorrow|завтра)\b/i.test(normalized)) {
@@ -77,8 +91,7 @@ export function resolveDayOffset(transcript: string) {
   }
 
   const target = weekdayIndex[key];
-  const reference = new Date();
-  const current = reference.getDay();
+  const current = referenceNow.getDay();
   let delta = (target - current + 7) % 7;
 
   if (delta === 0) {
@@ -89,7 +102,7 @@ export function resolveDayOffset(transcript: string) {
 }
 
 export function parseOperationalScheduleHint(transcript: string, referenceNow: Date): OperationalScheduleParseResult {
-  const dayOffset = resolveDayOffset(transcript);
+  const dayOffset = resolveDayOffset(transcript, referenceNow);
   const clockFragment = extractClockFragment(transcript);
   const hasExplicitDay = dayOffset !== null;
 
