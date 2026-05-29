@@ -40,11 +40,22 @@ type StreamExecutiveChatResponseOptions = {
   onToken: (token: string) => void;
   signal?: AbortSignal;
   requestId?: string;
+  llmDebug?: ExecutiveChatLlmDebugContext;
 };
 
 type SendExecutiveChatOptions = {
   signal?: AbortSignal;
   requestId?: string;
+  llmDebug?: ExecutiveChatLlmDebugContext;
+};
+
+export type LlmCalendarEventDebug = {
+  title: string;
+  startsAt: string;
+};
+
+export type ExecutiveChatLlmDebugContext = {
+  calendarEvents?: LlmCalendarEventDebug[];
 };
 
 function getRuntimeApiBaseUrl() {
@@ -87,6 +98,30 @@ function createBackendRequestPayload(messages: ChatMessage[], systemMessages: Ch
   return {
     messages: mapMessagesForBackend([...systemMessages, ...messages]),
   };
+}
+
+function logExecutiveLlmRequestDebug(
+  backendMessages: BackendChatRequest['messages'],
+  debug?: ExecutiveChatLlmDebugContext & { requestId?: string },
+) {
+  if (debug?.calendarEvents) {
+    console.log('[LLM Debug] calendar events before LLM', {
+      requestId: debug.requestId ?? null,
+      totalEventCount: debug.calendarEvents.length,
+      events: debug.calendarEvents.map((event) => ({
+        title: event.title,
+        startsAt: event.startsAt,
+      })),
+    });
+  }
+
+  console.log('[LLM Debug] final prompt sent to model', {
+    requestId: debug?.requestId ?? null,
+    messageCount: backendMessages.length,
+    promptText: backendMessages
+      .map((message, index) => `[${index + 1}] ${message.role}\n${message.content}`)
+      .join('\n\n---\n\n'),
+  });
 }
 
 function parseSseEvent(rawEvent: string) {
@@ -286,12 +321,18 @@ export async function streamExecutiveChatMessage({
   onToken,
   signal,
   requestId,
+  llmDebug,
 }: StreamExecutiveChatResponseOptions) {
   const requestUrl = `${getRuntimeApiBaseUrl()}/chat`;
   const requestBody = {
     ...createBackendRequestPayload(messages, systemMessages),
     stream: true,
   };
+
+  logExecutiveLlmRequestDebug(requestBody.messages, {
+    ...llmDebug,
+    requestId,
+  });
 
   let hasReceivedToken = false;
 
@@ -356,7 +397,7 @@ export async function streamExecutiveChatMessage({
     }
 
     logAssistantConversation('[AssistantStream]', 'Empty stream — falling back to non-stream');
-    return sendExecutiveChatMessage(messages, systemMessages, { signal, requestId });
+    return sendExecutiveChatMessage(messages, systemMessages, { signal, requestId, llmDebug });
   } catch (error) {
     if (isAbortError(error)) {
       throw error;
@@ -366,7 +407,7 @@ export async function streamExecutiveChatMessage({
       logAssistantConversation('[AssistantStream]', 'Stream failed before tokens — non-stream fallback', {
         requestId,
       });
-      return sendExecutiveChatMessage(messages, systemMessages, { signal, requestId });
+      return sendExecutiveChatMessage(messages, systemMessages, { signal, requestId, llmDebug });
     }
 
     console.error('[Executive AI chat] Request error', error);

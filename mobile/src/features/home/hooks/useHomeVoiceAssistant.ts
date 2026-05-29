@@ -10,6 +10,7 @@ import {
   buildAgentSystemContextSegments,
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
+import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
 import { warnIfFalseExecutionClaim, enforceCalendarReplyIfNeeded } from '@/src/features/agent/capabilityHonesty';
 import {
   finalizeTurnReply,
@@ -314,8 +315,19 @@ export function useHomeVoiceAssistant() {
           }
 
           logAssistantConversation('[Conversation]', 'Voice LLM request started');
+          const referenceNow = new Date(orchestrator.context.now);
+          const visibleCalendarEvents = getAssistantVisibleCalendarEvents(
+            orchestrator.snapshot,
+            referenceNow,
+          );
           const reply = await sendExecutiveChatMessage(payloadMessages, systemMessages, {
             signal: requestAbort.signal,
+            llmDebug: {
+              calendarEvents: visibleCalendarEvents.map((event) => ({
+                title: event.title,
+                startsAt: event.startsAt,
+              })),
+            },
           });
           requestAbort.touch();
 

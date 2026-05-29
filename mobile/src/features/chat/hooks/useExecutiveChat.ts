@@ -420,6 +420,11 @@ export function useExecutiveChat() {
       const intentSystemMessages = turn.intentPrompt
         ? [createConversationMessage('system', turn.intentPrompt)]
         : [];
+      const referenceNow = new Date(orchestrator.context.now);
+      const visibleCalendarEvents = getAssistantVisibleCalendarEvents(
+        orchestrator.snapshot,
+        referenceNow,
+      );
 
       const reply = await streamExecutiveChatMessage({
         messages: nextMessages,
@@ -430,6 +435,12 @@ export function useExecutiveChat() {
         ],
         signal,
         requestId,
+        llmDebug: {
+          calendarEvents: visibleCalendarEvents.map((event) => ({
+            title: event.title,
+            startsAt: event.startsAt,
+          })),
+        },
         onToken: (token) => {
           if (requiresCalendarToolExecution(turn.userTranscript)) {
             return;
