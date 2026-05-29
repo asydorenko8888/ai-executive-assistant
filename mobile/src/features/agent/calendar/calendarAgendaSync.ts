@@ -11,6 +11,7 @@ import {
   isCalendarAgendaQuery,
   resolveAgendaQueryDayOffset,
 } from '@/src/features/agent/calendar/calendarAgendaQuery';
+import { isDeterministicCalendarReadQuery } from '@/src/features/agent/calendarIntelligence';
 
 export { isCalendarAgendaQuery, resolveAgendaQueryDayOffset } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import { invalidateCalendarVisibilityCaches } from '@/src/features/agent/calendar/calendarAgendaRefresh';
@@ -152,7 +153,11 @@ export async function ensureFreshCalendarForAgendaTurn(params: {
   userTranscript: string;
   calendarConnected: boolean;
 }): Promise<CalendarEvent[]> {
-  if (!params.calendarConnected || !isCalendarAgendaQuery(params.userTranscript)) {
+  const needsFreshFetch =
+    isCalendarAgendaQuery(params.userTranscript) ||
+    isDeterministicCalendarReadQuery(params.userTranscript);
+
+  if (!params.calendarConnected || !needsFreshFetch) {
     const snapshotEvents = getAssistantVisibleCalendarEvents(
       params.orchestrator.snapshot,
       params.referenceNow,

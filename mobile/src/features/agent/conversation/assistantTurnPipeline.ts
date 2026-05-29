@@ -1,10 +1,13 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import type { ChatMessage } from '@/src/entities/chat/types';
-import { tryBuildCalendarAgendaListReply } from '@/src/features/agent/calendar/calendarAgendaListReply';
 import {
   ensureFreshCalendarForAgendaTurn,
   isCalendarAgendaQuery,
 } from '@/src/features/agent/calendar/calendarAgendaSync';
+import {
+  isDeterministicCalendarReadQuery,
+  tryBuildDeterministicCalendarReply,
+} from '@/src/features/agent/calendarIntelligence';
 import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import type { ExecutiveAgentOrchestrator } from '@/src/features/agent/agentOrchestrator';
 import {
@@ -158,42 +161,44 @@ function tryEmotionalRoute(
       };
     }
 
-    const humanizedReply = tryBuildHumanizedCalendarReply({
-      transcript: userTranscript,
-      visibleEvents: calendarEvents,
-      languageCode: params.languageCode,
-      referenceNow: params.referenceNow,
-      sessionContext,
-    });
+    if (!isDeterministicCalendarReadQuery(userTranscript)) {
+      const humanizedReply = tryBuildHumanizedCalendarReply({
+        transcript: userTranscript,
+        visibleEvents: calendarEvents,
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+        sessionContext,
+      });
 
-    if (humanizedReply) {
-      if (!assertExecutionTransition({ from: fromState, to: 'emotional_support', reason: 'humanized_calendar' })) {
-        logFallbackActivation('humanized_calendar blocked after operational', {
-          userTranscript: userTranscript.slice(0, 120),
-        });
-        return null;
+      if (humanizedReply) {
+        if (!assertExecutionTransition({ from: fromState, to: 'emotional_support', reason: 'humanized_calendar' })) {
+          logFallbackActivation('humanized_calendar blocked after operational', {
+            userTranscript: userTranscript.slice(0, 120),
+          });
+          return null;
+        }
+
+        logFallbackActivation('humanized_calendar', { fromState });
+
+        return {
+          route: 'humanized_calendar',
+          intent,
+          reply: guardAgainstRepeatedAssistantResponse({
+            messages: params.messages,
+            candidateReply: humanizedReply.responseText,
+            languageCode: params.languageCode,
+            calendarConnected,
+            referenceNow: params.referenceNow,
+          }),
+          intentPrompt: buildIntentPrioritySystemPrompt(intent),
+          userTranscript,
+          latestUserMessageId: userMessage?.id ?? null,
+          executionState: 'emotional_support',
+          operationalStarted: false,
+          responseMode,
+          factualGroundingStatus: 'grounded',
+        };
       }
-
-      logFallbackActivation('humanized_calendar', { fromState });
-
-      return {
-        route: 'humanized_calendar',
-        intent,
-        reply: guardAgainstRepeatedAssistantResponse({
-          messages: params.messages,
-          candidateReply: humanizedReply.responseText,
-          languageCode: params.languageCode,
-          calendarConnected,
-          referenceNow: params.referenceNow,
-        }),
-        intentPrompt: buildIntentPrioritySystemPrompt(intent),
-        userTranscript,
-        latestUserMessageId: userMessage?.id ?? null,
-        executionState: 'emotional_support',
-        operationalStarted: false,
-        responseMode,
-        factualGroundingStatus: 'grounded',
-      };
     }
 
     const sessionFollowUp = tryBuildVoiceSessionFollowUpReply({
@@ -340,7 +345,8 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     userTranscript,
     calendarConnected,
   });
-  const suppressCalendarAgendaMemory = isCalendarAgendaQuery(userTranscript);
+  const suppressCalendarAgendaMemory =
+    isCalendarAgendaQuery(userTranscript) || isDeterministicCalendarReadQuery(userTranscript);
 
   if (behavior.mode === 'CLARIFICATION_MODE' && behavior.clarificationReply) {
     logTurnPipeline('route selected', {
@@ -492,19 +498,20 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       }
     }
 
-    const agendaListReply = tryBuildCalendarAgendaListReply({
+    const deterministicCalendarReply = await tryBuildDeterministicCalendarReply({
       transcript: userTranscript,
-      events: calendarEvents,
       languageCode: params.languageCode,
       referenceNow: params.referenceNow,
+      calendarConnected,
+      prefetchedEvents: calendarEvents,
     });
 
-    if (agendaListReply) {
+    if (deterministicCalendarReply) {
       logTurnPipeline('route selected', {
         route: 'advisory_local',
         behaviorMode: behavior.mode,
         emotionalFallback: false,
-        agendaList: true,
+        deterministicCalendar: true,
       });
 
       return {
@@ -512,7 +519,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
         intent,
         reply: guardAgainstRepeatedAssistantResponse({
           messages: params.messages,
-          candidateReply: agendaListReply,
+          candidateReply: deterministicCalendarReply,
           languageCode: params.languageCode,
           calendarConnected,
           referenceNow: params.referenceNow,

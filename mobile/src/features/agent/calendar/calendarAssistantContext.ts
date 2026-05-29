@@ -7,6 +7,9 @@ import {
   isCalendarAgendaQuery,
   resolveAgendaQueryDayOffset,
 } from '@/src/features/agent/calendar/calendarAgendaSync';
+import { buildDeterministicCalendarAnswer } from '@/src/features/agent/calendarIntelligence/calendarAnswerEngine';
+import { isDeterministicCalendarReadQuery } from '@/src/features/agent/calendarIntelligence/classifyQuery';
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import type { ExecutiveAgentSnapshot } from '@/src/features/agent/types';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -55,10 +58,38 @@ export function buildAssistantCalendarContextLines(params: {
 
   const lines: string[] = [];
 
-  if (params.userTranscript && isCalendarAgendaQuery(params.userTranscript)) {
+  const transcript = params.userTranscript?.trim() ?? '';
+  const deterministicRead =
+    transcript.length > 0 && isDeterministicCalendarReadQuery(transcript);
+
+  if (deterministicRead) {
+    lines.push(
+      'Calendar read query: NEVER invent events, times, overlaps, or free windows. Use ONLY the deterministic calendar facts below. Ignore chat memory, rolling summaries, and prior assistant schedule answers.',
+    );
+  } else if (transcript && isCalendarAgendaQuery(transcript)) {
     lines.push(
       'Calendar agenda query: answer ONLY from the authoritative Google Calendar list in this turn. Ignore earlier chat turns, rolling session summaries, voice session facts, and memory about prior schedule answers.',
     );
+  }
+
+  if (transcript && deterministicRead) {
+    const answer = buildDeterministicCalendarAnswer({
+      transcript,
+      events: visibleEvents,
+      referenceNow: params.referenceNow,
+      timeZone: getExecutiveCalendarTimezone(),
+    });
+
+    if (answer) {
+      lines.push(
+        `Deterministic calendar facts (${answer.day.dateKey}, intent=${answer.intent}): ${JSON.stringify(answer.payload)}`,
+      );
+      lines.push(
+        `Normalized events: ${answer.events
+          .map((event) => `${event.startISO} ${event.title}`)
+          .join('; ') || 'none'}.`,
+      );
+    }
   }
 
   lines.push(buildAssistantVisibleCalendarEventsLine(visibleEvents));

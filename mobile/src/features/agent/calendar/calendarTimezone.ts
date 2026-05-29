@@ -1,5 +1,3 @@
-import { env } from '@/src/shared/config';
-
 export type ZonedYmd = {
   year: number;
   month: number;
@@ -24,9 +22,16 @@ function pad2(value: number) {
 }
 
 export function getExecutiveCalendarTimezone() {
-  const configured = env.calendarTimezone?.trim();
+  try {
+    // Lazy load so pure calendar modules can be unit-tested without Expo.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { env } = require('@/src/shared/config/env') as typeof import('@/src/shared/config/env');
+    const configured = env.calendarTimezone?.trim();
 
-  return configured || DEFAULT_EXECUTIVE_CALENDAR_TIMEZONE;
+    return configured || DEFAULT_EXECUTIVE_CALENDAR_TIMEZONE;
+  } catch {
+    return DEFAULT_EXECUTIVE_CALENDAR_TIMEZONE;
+  }
 }
 
 export function getZonedYmd(instant: Date, timeZone: string): ZonedYmd {
@@ -54,7 +59,7 @@ export function addDaysToZonedYmd(ymd: ZonedYmd, dayOffset: number): ZonedYmd {
   };
 }
 
-function getZonedTimeParts(instant: Date, timeZone: string) {
+export function getZonedTimeParts(instant: Date, timeZone: string) {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     year: 'numeric',
