@@ -10,7 +10,46 @@ export type FormatVoiceResponseOptions = {
   locale?: VoiceLanguageChatLocale;
   /** Keep period-separated sentences intact (for detailed time breakdowns). */
   preserveSentences?: boolean;
+  /** User message — enables full calendar list output when it asks for an agenda. */
+  userTranscript?: string;
+  /** Skip sentence limits (e.g. calendar agenda listing). */
+  preserveFullCalendarList?: boolean;
 };
+
+const CALENDAR_LIST_QUESTION_PATTERNS: RegExp[] = [
+  /\bagenda\b/i,
+  /\bschedule\b/i,
+  /\b(?:list|переліч|перечисл|список).{0,32}(?:задач|tasks?|events?|meetings?|подій|зустріч|встреч)/i,
+  /\b(?:які|which|what).{0,24}(?:задачі|tasks?|events?|meetings?|події|зустрічі)\b/i,
+  /\bсколько\s+задач/i,
+  /\bскільки\s+задач/i,
+  /\bщо\s+у\s+мене\s+(?:сьогодні|завтра)/i,
+  /\bчто\s+у\s+меня\s+(?:сегодня|завтра)/i,
+  /\bwhat(?:'s| is).{0,24}(?:today|tomorrow)\b/i,
+  /\bwhat do i have\b/i,
+  /\b(?:all|всі|все)\s+(?:my\s+)?(?:events?|meetings?|tasks?|задач|подій|зустріч)/i,
+  /\b(?:розклад|календар).{0,20}(?:сьогодні|завтра|today|tomorrow)\b/i,
+  /\bmeetings?\s+today\b/i,
+  /\bзустріч.{0,12}сьогодні/i,
+];
+
+export function isCalendarListQuestion(transcript: string) {
+  const normalized = transcript.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return CALENDAR_LIST_QUESTION_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function wantsFullCalendarListOutput(options: FormatVoiceResponseOptions) {
+  if (options.preserveFullCalendarList) {
+    return true;
+  }
+
+  return options.userTranscript ? isCalendarListQuestion(options.userTranscript) : false;
+}
 
 const ROBOTIC_SPEECH_PATTERNS: RegExp[] = [
   /\byour next event\b/gi,
@@ -151,18 +190,35 @@ function compressForListening(text: string) {
  * Premium voice formatter: short, warm, pause-friendly text for TTS.
  */
 export function formatVoiceResponse(text: string, options: FormatVoiceResponseOptions = {}) {
-  const maxSentences = options.maxSentences ?? 2;
   const urgency = options.urgency ?? 'relaxed';
+  const fullCalendarList = wantsFullCalendarListOutput(options);
+  const maxSentences = fullCalendarList ? undefined : (options.maxSentences ?? 2);
 
   if (!text.trim()) {
     return '';
   }
 
   const sanitized = sanitizeRoboticSpeech(text);
-  const limited = limitSpokenSentences(sanitized, maxSentences);
+
+  if (fullCalendarList) {
+    const compressed = compressForListening(sanitized);
+
+    console.log('[Voice Premium] formatVoiceResponse', {
+      urgency,
+      maxSentences: 'full',
+      calendarListQuestion: true,
+      inputLength: text.length,
+      outputLength: compressed.length,
+      preview: compressed.slice(0, 240),
+    });
+
+    return compressed;
+  }
+
+  const limited = limitSpokenSentences(sanitized, maxSentences ?? 2);
   const paced = options.preserveSentences
     ? limited
-    : injectSpokenPauses(limited, urgency, maxSentences);
+    : injectSpokenPauses(limited, urgency, maxSentences ?? 2);
   const compressed = compressForListening(paced);
 
   console.log('[Voice Premium] formatVoiceResponse', {

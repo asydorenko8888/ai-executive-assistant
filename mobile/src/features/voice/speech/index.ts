@@ -1,4 +1,4 @@
 export * from './voiceSpeechFormatter';
 export * from './calendarSpokenReply';
 
-export { formatVoiceResponse } from './voiceSpeechFormatter';
+export { formatVoiceResponse, isCalendarListQuestion } from './voiceSpeechFormatter';

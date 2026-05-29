@@ -127,11 +127,16 @@ export function useHomeVoiceAssistant() {
   }, [stopAllVoiceOutput]);
 
   const formatHomeVoiceReply = useCallback(
-    (reply: string, urgency: 'immediate' | 'soon' | 'relaxed' | 'free' = 'relaxed') =>
+    (
+      reply: string,
+      userTranscript = '',
+      urgency: 'immediate' | 'soon' | 'relaxed' | 'free' = 'relaxed',
+    ) =>
       formatVoiceResponse(reply, {
         maxSentences: 2,
         urgency,
         locale: getChatLocaleFromVoiceLanguage(languageCodeRef.current),
+        userTranscript,
       }),
     [],
   );
@@ -344,7 +349,7 @@ export function useHomeVoiceAssistant() {
           });
           const spokenReply =
             (shouldFormatReplyForVoice(turn.executionState, turn.responseMode)
-              ? formatHomeVoiceReply(finalized)
+              ? formatHomeVoiceReply(finalized, trimmedTranscript)
               : finalized) || reply.trim();
 
           if (!spokenReply) {

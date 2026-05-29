@@ -503,6 +503,10 @@ export function useExecutiveChat() {
         assistantReply = coordinator.buildRecoveryForRequest(variables.assistantMessageId, 'empty');
       }
 
+      const freshMessages = readFreshConversationMessages();
+      const latestUser = [...freshMessages].reverse().find((message) => message.role === 'user');
+      const latestUserTranscript = latestUser?.content.trim() ?? '';
+
       const operationalVoiceReply =
         result.responseMode === 'operational' && result.spokenReply?.trim()
           ? result.spokenReply.trim()
@@ -514,16 +518,14 @@ export function useExecutiveChat() {
           ? formatVoiceResponse(assistantReply, {
               maxSentences: 2,
               locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
+              userTranscript: latestUserTranscript,
             })
           : assistantReply;
-      const freshMessages = readFreshConversationMessages();
       const orchestrator = await createExecutiveAgentOrchestrator({
         locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
         chatMessages: freshMessages,
       });
       const referenceNow = new Date(orchestrator.context.now);
-      const latestUser = [...freshMessages].reverse().find((message) => message.role === 'user');
-      const latestUserTranscript = latestUser?.content.trim() ?? '';
       let candidateReply = displayReply || assistantReply;
 
       let committed = finalizeTurnReply({

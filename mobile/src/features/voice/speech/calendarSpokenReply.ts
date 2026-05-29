@@ -15,6 +15,7 @@ import { buildSituationalSpeechDraft } from '@/src/features/voice/speech/calenda
 import {
   formatSpokenMinutesUntil,
   formatVoiceResponse,
+  isCalendarListQuestion,
   joinSpokenClauses,
   resolveSpokenDayLoad,
   resolveSpokenUrgency,
@@ -253,6 +254,8 @@ export function tryBuildSpokenCalendarReply(params: {
     referenceNow: params.referenceNow,
   });
   const dayLoad = situation.dayLoad;
+  const contextualTranscriptForFormat = contextualTranscript || params.transcript;
+  const preserveFullCalendarList = isCalendarListQuestion(contextualTranscriptForFormat);
 
   if (params.visibleEvents.length === 0) {
     const situationalDraft = buildSituationalSpeechDraft(situation, locale);
@@ -262,6 +265,8 @@ export function tryBuildSpokenCalendarReply(params: {
         urgency: 'free',
         locale,
         maxSentences: 2,
+        userTranscript: contextualTranscriptForFormat,
+        preserveFullCalendarList,
       }),
       responseTone: 'none',
       dayLoad,
@@ -295,7 +300,9 @@ export function tryBuildSpokenCalendarReply(params: {
     urgency: responseTone,
     locale,
     maxSentences: detailedDraft ? 4 : 2,
-    preserveSentences: Boolean(detailedDraft),
+    preserveSentences: Boolean(detailedDraft) || preserveFullCalendarList,
+    userTranscript: contextualTranscriptForFormat,
+    preserveFullCalendarList,
   });
 
   const result: SpokenCalendarReplyResult = {
