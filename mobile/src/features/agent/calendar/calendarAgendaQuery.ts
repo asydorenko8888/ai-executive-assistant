@@ -142,7 +142,7 @@ export function logCalendarAnswerEvents(events: CalendarEvent[], timezone: strin
 export async function fetchCalendarEventsForZonedDay(
   referenceNow: Date,
   dayOffset: number,
-): Promise<{ events: CalendarEvent[]; range: ZonedDayRange }> {
+): Promise<{ events: CalendarEvent[]; range: ZonedDayRange; fetchOk: boolean }> {
   const timezone = getExecutiveCalendarTimezone();
   const range = getZonedDayRange(referenceNow, dayOffset, timezone);
 
@@ -159,12 +159,16 @@ export async function fetchCalendarEventsForZonedDay(
     return null;
   });
 
-  const mapped = (listed?.events ?? []).map(mapBackendEvent);
+  if (!listed) {
+    return { events: [], range, fetchOk: false };
+  }
+
+  const mapped = (listed.events ?? []).map(mapBackendEvent);
   const events = filterEventsByZonedStartRange(mapped, range);
 
   logCalendarQueryReturned(events, timezone);
 
-  return { events, range };
+  return { events, range, fetchOk: true };
 }
 
 export async function fetchCalendarEventsForAgendaQuery(params: {

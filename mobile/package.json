@@ -13,7 +13,8 @@
     "test:calendar-update": "npx tsx --test src/features/agent/calendar/calendarUpdate.test.ts",
     "test:calendar-delete": "npx tsx --test src/features/agent/calendar/calendarDelete.test.ts",
     "test:calendar-create": "npx tsx --test src/features/agent/calendar/calendarCreate.test.ts",
-    "test:calendar-date-parser": "npx tsx --test src/features/agent/calendarIntelligence/calendarNaturalDateParser.test.ts"
+    "test:calendar-date-parser": "npx tsx --test src/features/agent/calendarIntelligence/calendarNaturalDateParser.test.ts",
+    "test:calendar-mutation-reliability": "npx tsx --test src/features/agent/calendar/calendarMutationReliability.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",

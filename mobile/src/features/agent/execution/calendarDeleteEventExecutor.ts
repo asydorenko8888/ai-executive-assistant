@@ -1,5 +1,12 @@
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { resolveCalendarDeleteTarget } from '@/src/features/agent/calendar/calendarDeleteEventResolver';
+import {
+  pendingDeleteContextFromResolution,
+} from '@/src/features/agent/calendar/calendarDeletePendingContext';
+import {
+  logCalendarMutationStart,
+  logCalendarMutationVerification,
+} from '@/src/features/agent/calendar/calendarMutationDiagnostics';
 import { refreshCalendarAgendaState } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { deleteGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarDeleteService';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
@@ -15,7 +22,9 @@ import {
   type CalendarDeleteToolReplyBundle,
 } from '@/src/features/agent/execution/calendarDeleteToolResponses';
 import {
+  clearPendingCalendarDeleteIntent,
   endCalendarOperation,
+  setPendingCalendarDeleteContext,
   tryBeginCalendarOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 
@@ -35,6 +44,10 @@ export async function executeCalendarDeleteEvent(
   logCalendarCreate('routing', {
     action: 'executeCalendarDeleteEvent',
     transcriptPreview: params.transcript.slice(0, 120),
+  });
+  logCalendarMutationStart({
+    intent: 'delete_calendar_event',
+    originalCommand: params.transcript,
   });
 
   const access = await resolveCalendarWriteAccessState();
@@ -86,6 +99,27 @@ export async function executeCalendarDeleteEvent(
       referenceNow: params.referenceNow,
     });
 
+    if (resolution.status === 'fetch_failed') {
+      endCalendarOperation({ failed: true });
+      const tool = createCalendarToolFailure(
+        'CALENDAR_READ_FAILED',
+        'Could not refresh Google Calendar before delete.',
+      );
+      logCalendarMutationVerification({
+        intent: 'delete_calendar_event',
+        verified: false,
+        verificationFetched: false,
+        eventId: null,
+        detail: 'fresh_read_failed',
+      });
+      return {
+        ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
+          referenceNow: params.referenceNow,
+        }),
+        verified: false,
+      };
+    }
+
     if (resolution.status === 'not_found') {
       endCalendarOperation({ failed: true });
       const tool = createCalendarToolFailure(
@@ -102,10 +136,23 @@ export async function executeCalendarDeleteEvent(
 
     if (resolution.status === 'ambiguous') {
       endCalendarOperation({ failed: true });
+      setPendingCalendarDeleteContext(
+        pendingDeleteContextFromResolution({
+          sourceTranscript: params.transcript,
+          titleQuery: resolution.titleQuery,
+        }),
+      );
       const tool = createCalendarToolFailure(
         'CALENDAR_EVENT_AMBIGUOUS',
         'Multiple matching calendar events found.',
       );
+      logCalendarMutationVerification({
+        intent: 'delete_calendar_event',
+        verified: false,
+        verificationFetched: false,
+        eventId: null,
+        detail: 'ambiguous_candidates',
+      });
       return {
         ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
           referenceNow: params.referenceNow,
@@ -154,7 +201,14 @@ export async function executeCalendarDeleteEvent(
       await refreshCalendarAgendaState(params.referenceNow).catch((error) => {
         console.log('[Calendar Refresh] post-delete refresh failed', error);
       });
+      clearPendingCalendarDeleteIntent();
       endCalendarOperation({ failed: false });
+      logCalendarMutationVerification({
+        intent: 'delete_calendar_event',
+        verified: true,
+        verificationFetched: tool.verificationFetched,
+        eventId: tool.eventId ?? null,
+      });
       return {
         ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
           referenceNow: params.referenceNow,

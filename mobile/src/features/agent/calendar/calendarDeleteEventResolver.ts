@@ -1,7 +1,6 @@
 import { fetchCalendarEventsForZonedDay } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import {
   logDeleteCandidate,
-  logDeleteEventList,
   logDeleteNotFoundReason,
   logDeleteParsedRequest,
   logDeleteSelectedEvent,
@@ -11,6 +10,11 @@ import {
   type CalendarDeleteResolution,
 } from '@/src/features/agent/calendar/calendarDeleteResolution';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
+import {
+  logCalendarMutationCandidates,
+  logCalendarMutationFreshRead,
+  logCalendarMutationSelection,
+} from '@/src/features/agent/calendar/calendarMutationDiagnostics';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import { parseCalendarClockMinutes } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
@@ -38,11 +42,37 @@ export async function resolveCalendarDeleteTarget(params: {
     clockMinutes,
   });
 
-  const { events } = await fetchCalendarEventsForZonedDay(params.referenceNow, day.dayOffset);
+  const { events, range, fetchOk } = await fetchCalendarEventsForZonedDay(
+    params.referenceNow,
+    day.dayOffset,
+  );
 
-  logDeleteEventList({
+  logCalendarMutationFreshRead({
+    dayOffset: day.dayOffset,
+    timeMin: range.timeMin,
+    timeMax: range.timeMax,
+    fetchOk,
+    eventCount: events.length,
+  });
+
+  if (!fetchOk) {
+    return {
+      status: 'fetch_failed',
+      titleQuery,
+      targetMs: null,
+      candidates: [],
+      notFoundReason: null,
+    };
+  }
+
+  logCalendarMutationCandidates({
     count: events.length,
-    eventIds: events.map((event) => event.id),
+    candidates: events.map((event) => ({
+      id: event.id,
+      title: event.title,
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+    })),
   });
 
   const resolution = resolveCalendarDeleteTargetFromEvents({
@@ -80,6 +110,14 @@ export async function resolveCalendarDeleteTarget(params: {
         }
       : null,
   );
+
+  logCalendarMutationSelection({
+    eventId: resolution.status === 'unique' ? resolution.event.id : null,
+    title: resolution.status === 'unique' ? resolution.event.title : titleQuery || null,
+    startsAt: resolution.status === 'unique' ? resolution.event.startsAt : null,
+    endsAt: resolution.status === 'unique' ? resolution.event.endsAt : null,
+    selectionSource: resolution.status === 'unique' ? 'google_calendar_list' : 'none',
+  });
 
   return resolution;
 }

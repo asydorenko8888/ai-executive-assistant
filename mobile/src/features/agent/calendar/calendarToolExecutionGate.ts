@@ -6,6 +6,7 @@ import {
 import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import {
   getLastCalendarCommandOutcome,
+  getPendingCalendarDeleteContext,
   getPendingCalendarUpdateContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 import {
@@ -54,8 +55,10 @@ export function enforceCalendarToolReply(params: {
   candidateReply: string;
 }) {
   const pendingUpdate = getPendingCalendarUpdateContext();
+  const pendingDelete = getPendingCalendarDeleteContext();
   const requiresTool =
-    requiresCalendarToolExecution(params.userTranscript) || Boolean(pendingUpdate);
+    requiresCalendarToolExecution(params.userTranscript) ||
+    Boolean(pendingUpdate || pendingDelete);
 
   if (!requiresTool) {
     return params.candidateReply;
@@ -66,7 +69,9 @@ export function enforceCalendarToolReply(params: {
     intent === 'none'
       ? pendingUpdate
         ? 'update_calendar_event'
-        : 'create_calendar_event'
+        : pendingDelete
+          ? 'delete_calendar_event'
+          : 'create_calendar_event'
       : intent;
   const lastOutcome = getLastCalendarCommandOutcome();
   const terminal =

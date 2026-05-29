@@ -53,6 +53,13 @@ export type CalendarDeleteResolution =
       targetMs: number | null;
       candidates: CalendarDeleteRankedCandidate[];
       notFoundReason: null;
+    }
+  | {
+      status: 'fetch_failed';
+      titleQuery: string;
+      targetMs: null;
+      candidates: CalendarDeleteRankedCandidate[];
+      notFoundReason: null;
     };
 
 function mapCandidates(events: CalendarEvent[]): CalendarDeleteRankedCandidate[] {

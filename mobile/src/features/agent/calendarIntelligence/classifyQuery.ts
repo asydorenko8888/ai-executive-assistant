@@ -1,4 +1,7 @@
-import { getPendingCalendarUpdateContext } from '@/src/features/agent/execution/calendarExecutionSession';
+import {
+  getPendingCalendarDeleteContext,
+  getPendingCalendarUpdateContext,
+} from '@/src/features/agent/execution/calendarExecutionSession';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import {
   asksAboutEventsAtClock,
@@ -91,7 +94,12 @@ const OVERLAP_PATTERNS = [
 export function isDeterministicCalendarReadQuery(transcript: string) {
   const normalized = transcript.trim();
 
-  if (!normalized || isOperationalCalendarWriteRequest(normalized) || getPendingCalendarUpdateContext()) {
+  if (
+    !normalized ||
+    isOperationalCalendarWriteRequest(normalized) ||
+    getPendingCalendarUpdateContext() ||
+    getPendingCalendarDeleteContext()
+  ) {
     return false;
   }
 

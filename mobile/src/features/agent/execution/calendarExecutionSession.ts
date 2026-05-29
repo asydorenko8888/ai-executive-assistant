@@ -15,6 +15,13 @@ export type PendingCalendarUpdateContext = {
   sourceTranscript: string;
 };
 
+export type PendingCalendarDeleteContext = {
+  operation: 'delete';
+  title: string | null;
+  dayHint: string | null;
+  sourceTranscript: string;
+};
+
 export type LastCalendarReadMatch = {
   eventId: string;
   title: string;
@@ -24,6 +31,7 @@ export type LastCalendarReadMatch = {
 };
 
 let pendingCalendarUpdateContext: PendingCalendarUpdateContext | null = null;
+let pendingCalendarDeleteContext: PendingCalendarDeleteContext | null = null;
 let lastCalendarReadMatch: LastCalendarReadMatch | null = null;
 let lastCommandOutcome: {
   intent: CalendarCommandKind;
@@ -38,6 +46,18 @@ export function getLastCalendarCommandOutcome() {
 
 export function getPendingCalendarUpdateContext() {
   return pendingCalendarUpdateContext;
+}
+
+export function getPendingCalendarDeleteContext() {
+  return pendingCalendarDeleteContext;
+}
+
+export function setPendingCalendarDeleteContext(context: PendingCalendarDeleteContext | null) {
+  pendingCalendarDeleteContext = context;
+}
+
+export function clearPendingCalendarDeleteIntent() {
+  pendingCalendarDeleteContext = null;
 }
 
 export function setLastCalendarReadMatch(match: LastCalendarReadMatch | null) {
@@ -184,5 +204,6 @@ export function resetCalendarExecutionSession() {
   lastToolResponse = null;
   lastCommandOutcome = null;
   pendingCalendarUpdateContext = null;
+  pendingCalendarDeleteContext = null;
   lastCalendarReadMatch = null;
 }

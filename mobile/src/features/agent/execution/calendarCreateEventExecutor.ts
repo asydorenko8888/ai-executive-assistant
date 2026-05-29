@@ -21,6 +21,10 @@ import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecis
 import { markCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
 import { logCalendarToolPayload, logCalendarGoogleApiResponse } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
+import {
+  logCalendarMutationStart,
+  logCalendarMutationVerification,
+} from '@/src/features/agent/calendar/calendarMutationDiagnostics';
 import { logExecutionAudit, logCalendarExecutionStateTransition } from '@/src/features/agent/execution/executionAuditLogger';
 import { enqueueCalendarCreateAction } from '@/src/features/agent/execution/pendingActionQueue';
 import {
@@ -104,6 +108,10 @@ export async function executeCalendarCreateEvent(
   logCalendarCreate('routing', {
     action: 'executeCalendarCreateEvent',
     transcriptPreview: params.transcript.slice(0, 120),
+  });
+  logCalendarMutationStart({
+    intent: 'create_calendar_event',
+    originalCommand: params.titleSourceTranscript ?? params.transcript,
   });
   logExecutionAudit('request', { transcriptPreview: params.transcript.slice(0, 120) });
 
@@ -276,6 +284,14 @@ export async function executeCalendarCreateEvent(
     });
 
     endCalendarOperation({ failed: false });
+
+    logCalendarMutationVerification({
+      intent: 'create_calendar_event',
+      verified: tool.status === 'SUCCESS' && tool.verified,
+      verificationFetched: tool.verificationFetched,
+      eventId: tool.eventId ?? null,
+      detail: tool.status === 'SUCCESS' && !tool.verified ? 'unverified_success' : undefined,
+    });
 
     if (tool.status === 'SUCCESS' && tool.eventId && tool.event) {
       markCalendarWriteAvailableInSession();

@@ -1,5 +1,13 @@
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { findCalendarEventForUpdate } from '@/src/features/agent/calendar/calendarEventMatcher';
+import {
+  pendingContextFromExtraction,
+} from '@/src/features/agent/calendar/calendarUpdatePendingContext';
+import { extractCalendarUpdateParameters } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
+import {
+  logCalendarMutationStart,
+  logCalendarMutationVerification,
+} from '@/src/features/agent/calendar/calendarMutationDiagnostics';
 import { logUpdateSuccess } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import { logUpdateNotFound } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
 import { refreshCalendarAgendaState } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
@@ -25,6 +33,7 @@ import {
 import {
   clearPendingCalendarUpdateIntent,
   endCalendarOperation,
+  setPendingCalendarUpdateContext,
   tryBeginCalendarOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 
@@ -48,6 +57,10 @@ export async function executeCalendarUpdateEvent(
   logCalendarUpdateIntent({
     action: 'executeCalendarUpdateEvent',
     transcriptPreview: params.transcript.slice(0, 120),
+  });
+  logCalendarMutationStart({
+    intent: 'update_calendar_event',
+    originalCommand: params.transcript,
   });
 
   const schedule = parseCalendarUpdateSchedule(params.transcript, params.referenceNow);
@@ -112,6 +125,55 @@ export async function executeCalendarUpdateEvent(
       fromMs: schedule.ok && schedule.kind === 'from_to' ? schedule.fromMs : undefined,
     });
 
+    if (!matchResult.fetchOk) {
+      endCalendarOperation({ failed: true });
+      const tool = createCalendarToolFailure(
+        'CALENDAR_READ_FAILED',
+        'Could not refresh Google Calendar before update.',
+      );
+      logCalendarMutationVerification({
+        intent: 'update_calendar_event',
+        verified: false,
+        verificationFetched: false,
+        eventId: null,
+        detail: 'fresh_read_failed',
+      });
+      return {
+        ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
+          referenceNow: params.referenceNow,
+        }),
+        verified: false,
+      };
+    }
+
+    if (matchResult.ambiguous) {
+      endCalendarOperation({ failed: true });
+      const extracted = extractCalendarUpdateParameters(params.transcript, params.referenceNow);
+      setPendingCalendarUpdateContext(
+        pendingContextFromExtraction({
+          sourceTranscript: params.transcript,
+          extraction: extracted,
+        }),
+      );
+      const tool = createCalendarToolFailure(
+        'CALENDAR_EVENT_AMBIGUOUS',
+        'Multiple matching calendar events found.',
+      );
+      logCalendarMutationVerification({
+        intent: 'update_calendar_event',
+        verified: false,
+        verificationFetched: false,
+        eventId: null,
+        detail: 'ambiguous_candidates',
+      });
+      return {
+        ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
+          referenceNow: params.referenceNow,
+        }),
+        verified: false,
+      };
+    }
+
     if (!matchResult.match) {
       endCalendarOperation({ failed: true });
 
@@ -131,6 +193,13 @@ export async function executeCalendarUpdateEvent(
         'CALENDAR_EVENT_NOT_FOUND',
         'Could not find a matching calendar event to update.',
       );
+      logCalendarMutationVerification({
+        intent: 'update_calendar_event',
+        verified: false,
+        verificationFetched: false,
+        eventId: null,
+        detail: 'not_found',
+      });
       return {
         ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
           referenceNow: params.referenceNow,
@@ -176,7 +245,7 @@ export async function executeCalendarUpdateEvent(
       payloadResult.payload,
     );
 
-    if (tool.status === 'SUCCESS') {
+    if (tool.status === 'SUCCESS' && tool.verified) {
       logUpdateSuccess({
         eventId: payloadResult.eventId,
         title: matchResult.match.title,
@@ -188,11 +257,39 @@ export async function executeCalendarUpdateEvent(
       });
       clearPendingCalendarUpdateIntent();
       endCalendarOperation({ failed: false });
+      logCalendarMutationVerification({
+        intent: 'update_calendar_event',
+        verified: true,
+        verificationFetched: tool.verificationFetched,
+        eventId: tool.eventId ?? null,
+      });
       return {
         ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
           referenceNow: params.referenceNow,
         }),
-        verified: tool.verified,
+        verified: true,
+      };
+    }
+
+    if (tool.status === 'SUCCESS' && !tool.verified) {
+      endCalendarOperation({ failed: true });
+      clearPendingCalendarUpdateIntent();
+      const unverified = createCalendarToolFailure(
+        'VERIFY_FAILED',
+        'Google Calendar did not confirm the update.',
+      );
+      logCalendarMutationVerification({
+        intent: 'update_calendar_event',
+        verified: false,
+        verificationFetched: tool.verificationFetched,
+        eventId: tool.eventId ?? null,
+        detail: 'unverified_success',
+      });
+      return {
+        ...buildCalendarUpdateToolReplyBundle(unverified, params.languageCode, {
+          referenceNow: params.referenceNow,
+        }),
+        verified: false,
       };
     }
 

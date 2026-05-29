@@ -1,4 +1,8 @@
 import {
+  getPendingCalendarDeleteContext,
+  getPendingCalendarUpdateContext,
+} from '@/src/features/agent/execution/calendarExecutionSession';
+import {
   isOperationalCalendarCreateRequest,
   isOperationalCalendarDeleteRequest,
   isOperationalCalendarUpdateRequest,
@@ -34,6 +38,10 @@ export function detectCalendarCommandIntent(transcript: string): CalendarCommand
 }
 
 export function requiresCalendarCommandExecution(transcript: string) {
+  if (getPendingCalendarUpdateContext() || getPendingCalendarDeleteContext()) {
+    return true;
+  }
+
   return isOperationalCalendarWriteRequest(transcript.trim());
 }
 

@@ -1,8 +1,11 @@
 import type { ChatMessage } from '@/src/entities/chat/types';
+import { tryMergePendingCalendarDeleteReply } from '@/src/features/agent/calendar/calendarDeletePendingContext';
 import { tryMergePendingCalendarUpdateReply } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import { isOperationalCalendarUpdateRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import {
+  getPendingCalendarDeleteContext,
   getPendingCalendarUpdateContext,
+  setPendingCalendarDeleteContext,
   setPendingCalendarUpdateContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 
@@ -13,7 +16,7 @@ const ACTION_CONTINUATION_WITH_VERB =
   /^(?:please\s+)?(?:так|да|yes|ok|okay|sure|давай|ага)[,.\s!]+(?:внеси|додай|створи|заплануй|add|create|schedule|book|put|insert)/iu;
 
 const CLARIFICATION_ASSISTANT_MARKERS =
-  /(?:Уточни|Please confirm|What should I call|На какое время|How should I call|Как назвать|На какой день|На який|Як назвати)/i;
+  /(?:Уточни|Please confirm|What should I call|На какое время|How should I call|Как назвать|На какой день|На який|Як назвати|several similar events|похожих событ|схожих подій|Which one should I delete|Какое именно удалить|Яку саме видалити)/i;
 
 export function isActionContinuation(transcript: string) {
   const normalized = transcript.trim();
@@ -106,6 +109,12 @@ export function mergeActionContextFromHistory(params: {
   return {
     mergedTranscript: normalized,
     usedContext: false,
-    contextSource: null as 'previous_user' | 'assistant_offer' | 'clarification_followup' | 'pending_update_clarification' | null,
+    contextSource: null as
+      | 'previous_user'
+      | 'assistant_offer'
+      | 'clarification_followup'
+      | 'pending_update_clarification'
+      | 'pending_delete_clarification'
+      | null,
   };
 }

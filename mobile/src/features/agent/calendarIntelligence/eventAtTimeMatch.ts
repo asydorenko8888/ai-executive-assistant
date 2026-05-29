@@ -195,6 +195,8 @@ export function findCalendarEventAtTimeFromEvents(params: {
   clockMinutes?: number;
   timeZone?: string;
   matchMode?: 'starting_at_time' | 'active_at_time';
+  /** When false, never use prior READ session hints — mutations must use fresh Google list only. */
+  allowSessionHint?: boolean;
 }): {
   match: CalendarEvent | null;
   titleQuery: string;
@@ -214,7 +216,10 @@ export function findCalendarEventAtTimeFromEvents(params: {
     return { match: null, titleQuery, clockMinutes, candidates: [], matchSource: 'none' };
   }
 
-  const pinned = tryPinnedReadMatch({ events: params.events, titleQuery, clockMinutes });
+  const allowSessionHint = params.allowSessionHint ?? true;
+  const pinned = allowSessionHint
+    ? tryPinnedReadMatch({ events: params.events, titleQuery, clockMinutes })
+    : null;
 
   if (pinned) {
     return {
@@ -278,7 +283,7 @@ function findUpdateMatchByTitle(params: {
     .sort((left, right) => right.score - left.score);
 
   if (ranked.length === 0) {
-    return { match: null, candidates: [] as CalendarEvent[] };
+    return { match: null, candidates: [] as CalendarEvent[], ambiguous: false };
   }
 
   if (ranked.length > 1 && ranked[0].score - ranked[1].score < 10) {
@@ -287,7 +292,10 @@ function findUpdateMatchByTitle(params: {
     if (strong.length > 1) {
       return {
         match: null,
-        candidates: strong.map((entry) => params.events.find((event) => event.id === entry.event.id)!).filter(Boolean),
+        candidates: strong
+          .map((entry) => params.events.find((event) => event.id === entry.event.id)!)
+          .filter(Boolean),
+        ambiguous: true,
       };
     }
   }
@@ -298,6 +306,7 @@ function findUpdateMatchByTitle(params: {
   return {
     match,
     candidates: match ? [match] : [],
+    ambiguous: false,
   };
 }
 
@@ -314,6 +323,7 @@ export function findCalendarEventForUpdateFromEvents(params: {
   candidates: CalendarEvent[];
   fromMs: number | null;
   toMs: number | null;
+  ambiguous: boolean;
   matchSource: 'pinned_read' | 'starting_at_time' | 'title_only' | 'title_rank' | 'none';
 } {
   const timeZone = params.timeZone ?? resolveTargetDayContext(params.transcript, params.referenceNow).timezone;
@@ -329,6 +339,7 @@ export function findCalendarEventForUpdateFromEvents(params: {
         candidates: [],
         fromMs: null,
         toMs: null,
+        ambiguous: false,
         matchSource: 'none',
       };
     }
@@ -347,6 +358,7 @@ export function findCalendarEventForUpdateFromEvents(params: {
       candidates: titleOnly.candidates,
       fromMs: titleOnly.match ? Date.parse(titleOnly.match.startsAt) : null,
       toMs: null,
+      ambiguous: titleOnly.ambiguous,
       matchSource: titleOnly.match ? 'title_only' : 'none',
     };
   }
@@ -370,7 +382,7 @@ export function findCalendarEventForUpdateFromEvents(params: {
       titleQuery,
       fromTime: matchedStartMs ? formatClockLabel(getZonedClockMinutes(matchedStartMs, timeZone)) : 'unknown',
       toTime: toMs ? formatClockLabel(getZonedClockMinutes(toMs, timeZone)) : 'unknown',
-      pinnedEventId: getLastCalendarReadMatch()?.eventId ?? null,
+      pinnedEventId: null,
     });
 
     logUpdateMatch({
@@ -388,6 +400,7 @@ export function findCalendarEventForUpdateFromEvents(params: {
       candidates: titleMatch.candidates,
       fromMs: matchedStartMs,
       toMs,
+      ambiguous: titleMatch.ambiguous,
       matchSource: titleMatch.match ? 'title_only' : 'none',
     };
   }
@@ -397,7 +410,7 @@ export function findCalendarEventForUpdateFromEvents(params: {
     titleQuery,
     fromTime: formatClockLabel(schedule.fromMinutes),
     toTime: formatClockLabel(schedule.toMinutes),
-    pinnedEventId: getLastCalendarReadMatch()?.eventId ?? null,
+    pinnedEventId: null,
   });
 
   const resolved = findCalendarEventAtTimeFromEvents({
@@ -408,6 +421,7 @@ export function findCalendarEventForUpdateFromEvents(params: {
     clockMinutes: schedule.fromMinutes,
     timeZone,
     matchMode: 'starting_at_time',
+    allowSessionHint: false,
   });
 
   logUpdateMatch({
@@ -418,10 +432,13 @@ export function findCalendarEventForUpdateFromEvents(params: {
     candidateCount: resolved.candidates.length,
   });
 
+  const ambiguous = !resolved.match && resolved.candidates.length > 1;
+
   return {
     ...resolved,
     fromMs: schedule.fromMs,
     toMs: schedule.toMs,
+    ambiguous,
   };
 }
 
@@ -498,6 +515,7 @@ export function findCalendarEventForDeleteFromEvents(params: {
       clockMinutes,
       timeZone,
       matchMode: 'starting_at_time',
+      allowSessionHint: false,
     });
 
     logDeleteCandidate({

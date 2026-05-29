@@ -3,9 +3,14 @@ import {
   buildFailureTerminalReply,
   isVerifiedCalendarUpdateSuccess,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
+import {
+  buildCalendarUpdateAmbiguousReply,
+  buildCalendarUpdateNotFoundReply,
+} from '@/src/features/agent/calendar/calendarUpdateNaturalReplies';
 import { buildNaturalCalendarUpdateSuccessReply } from '@/src/features/agent/execution/calendarUpdateSuccessReply';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 
 export type CalendarUpdateToolReplyBundle = {
   tool: CalendarToolResponse;
@@ -14,6 +19,23 @@ export type CalendarUpdateToolReplyBundle = {
   executionState: CalendarExecutionState;
   requiresCalendarAuth: boolean;
 };
+
+function buildNaturalUpdateFailureReply(
+  tool: CalendarToolResponse,
+  languageCode: VoiceLanguageCode,
+): string | null {
+  const locale = getChatLocaleFromVoiceLanguage(languageCode);
+
+  if (tool.errorCode === 'CALENDAR_EVENT_NOT_FOUND') {
+    return buildCalendarUpdateNotFoundReply(locale);
+  }
+
+  if (tool.errorCode === 'CALENDAR_EVENT_AMBIGUOUS') {
+    return buildCalendarUpdateAmbiguousReply(locale);
+  }
+
+  return null;
+}
 
 function mapToolStatusToExecutionState(tool: CalendarToolResponse): CalendarExecutionState {
   if (tool.status === 'SUCCESS') {
@@ -58,6 +80,18 @@ export function buildCalendarUpdateToolReplyBundle(
       tool,
       reply: text,
       spokenReply: text,
+      executionState: 'failed',
+      requiresCalendarAuth: false,
+    };
+  }
+
+  const naturalFailure = buildNaturalUpdateFailureReply(tool, languageCode);
+
+  if (naturalFailure) {
+    return {
+      tool,
+      reply: naturalFailure,
+      spokenReply: naturalFailure,
       executionState: 'failed',
       requiresCalendarAuth: false,
     };

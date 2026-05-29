@@ -154,7 +154,8 @@ export function resolveAssistantBehavior(params: {
   const explicitAction =
     hasExplicitActionVerb(actionTranscript) ||
     contextMerge.contextSource === 'clarification_followup' ||
-    contextMerge.contextSource === 'pending_update_clarification';
+    contextMerge.contextSource === 'pending_update_clarification' ||
+    contextMerge.contextSource === 'pending_delete_clarification';
   const fieldValidation = validateActionFields({
     transcript: actionTranscript,
     referenceNow: params.referenceNow,
