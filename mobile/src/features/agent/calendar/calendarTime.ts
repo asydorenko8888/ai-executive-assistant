@@ -3,6 +3,8 @@
  * Preserves offset in RFC3339 strings; compares instants against local "now".
  */
 
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
+
 export function getBrowserTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 }
@@ -149,6 +151,10 @@ export function getMinutesUntilEvent(rawStart: string, referenceNow = new Date()
 }
 
 export function formatTimeInLocalTimezone(isoValue: string) {
+  return formatTimeInExecutiveTimezone(isoValue);
+}
+
+export function formatTimeInExecutiveTimezone(isoValue: string, timeZone?: string) {
   const parsed = parseGoogleCalendarInstant(isoValue);
 
   if (parsed === null) {
@@ -158,5 +164,6 @@ export function formatTimeInLocalTimezone(isoValue: string) {
   return new Date(parsed).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: timeZone ?? getExecutiveCalendarTimezone(),
   });
 }

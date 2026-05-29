@@ -10,6 +10,7 @@ const defaultAppEnv = {
   EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID: '',
   EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID: '',
   EXPO_PUBLIC_APP_API_KEY: '',
+  EXPO_PUBLIC_CALENDAR_TIMEZONE: 'America/Chicago',
 } as const;
 
 function normalizeString(value: unknown) {
@@ -111,6 +112,7 @@ export const appEnvSchema = z.object({
     defaultAppEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID,
   ),
   EXPO_PUBLIC_APP_API_KEY: optionalStringFromEnv(defaultAppEnv.EXPO_PUBLIC_APP_API_KEY),
+  EXPO_PUBLIC_CALENDAR_TIMEZONE: optionalStringFromEnv(defaultAppEnv.EXPO_PUBLIC_CALENDAR_TIMEZONE),
 });
 
 export type AppEnvSchema = z.infer<typeof appEnvSchema>;

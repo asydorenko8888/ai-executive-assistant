@@ -1,10 +1,11 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
+import { logCalendarAnswerEvents } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import {
-  filterEventsOnLocalDay,
   isCalendarAgendaQuery,
   resolveAgendaQueryDayOffset,
 } from '@/src/features/agent/calendar/calendarAgendaSync';
-import { formatTimeInLocalTimezone } from '@/src/features/agent/calendar/calendarTime';
+import { formatTimeInExecutiveTimezone } from '@/src/features/agent/calendar/calendarTime';
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 import {
@@ -12,8 +13,8 @@ import {
   formatVoiceResponse,
 } from '@/src/features/voice/speech/voiceSpeechFormatter';
 
-function formatAgendaListLine(event: CalendarEvent, index: number) {
-  const time = formatTimeInLocalTimezone(event.startsAt);
+function formatAgendaListLine(event: CalendarEvent, index: number, timeZone: string) {
+  const time = formatTimeInExecutiveTimezone(event.startsAt, timeZone);
   const locationSuffix = event.location ? ` — ${event.location}` : '';
 
   return `${index + 1}. ${time} — ${event.title}${locationSuffix}`;
@@ -85,17 +86,17 @@ export function tryBuildCalendarAgendaListReply(params: {
 
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
   const dayOffset = resolveAgendaQueryDayOffset(params.transcript);
-  const scopedEvents =
-    dayOffset === null
-      ? params.events
-      : filterEventsOnLocalDay(params.events, params.referenceNow, dayOffset);
+  const timezone = getExecutiveCalendarTimezone();
+  const scopedEvents = params.events;
+
+  logCalendarAnswerEvents(scopedEvents, timezone);
 
   if (scopedEvents.length === 0) {
     return buildEmptyAgendaReply(locale, dayOffset);
   }
 
   const intro = buildAgendaIntro(locale, dayOffset, scopedEvents.length);
-  const lines = scopedEvents.map((event, index) => formatAgendaListLine(event, index));
+  const lines = scopedEvents.map((event, index) => formatAgendaListLine(event, index, timezone));
   const draft = `${intro}\n${lines.join('\n')}`;
 
   return formatVoiceResponse(draft, {

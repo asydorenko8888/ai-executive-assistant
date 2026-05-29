@@ -3,88 +3,42 @@ import type { ExecutiveAgentOrchestrator } from '@/src/features/agent/agentOrche
 import type { ExecutiveAgentSnapshot } from '@/src/features/agent/types';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
 import {
-  invalidateCalendarVisibilityCaches,
-  refreshAgendaVisibilityState,
-} from '@/src/features/agent/calendar/calendarAgendaRefresh';
-import { getLiveCalendarEvents } from '@/src/features/agent/calendar/calendarLiveState';
+  fetchCalendarEventsForAgendaQuery,
+  fetchCalendarEventsForZonedDay,
+  filterEventsByZonedStartRange,
+  logCalendarAnswerEvents,
+  mergeLiveEventsReplacingZonedDay,
+  isCalendarAgendaQuery,
+  resolveAgendaQueryDayOffset,
+} from '@/src/features/agent/calendar/calendarAgendaQuery';
+
+export { isCalendarAgendaQuery, resolveAgendaQueryDayOffset } from '@/src/features/agent/calendar/calendarAgendaQuery';
+import { invalidateCalendarVisibilityCaches } from '@/src/features/agent/calendar/calendarAgendaRefresh';
+import { getLiveCalendarEvents, replaceLiveCalendarEvents } from '@/src/features/agent/calendar/calendarLiveState';
 import { buildCalendarSummary } from '@/src/features/agent/calendar/googleCalendarService';
 import {
   filterUpcomingTimedEvents,
-  getEventStartTimestamp,
   sortEventsChronologically,
 } from '@/src/features/agent/calendar/calendarSchedule';
 import { filterVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarVisibleEvents';
-import { getLocalEndOfDay, getLocalStartOfDay } from '@/src/features/agent/calendar/calendarTime';
 import {
-  classifyCalendarAgendaQueryIntent,
-  isCalendarListQuestion,
-} from '@/src/features/voice/speech/voiceSpeechFormatter';
-
-const TOMORROW_AGENDA_PATTERNS = [
-  /\b(?:завтра|tomorrow)\b/i,
-  /\bзадач[аи]?\s+на\s+завтра/i,
-  /\bчто\s+завтра/i,
-  /\bщо\s+завтра/i,
-  /\bwhat.{0,24}tomorrow/i,
-];
-
-const TODAY_AGENDA_PATTERNS = [
-  /\b(?:сьогодні|сегодня|today)\b/i,
-  /\bзадач[аи]?\s+на\s+сегодня/i,
-  /\bзадач[аи]?\s+на\s+сьогодні/i,
-];
-
-export function isCalendarAgendaQuery(transcript: string) {
-  const normalized = transcript.trim();
-
-  if (!normalized) {
-    return false;
-  }
-
-  return (
-    Boolean(classifyCalendarAgendaQueryIntent(normalized)) ||
-    isCalendarListQuestion(normalized) ||
-    TOMORROW_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized)) ||
-    TODAY_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized)) ||
-    /\b(?:какие|які|what|which|сколько|скільки).{0,32}(?:задач|tasks?|events?|meetings?|зустріч)/i.test(
-      normalized,
-    )
-  );
-}
-
-export function resolveAgendaQueryDayOffset(transcript: string): number | null {
-  const normalized = transcript.trim();
-
-  if (TOMORROW_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return 1;
-  }
-
-  if (TODAY_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return 0;
-  }
-
-  return null;
-}
+  getExecutiveCalendarTimezone,
+  getZonedDayRange,
+  resolveZonedDayOffsetForInstant,
+} from '@/src/features/agent/calendar/calendarTimezone';
 
 export function filterEventsOnLocalDay(
   events: CalendarEvent[],
   referenceNow: Date,
   dayOffset: number,
 ): CalendarEvent[] {
-  const day = new Date(referenceNow);
-  day.setDate(day.getDate() + dayOffset);
-  const dayStart = getLocalStartOfDay(day).getTime();
-  const dayEnd = getLocalEndOfDay(day).getTime();
+  const timezone = getExecutiveCalendarTimezone();
+  const range = getZonedDayRange(referenceNow, dayOffset, timezone);
+  const filtered = filterEventsByZonedStartRange(events, range);
 
-  return sortEventsChronologically(
-    events.filter((event) => {
-      const startTimestamp = getEventStartTimestamp(event);
+  logCalendarAnswerEvents(filtered, timezone);
 
-      return (
-        startTimestamp !== null && startTimestamp >= dayStart && startTimestamp < dayEnd
-      );
-    }),
-  );
+  return filtered;
 }
 
 export function resolveAgendaEventsForQuery(
@@ -98,7 +52,10 @@ export function resolveAgendaEventsForQuery(
     return filterEventsOnLocalDay(events, referenceNow, dayOffset);
   }
 
-  return filterVisibleCalendarEvents(events, referenceNow);
+  const visible = filterVisibleCalendarEvents(events, referenceNow);
+  logCalendarAnswerEvents(visible, getExecutiveCalendarTimezone());
+
+  return visible;
 }
 
 export async function clearAssistantCalendarAgendaCache(referenceNow = new Date()) {
@@ -113,34 +70,62 @@ export async function refreshCalendarStateAfterMutation(params: {
 }) {
   await clearAssistantCalendarAgendaCache(params.referenceNow);
 
-  return refreshAgendaVisibilityState({
-    referenceNow: params.referenceNow,
-    eventId: params.eventId ?? null,
-    reason: params.reason ?? 'post_mutation',
-    eventStartIso: params.eventStartIso ?? null,
-    focusDayOffsets: [0, 1],
-  });
+  const timezone = getExecutiveCalendarTimezone();
+
+  if (params.eventStartIso) {
+    const dayOffset = resolveZonedDayOffsetForInstant(
+      params.eventStartIso,
+      params.referenceNow,
+      timezone,
+    );
+    const safeDayOffset = dayOffset ?? 0;
+    const { events, range } = await fetchCalendarEventsForZonedDay(params.referenceNow, safeDayOffset);
+    const merged = mergeLiveEventsReplacingZonedDay(getLiveCalendarEvents(), events, range);
+    replaceLiveCalendarEvents(merged);
+
+    return {
+      horizonEvents: merged,
+      todayEvents: filterEventsOnLocalDay(merged, params.referenceNow, 0),
+      tomorrowEvents: filterEventsOnLocalDay(merged, params.referenceNow, 1),
+    };
+  }
+
+  const [today, tomorrow] = await Promise.all([
+    fetchCalendarEventsForZonedDay(params.referenceNow, 0),
+    fetchCalendarEventsForZonedDay(params.referenceNow, 1),
+  ]);
+  const merged = sortEventsChronologically([...today.events, ...tomorrow.events]);
+  replaceLiveCalendarEvents(merged);
+
+  return {
+    horizonEvents: merged,
+    todayEvents: today.events,
+    tomorrowEvents: tomorrow.events,
+  };
 }
 
 export async function syncFreshCalendarStateForAgendaQuery(params: {
   referenceNow: Date;
   userTranscript: string;
 }) {
-  const dayOffset = resolveAgendaQueryDayOffset(params.userTranscript);
-  const focusDayOffsets =
-    dayOffset === null
-      ? [0, 1, 2]
-      : Array.from(new Set([0, 1, dayOffset, dayOffset + 1]));
-
   await clearAssistantCalendarAgendaCache(params.referenceNow);
 
-  await refreshAgendaVisibilityState({
+  const events = await fetchCalendarEventsForAgendaQuery({
     referenceNow: params.referenceNow,
-    reason: 'agenda_sync',
-    focusDayOffsets,
+    userTranscript: params.userTranscript,
   });
 
-  return getLiveCalendarEvents();
+  const dayOffset = resolveAgendaQueryDayOffset(params.userTranscript);
+
+  if (dayOffset !== null) {
+    const range = getZonedDayRange(params.referenceNow, dayOffset, getExecutiveCalendarTimezone());
+    const merged = mergeLiveEventsReplacingZonedDay(getLiveCalendarEvents(), events, range);
+    replaceLiveCalendarEvents(merged);
+    return events;
+  }
+
+  replaceLiveCalendarEvents(events);
+  return events;
 }
 
 export function patchExecutiveSnapshotCalendar(
@@ -167,24 +152,20 @@ export async function ensureFreshCalendarForAgendaTurn(params: {
   userTranscript: string;
   calendarConnected: boolean;
 }): Promise<CalendarEvent[]> {
-  const liveEvents =
-    params.calendarConnected && isCalendarAgendaQuery(params.userTranscript)
-      ? await syncFreshCalendarStateForAgendaQuery({
-          referenceNow: params.referenceNow,
-          userTranscript: params.userTranscript,
-        })
-      : getLiveCalendarEvents();
-
-  if (liveEvents.length > 0) {
-    patchExecutiveSnapshotCalendar(params.orchestrator.snapshot, liveEvents, params.referenceNow);
+  if (!params.calendarConnected || !isCalendarAgendaQuery(params.userTranscript)) {
+    const snapshotEvents = getAssistantVisibleCalendarEvents(
+      params.orchestrator.snapshot,
+      params.referenceNow,
+    );
+    return resolveAgendaEventsForQuery(snapshotEvents, params.referenceNow, params.userTranscript);
   }
 
-  const snapshotEvents = getAssistantVisibleCalendarEvents(
-    params.orchestrator.snapshot,
-    params.referenceNow,
-  );
-  const sourceEvents =
-    liveEvents.length > 0 ? liveEvents : snapshotEvents;
+  const events = await syncFreshCalendarStateForAgendaQuery({
+    referenceNow: params.referenceNow,
+    userTranscript: params.userTranscript,
+  });
 
-  return resolveAgendaEventsForQuery(sourceEvents, params.referenceNow, params.userTranscript);
+  patchExecutiveSnapshotCalendar(params.orchestrator.snapshot, getLiveCalendarEvents(), params.referenceNow);
+
+  return events;
 }

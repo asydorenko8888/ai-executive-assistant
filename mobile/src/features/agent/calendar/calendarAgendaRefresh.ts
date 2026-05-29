@@ -6,11 +6,17 @@ import {
   replaceLiveCalendarEvents,
 } from '@/src/features/agent/calendar/calendarLiveState';
 import {
+  getExecutiveCalendarTimezone,
+  getZonedDayRange,
+  resolveZonedDayOffsetForInstant,
+} from '@/src/features/agent/calendar/calendarTimezone';
+import {
   getCalendarAgendaWindow,
   getLocalDayBounds,
   getLocalStartOfDay,
   parseGoogleCalendarInstant,
 } from '@/src/features/agent/calendar/calendarTime';
+import { filterEventsByZonedStartRange } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import { logAgendaRefresh, logCalendarRefresh } from '@/src/features/agent/calendar/calendarPipelineLogger';
 import { queryClient } from '@/src/shared/api/query-client';
 import { queryKeys } from '@/src/shared/api/query-keys';
@@ -34,20 +40,22 @@ function dayKey(referenceNow: Date, dayOffset: number) {
 }
 
 async function fetchEventsForDay(referenceNow: Date, dayOffset: number) {
-  const date = new Date(referenceNow);
-  date.setDate(date.getDate() + dayOffset);
-  const bounds = getLocalDayBounds(date);
+  const timezone = getExecutiveCalendarTimezone();
+  const range = getZonedDayRange(referenceNow, dayOffset, timezone);
 
   logCalendarRefresh('fetch_by_date', {
     dayOffset,
     dayKey: dayKey(referenceNow, dayOffset),
-    timeMin: bounds.timeMin,
-    timeMax: bounds.timeMax,
+    timeMin: range.timeMin,
+    timeMax: range.timeMax,
+    timezone,
+    rangeStart: range.rangeStart,
+    rangeEnd: range.rangeEnd,
   });
 
   const listed = await fetchGoogleCalendarEventsFromBackend({
-    timeMin: bounds.timeMin,
-    timeMax: bounds.timeMax,
+    timeMin: range.timeMin,
+    timeMax: range.timeMax,
   }).catch((error) => {
     logCalendarRefresh('fetch_by_date_failed', {
       dayOffset,
@@ -56,7 +64,9 @@ async function fetchEventsForDay(referenceNow: Date, dayOffset: number) {
     return null;
   });
 
-  return (listed?.events ?? []).map(mapBackendEvent);
+  const mapped = (listed?.events ?? []).map(mapBackendEvent);
+
+  return filterEventsByZonedStartRange(mapped, range);
 }
 
 export async function invalidateCalendarVisibilityCaches(referenceNow: Date) {
@@ -95,10 +105,15 @@ function resolveFocusDayOffsets(
     const parsed = parseGoogleCalendarInstant(eventStartIso);
 
     if (parsed !== null) {
-      const refDay = getLocalStartOfDay(referenceNow).getTime();
-      const eventDay = getLocalStartOfDay(new Date(parsed)).getTime();
-      const dayOffset = Math.round((eventDay - refDay) / 86400000);
-      offsets.add(dayOffset);
+      const dayOffset = resolveZonedDayOffsetForInstant(
+        eventStartIso,
+        referenceNow,
+        getExecutiveCalendarTimezone(),
+      );
+      if (dayOffset !== null) {
+        offsets.add(dayOffset);
+      }
+
       offsets.add(0);
       offsets.add(1);
     }

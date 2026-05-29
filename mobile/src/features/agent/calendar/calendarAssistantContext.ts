@@ -2,7 +2,11 @@ import type { CalendarEvent } from '@/src/entities/calendar/types';
 import { buildHumanizedCalendarGuidanceLine } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import { filterVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarVisibleEvents';
 import { formatTimeInLocalTimezone } from '@/src/features/agent/calendar/calendarTime';
-import { isCalendarAgendaQuery } from '@/src/features/agent/calendar/calendarAgendaSync';
+import {
+  filterEventsOnLocalDay,
+  isCalendarAgendaQuery,
+  resolveAgendaQueryDayOffset,
+} from '@/src/features/agent/calendar/calendarAgendaSync';
 import type { ExecutiveAgentSnapshot } from '@/src/features/agent/types';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -40,7 +44,15 @@ export function buildAssistantCalendarContextLines(params: {
   languageCode?: VoiceLanguageCode;
   userTranscript?: string;
 }): string[] {
-  const visibleEvents = getAssistantVisibleCalendarEvents(params.snapshot, params.referenceNow);
+  let visibleEvents = getAssistantVisibleCalendarEvents(params.snapshot, params.referenceNow);
+  const agendaDayOffset = params.userTranscript
+    ? resolveAgendaQueryDayOffset(params.userTranscript)
+    : null;
+
+  if (agendaDayOffset !== null) {
+    visibleEvents = filterEventsOnLocalDay(visibleEvents, params.referenceNow, agendaDayOffset);
+  }
+
   const lines: string[] = [];
 
   if (params.userTranscript && isCalendarAgendaQuery(params.userTranscript)) {

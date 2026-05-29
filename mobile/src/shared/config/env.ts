@@ -15,6 +15,7 @@ export const env = {
   googleCalendarAndroidClientId: parsedEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID,
   googleCalendarIosClientId: parsedEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID,
   appApiKey: parsedEnv.EXPO_PUBLIC_APP_API_KEY,
+  calendarTimezone: parsedEnv.EXPO_PUBLIC_CALENDAR_TIMEZONE,
 } as const;
 
 export type AppEnvironment = typeof env;
