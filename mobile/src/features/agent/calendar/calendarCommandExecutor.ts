@@ -61,6 +61,8 @@ export async function executeCalendarCommand(params: {
   languageCode: VoiceLanguageCode;
   calendarConnected: boolean;
   referenceNow: Date;
+  /** Current user message only — CREATE titles are extracted from this, not merged history. */
+  titleSourceTranscript?: string;
 }): Promise<CalendarCommandResult> {
   const intent = detectCalendarCommandIntent(params.transcript);
 
@@ -177,6 +179,7 @@ export async function executeCalendarCommand(params: {
 
   const extraction = extractCalendarCommand({
     transcript: params.transcript,
+    titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
     referenceNow: params.referenceNow,
   });
 
@@ -216,6 +219,7 @@ export async function executeCalendarCommand(params: {
 
   const outcome = await executeCalendarCreateEvent({
     transcript: params.transcript,
+    titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
     languageCode: params.languageCode,
     calendarConnected: params.calendarConnected,
     referenceNow: params.referenceNow,

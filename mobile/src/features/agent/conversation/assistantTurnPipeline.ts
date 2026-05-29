@@ -487,6 +487,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
 
     const commandResult = await executeCalendarCommand({
       transcript: actionTranscript,
+      titleSourceTranscript: userTranscript,
       languageCode: params.languageCode,
       calendarConnected,
       referenceNow: params.referenceNow,

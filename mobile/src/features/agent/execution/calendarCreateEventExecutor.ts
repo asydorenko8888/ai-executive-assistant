@@ -34,6 +34,8 @@ export type CalendarCreateExecutionParams = {
   languageCode: VoiceLanguageCode;
   calendarConnected: boolean;
   referenceNow: Date;
+  /** Current user message only — never merged history. */
+  titleSourceTranscript?: string;
 };
 
 export type CalendarCreateExecutionOutcome = CalendarToolReplyBundle & {
@@ -125,6 +127,7 @@ export async function executeCalendarCreateEvent(
 
   const payloadResult = buildCalendarCreateEventPayload({
     transcript: params.transcript,
+    titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
     languageCode: params.languageCode,
     referenceNow: params.referenceNow,
   });

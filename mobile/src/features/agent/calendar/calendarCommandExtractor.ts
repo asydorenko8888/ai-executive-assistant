@@ -310,8 +310,11 @@ function scoreExtraction(params: {
 export function extractCalendarCommand(params: {
   transcript: string;
   referenceNow: Date;
+  /** Current user message only — never merged chat history. Used for CREATE titles. */
+  titleSourceTranscript?: string;
 }): CalendarCommandExtraction {
   const rawInput = params.transcript.trim();
+  const titleSource = (params.titleSourceTranscript ?? params.transcript).trim();
   const intent = detectExtractionIntent(rawInput);
 
   if (intent === 'none') {
@@ -346,8 +349,23 @@ export function extractCalendarCommand(params: {
   let explicitDayOffset: number | null = null;
 
   if (intent === 'calendar_create') {
-    title = extractCreateEventTitle(rawInput) ?? '';
     const schedule = parseCalendarCreateSchedule(rawInput, params.referenceNow);
+    const detectedDate =
+      schedule.ok && schedule.explicitDayOffset === 0
+        ? 'today'
+        : schedule.ok && schedule.explicitDayOffset === 1
+          ? 'tomorrow'
+          : schedule.ok
+            ? `dayOffset:${schedule.explicitDayOffset}`
+            : null;
+    const detectedTime = schedule.ok
+      ? new Date(schedule.startMs).toISOString().slice(11, 16)
+      : null;
+
+    title = extractCreateEventTitle(titleSource, {
+      detectedDate,
+      detectedTime,
+    }) ?? '';
 
     if (schedule.ok) {
       datetime = new Date(schedule.startMs).toISOString();

@@ -9,8 +9,8 @@ import {
   isCalendarExtractionExecutable,
 } from '@/src/features/agent/calendar/calendarCommandExtractor';
 import { createCalendarToolSuccess } from '@/src/features/agent/execution/calendarToolContract';
-import { getZonedTimeParts, getZonedYmd, addDaysToZonedYmd } from '@/src/features/agent/calendar/calendarTimezone';
 import { isOperationalCalendarCreateRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { getZonedTimeParts, getZonedYmd, addDaysToZonedYmd } from '@/src/features/agent/calendar/calendarTimezone';
 
 const referenceNow = new Date('2026-05-28T12:00:00-05:00');
 const timeZone = 'America/Chicago';
@@ -22,7 +22,6 @@ const CREATE_SAMPLES = [
     hour: 18,
     minute: 0,
     dayOffset: 0,
-    locale: 'ru-RU' as const,
   },
   {
     transcript: 'Запланируй встречу с Иваном завтра в 15:30',
@@ -30,7 +29,6 @@ const CREATE_SAMPLES = [
     hour: 15,
     minute: 30,
     dayOffset: 1,
-    locale: 'ru-RU' as const,
   },
   {
     transcript: 'Додай чаювання сьогодні о 17:30',
@@ -38,7 +36,6 @@ const CREATE_SAMPLES = [
     hour: 17,
     minute: 30,
     dayOffset: 0,
-    locale: 'uk-UA' as const,
   },
   {
     transcript: 'Створи подію вечеря завтра на 19:00',
@@ -46,7 +43,6 @@ const CREATE_SAMPLES = [
     hour: 19,
     minute: 0,
     dayOffset: 1,
-    locale: 'uk-UA' as const,
   },
   {
     transcript: 'Поставь звонок Николаю сегодня в 20:00',
@@ -54,11 +50,57 @@ const CREATE_SAMPLES = [
     hour: 20,
     minute: 0,
     dayOffset: 0,
-    locale: 'ru-RU' as const,
+  },
+];
+
+const TITLE_BUG_FIX_SAMPLES = [
+  {
+    transcript: 'Добавь прогулку сегодня в 20:00',
+    title: 'Прогулка',
+  },
+  {
+    transcript: 'додай каву завтра в 9:30 ранку',
+    title: 'Кава',
+  },
+  {
+    transcript: 'запланируй звонок Сергею сегодня в 20:00',
+    title: 'Звонок Сергею',
+  },
+  {
+    transcript: 'створи зустріч з інвестором завтра о 15:00',
+    title: 'Зустріч з інвестором',
   },
 ];
 
 describe('calendar create integration', () => {
+  it('extracts nominative titles from accusative RU/UA phrases', () => {
+    for (const sample of TITLE_BUG_FIX_SAMPLES) {
+      assert.equal(extractCreateEventTitle(sample.transcript), sample.title, sample.transcript);
+    }
+  });
+
+  it('does not leak previous user message into title when titleSource is current message only', () => {
+    const previousCommand = 'Добавь прогулку сегодня в 20:00';
+    const currentCommand = 'додай каву завтра в 9:30 ранку';
+    const mergedTranscript = `${previousCommand} ${currentCommand}`;
+
+    assert.equal(extractCreateEventTitle(currentCommand), 'Кава');
+
+    const extraction = extractCalendarCommand({
+      transcript: mergedTranscript,
+      titleSourceTranscript: currentCommand,
+      referenceNow,
+    });
+
+    assert.equal(extraction.title, 'Кава');
+    assert.ok(isCalendarExtractionExecutable(extraction));
+  });
+
+  it('strips meridiem words left after clock removal', () => {
+    assert.equal(extractCreateEventTitle('додай каву завтра в 9:30 ранку'), 'Кава');
+    assert.doesNotMatch(extractCreateEventTitle('додай каву завтра в 9:30 ранку') ?? '', /ранку/i);
+  });
+
   it('detects RU and UA create intents', () => {
     for (const sample of CREATE_SAMPLES) {
       assert.equal(isOperationalCalendarCreateRequest(sample.transcript), true, sample.transcript);
@@ -98,6 +140,7 @@ describe('calendar create integration', () => {
 
       const extraction = extractCalendarCommand({
         transcript: sample.transcript,
+        titleSourceTranscript: sample.transcript,
         referenceNow,
       });
 
@@ -121,6 +164,7 @@ describe('calendar create integration', () => {
   it('marks extraction executable only with title and explicit time', () => {
     const complete = extractCalendarCommand({
       transcript: 'Добавь спортзал сегодня в 18:00',
+      titleSourceTranscript: 'Добавь спортзал сегодня в 18:00',
       referenceNow,
     });
 
@@ -129,6 +173,7 @@ describe('calendar create integration', () => {
 
     const missingTime = extractCalendarCommand({
       transcript: 'Добавь спортзал сегодня',
+      titleSourceTranscript: 'Добавь спортзал сегодня',
       referenceNow,
     });
 
