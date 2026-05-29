@@ -34,7 +34,7 @@ function extractClockFragment(transcript: string) {
   return null;
 }
 
-function resolveDayOffset(transcript: string) {
+export function resolveDayOffset(transcript: string) {
   const normalized = transcript.toLowerCase();
 
   if (/\b(?:tomorrow|завтра)\b/i.test(normalized)) {

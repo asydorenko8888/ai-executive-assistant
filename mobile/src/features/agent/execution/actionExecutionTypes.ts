@@ -30,3 +30,9 @@ export type CalendarCreateEventPayload = {
   start: { dateTime: string; timeZone: string };
   end: { dateTime: string; timeZone: string };
 };
+
+export type CalendarUpdateEventPayload = {
+  summary?: string;
+  start: { dateTime: string; timeZone: string };
+  end: { dateTime: string; timeZone: string };
+};

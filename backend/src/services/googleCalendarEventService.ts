@@ -16,6 +16,13 @@ export type CreateGoogleCalendarEventBody = {
   end: { dateTime: string; timeZone: string };
 };
 
+export type UpdateGoogleCalendarEventBody = {
+  summary?: string;
+  location?: string;
+  start: { dateTime: string; timeZone: string };
+  end: { dateTime: string; timeZone: string };
+};
+
 export type CreatedGoogleCalendarEvent = {
   id: string;
   summary: string;
@@ -487,5 +494,183 @@ export async function deleteGoogleCalendarEventForDevice(deviceId: string, event
     verified: true,
     verificationFetched: true,
     event: existing.event,
+  };
+}
+
+function toCreateFallbackFromUpdate(payload: UpdateGoogleCalendarEventBody): CreateGoogleCalendarEventBody {
+  return {
+    summary: payload.summary ?? 'Updated event',
+    location: payload.location,
+    start: payload.start,
+    end: payload.end,
+  };
+}
+
+function updateEventsRoughlyMatch(fetched: CreatedGoogleCalendarEvent, payload: UpdateGoogleCalendarEventBody) {
+  const startMatches = fetched.startsAt.slice(0, 16) === payload.start.dateTime.slice(0, 16);
+  const endMatches = fetched.endsAt.slice(0, 16) === payload.end.dateTime.slice(0, 16);
+
+  return startMatches && endMatches;
+}
+
+export async function updateGoogleCalendarEventForDevice(
+  deviceId: string,
+  eventId: string,
+  payload: UpdateGoogleCalendarEventBody,
+) {
+  const fallback = toCreateFallbackFromUpdate(payload);
+
+  logCalendarPipeline('patch_request', {
+    deviceId: deviceId.slice(0, 8),
+    eventId,
+    payload,
+  });
+
+  const tokens = await getValidGoogleCalendarAccessToken(deviceId);
+
+  if (!tokens) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: false,
+      errorCode: 'calendar_not_connected',
+      errorMessage: 'Google Calendar is not connected on the server.',
+    };
+  }
+
+  logCalendarPermissions(tokens);
+
+  if (!scopesIncludeCalendarEventsWrite(tokens.scopes)) {
+    logCalendarPipeline('WRITE_SCOPE_MISSING', {
+      scopes: tokens.scopes,
+      required: CALENDAR_EVENTS_WRITE_SCOPE,
+    });
+
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: false,
+      errorCode: 'WRITE_SCOPE_MISSING',
+      errorMessage: `Missing required scope: ${CALENDAR_EVENTS_WRITE_SCOPE}`,
+    };
+  }
+
+  const existing = await getGoogleCalendarEventById(tokens, eventId, fallback);
+
+  if (!existing.ok) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: false,
+      errorCode: 'CALENDAR_EVENT_NOT_FOUND',
+      errorMessage: existing.message,
+    };
+  }
+
+  logCalendarPipeline('patch_payload', { eventId, payload });
+
+  const patchResult = await fetchGoogleCalendarJson(
+    `${GOOGLE_CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(eventId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${tokens.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        summary: payload.summary,
+        location: payload.location,
+        start: payload.start,
+        end: payload.end,
+      }),
+    },
+    'events.patch',
+  );
+
+  if (!patchResult.ok) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: false,
+      errorCode: patchResult.timedOut
+        ? 'calendar_confirmation_timeout'
+        : patchResult.status === 403
+          ? 'WRITE_SCOPE_MISSING'
+          : patchResult.status === 404
+            ? 'CALENDAR_EVENT_NOT_FOUND'
+            : 'calendar_api_unavailable',
+      errorMessage: patchResult.message,
+      httpStatus: patchResult.status,
+      apiResponse: patchResult.rawBody,
+    };
+  }
+
+  const patched = normalizeEvent(patchResult.body, fallback);
+
+  if (!patched) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: false,
+      errorCode: 'calendar_patch_failed',
+      errorMessage: 'Patch response could not be parsed.',
+      apiResponse: patchResult.body,
+    };
+  }
+
+  logCalendarPipeline('patch_success', {
+    eventId: patched.id,
+    summary: patched.summary,
+    startsAt: patched.startsAt,
+  });
+
+  const getResult = await getGoogleCalendarEventById(tokens, eventId, fallback);
+
+  logCalendarPipeline('verification_get', {
+    ok: getResult.ok,
+    eventId,
+  });
+
+  if (!getResult.ok) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: true,
+      errorCode: 'VERIFY_FAILED',
+      errorMessage: 'Patch succeeded but verification failed.',
+      patchedEventId: patched.id,
+    };
+  }
+
+  if (!updateEventsRoughlyMatch(getResult.event, payload)) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: true,
+      errorCode: 'VERIFY_FAILED',
+      errorMessage: 'Patch succeeded but verified event did not match payload.',
+      patchedEventId: patched.id,
+    };
+  }
+
+  logCalendarPipeline('verification_success', {
+    eventId: getResult.event.id,
+    summary: getResult.event.summary,
+    startsAt: getResult.event.startsAt,
+  });
+
+  return {
+    ok: true as const,
+    executionState: 'success' as const,
+    verified: true,
+    verificationFetched: true,
+    event: getResult.event,
   };
 }

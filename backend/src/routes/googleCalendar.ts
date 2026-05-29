@@ -12,6 +12,7 @@ import {
   createGoogleCalendarEventForDevice,
   deleteGoogleCalendarEventForDevice,
   runGoogleCalendarTestInsert,
+  updateGoogleCalendarEventForDevice,
 } from '../services/googleCalendarEventService.js';
 import {
   getGoogleCalendarEventForDevice,
@@ -60,6 +61,13 @@ type UpsertGoogleCalendarSessionRequest = {
 
 type CreateCalendarEventRequest = {
   summary: string;
+  location?: string;
+  start: { dateTime: string; timeZone: string };
+  end: { dateTime: string; timeZone: string };
+};
+
+type UpdateCalendarEventRequest = {
+  summary?: string;
   location?: string;
   start: { dateTime: string; timeZone: string };
   end: { dateTime: string; timeZone: string };
@@ -174,6 +182,38 @@ function parseCreateEventRequest(body: unknown): CreateCalendarEventRequest | nu
 
   return {
     summary: candidate.summary.trim(),
+    location: candidate.location?.trim() || undefined,
+    start: {
+      dateTime: candidate.start.dateTime,
+      timeZone: candidate.start.timeZone,
+    },
+    end: {
+      dateTime: candidate.end.dateTime,
+      timeZone: candidate.end.timeZone,
+    },
+  };
+}
+
+function parseUpdateEventRequest(body: unknown): UpdateCalendarEventRequest | null {
+  if (!body || typeof body !== 'object') {
+    return null;
+  }
+
+  const candidate = body as Partial<UpdateCalendarEventRequest>;
+
+  if (
+    !candidate.start ||
+    typeof candidate.start.dateTime !== 'string' ||
+    typeof candidate.start.timeZone !== 'string' ||
+    !candidate.end ||
+    typeof candidate.end.dateTime !== 'string' ||
+    typeof candidate.end.timeZone !== 'string'
+  ) {
+    return null;
+  }
+
+  return {
+    summary: candidate.summary?.trim() || undefined,
     location: candidate.location?.trim() || undefined,
     start: {
       dateTime: candidate.start.dateTime,
@@ -344,6 +384,82 @@ googleCalendarRouter.delete('/google-calendar/events/:eventId', async (request, 
     eventId: result.event.id,
     verified: result.verified,
     verificationFetched: result.verificationFetched,
+  });
+});
+
+googleCalendarRouter.patch('/google-calendar/events/:eventId', async (request, response) => {
+  const deviceId = requireDeviceId(request, response);
+
+  if (!deviceId) {
+    return;
+  }
+
+  const eventId = request.params.eventId?.trim();
+
+  if (!eventId) {
+    return response.status(400).json({
+      message: 'eventId is required.',
+      code: 'GOOGLE_CALENDAR_EVENT_ID_INVALID',
+    });
+  }
+
+  const parsedRequest = parseUpdateEventRequest(request.body);
+
+  if (!parsedRequest) {
+    return response.status(400).json({
+      message: 'Invalid Google Calendar event update payload.',
+      code: 'GOOGLE_CALENDAR_EVENT_PAYLOAD_INVALID',
+    });
+  }
+
+  const status = await getGoogleCalendarConnectionStatus(deviceId);
+
+  if (!status.connected) {
+    return response.status(401).json({
+      message: 'Google Calendar is not connected.',
+      code: 'calendar_not_connected',
+    });
+  }
+
+  if (!status.writeEnabled) {
+    return response.status(403).json({
+      message: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+      code: 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED',
+    });
+  }
+
+  const result = await updateGoogleCalendarEventForDevice(deviceId, eventId, parsedRequest);
+
+  if (!result.ok) {
+    const statusCode =
+      result.errorCode === 'calendar_not_connected'
+        ? 401
+        : result.errorCode === 'CALENDAR_EVENT_NOT_FOUND'
+          ? 404
+          : result.errorCode === 'WRITE_SCOPE_MISSING'
+            ? 403
+            : result.errorCode === 'VERIFY_FAILED'
+              ? 502
+              : 502;
+
+    return response.status(statusCode).json({
+      status: 'FAILURE',
+      code: result.errorCode,
+      message: result.errorMessage,
+      verified: result.verified,
+      verificationFetched: result.verificationFetched,
+      executionState: result.executionState,
+    });
+  }
+
+  return response.status(200).json({
+    status: 'SUCCESS',
+    code: 'SUCCESS',
+    event: result.event,
+    eventId: result.event.id,
+    verified: result.verified,
+    verificationFetched: result.verificationFetched,
+    executionState: result.executionState,
   });
 });
 

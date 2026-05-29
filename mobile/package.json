@@ -9,7 +9,8 @@
     "web": "expo start --web",
     "verify:routes": "node ./scripts/verify-expo-routes.mjs",
     "lint": "expo lint",
-    "test:calendar-intelligence": "npx tsx --test src/features/agent/calendarIntelligence/calendarIntelligence.test.ts"
+    "test:calendar-intelligence": "npx tsx --test src/features/agent/calendarIntelligence/calendarIntelligence.test.ts",
+    "test:calendar-update": "npx tsx --test src/features/agent/calendar/calendarUpdate.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",

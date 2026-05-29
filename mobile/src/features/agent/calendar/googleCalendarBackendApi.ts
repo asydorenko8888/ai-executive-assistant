@@ -1,4 +1,4 @@
-import type { CalendarCreateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
+import type { CalendarCreateEventPayload, CalendarUpdateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
 import type { GoogleCalendarSession } from '@/src/features/agent/calendar/googleCalendarStorage';
 import { apiClient } from '@/src/shared/api';
@@ -138,6 +138,16 @@ export async function fetchGoogleCalendarEventByIdFromBackend(eventId: string) {
 export async function deleteGoogleCalendarEventOnBackend(eventId: string) {
   return apiClient.delete<GoogleCalendarCreateApiResponse>({
     path: `/google-calendar/events/${encodeURIComponent(eventId)}`,
+  });
+}
+
+export async function updateGoogleCalendarEventOnBackend(
+  eventId: string,
+  payload: CalendarUpdateEventPayload,
+) {
+  return apiClient.patch<GoogleCalendarCreateApiResponse, CalendarUpdateEventPayload>({
+    path: `/google-calendar/events/${encodeURIComponent(eventId)}`,
+    body: payload,
   });
 }
 

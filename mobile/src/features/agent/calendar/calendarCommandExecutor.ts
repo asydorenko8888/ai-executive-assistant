@@ -6,6 +6,7 @@ import {
 import {
   buildFailureTerminalReply,
   isVerifiedCalendarCreateSuccess,
+  isVerifiedCalendarUpdateSuccess,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
 import {
   extractCalendarCommand,
@@ -16,6 +17,7 @@ import {
   CALENDAR_DELETE_DISABLED_CODE,
 } from '@/src/features/agent/calendar/calendarDeleteDisabledReply';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
+import { executeCalendarUpdateEvent } from '@/src/features/agent/execution/calendarUpdateEventExecutor';
 import type { CalendarToolStatus } from '@/src/features/agent/execution/calendarToolContract';
 import {
   getLastCalendarCommandOutcome,
@@ -121,7 +123,45 @@ export async function executeCalendarCommand(params: {
   logCalendarToolSelected({ intent, tool: toolName });
 
   if (intent === 'update_calendar_event') {
-    console.log('[Calendar Execution] update intent routed to create until PATCH API exists');
+    const outcome = await executeCalendarUpdateEvent({
+      transcript: params.transcript,
+      languageCode: params.languageCode,
+      referenceNow: params.referenceNow,
+    });
+
+    const contractOk = isVerifiedCalendarUpdateSuccess(outcome.tool);
+    const terminalReply =
+      outcome.tool.status === 'SUCCESS' && !contractOk
+        ? buildFailureTerminalReply(
+            'CALENDAR_EXECUTION_CONTRACT',
+            'API reported success but verified eventId is missing',
+          )
+        : outcome.reply;
+
+    setLastCalendarCommandOutcome({
+      intent,
+      tool: outcome.tool,
+      terminalReply,
+      verified: contractOk,
+    });
+
+    logCalendarTerminalReply({
+      intent,
+      tool: outcome.tool,
+      replyPreview: terminalReply,
+    });
+
+    return {
+      matched: true,
+      intent,
+      reply: terminalReply,
+      spokenReply: outcome.spokenReply,
+      toolStatus: contractOk ? 'SUCCESS' : outcome.tool.status === 'SUCCESS' ? 'FAILURE' : outcome.tool.status,
+      executionState: contractOk ? 'tool_success' : mapExecutionState(outcome.tool.status),
+      verified: contractOk,
+      requiresCalendarAuth: outcome.requiresCalendarAuth,
+      eventId: outcome.tool.eventId ?? null,
+    };
   }
 
   const extraction = extractCalendarCommand({

@@ -39,6 +39,9 @@ export function isTerminalCalendarToolReply(text: string) {
     normalized.startsWith('Event removed successfully:') ||
     normalized.startsWith('Событие удалено успешно:') ||
     normalized.startsWith('Подію видалено успішно:') ||
+    normalized.startsWith('Event updated successfully:') ||
+    normalized.startsWith('Событие обновлено успешно:') ||
+    normalized.startsWith('Подію оновлено успішно:') ||
     normalized.startsWith('Готово.') ||
     normalized.startsWith('Done.') ||
     normalized.includes('Я додав:') ||
@@ -62,6 +65,17 @@ export function isVerifiedCalendarCreateSuccess(tool: CalendarToolResponse | nul
 
 export function isVerifiedCalendarDeleteSuccess(tool: CalendarToolResponse | null | undefined) {
   return Boolean(tool && tool.status === 'SUCCESS' && tool.verified && tool.eventId);
+}
+
+export function isVerifiedCalendarUpdateSuccess(tool: CalendarToolResponse | null | undefined) {
+  return Boolean(
+    tool &&
+      tool.status === 'SUCCESS' &&
+      tool.verified &&
+      tool.verificationFetched &&
+      tool.eventId &&
+      tool.event?.id,
+  );
 }
 
 export function isFakeCalendarAssistantReply(text: string, tool: CalendarToolResponse | null | undefined) {
@@ -91,9 +105,13 @@ export function isFakeCalendarAssistantReply(text: string, tool: CalendarToolRes
       normalized.startsWith('Подію створено успішно:') ||
       normalized.startsWith('Event removed successfully:') ||
       normalized.startsWith('Событие удалено успешно:') ||
-      normalized.startsWith('Подію видалено успішно:')) &&
+      normalized.startsWith('Подію видалено успішно:') ||
+      normalized.startsWith('Event updated successfully:') ||
+      normalized.startsWith('Событие обновлено успешно:') ||
+      normalized.startsWith('Подію оновлено успішно:')) &&
     !isVerifiedCalendarCreateSuccess(tool) &&
-    !isVerifiedCalendarDeleteSuccess(tool)
+    !isVerifiedCalendarDeleteSuccess(tool) &&
+    !isVerifiedCalendarUpdateSuccess(tool)
   ) {
     return true;
   }
@@ -132,6 +150,13 @@ export function assertCalendarReplyMatchesTool(params: {
       return buildFailureTerminalReply(
         'CALENDAR_EXECUTION_CONTRACT',
         'create success reply blocked — missing verified eventId',
+      );
+    }
+
+    if (params.intent === 'update_calendar_event' && !isVerifiedCalendarUpdateSuccess(params.tool)) {
+      return buildFailureTerminalReply(
+        'CALENDAR_EXECUTION_CONTRACT',
+        'update success reply blocked — missing verified eventId',
       );
     }
 
