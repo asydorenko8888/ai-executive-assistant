@@ -9,6 +9,14 @@ import {
   isVerifiedCalendarUpdateSuccess,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { parseCalendarUpdateTimeShift, stripCalendarUpdateTimeShiftPhrases } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import {
+  extractCalendarUpdateParameters,
+  extractUpdateEventTitle,
+} from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
+import {
+  buildTranscriptFromPendingContext,
+  tryMergePendingCalendarUpdateReply,
+} from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import { verifyUpdatedEventMatchesPayload } from '@/src/features/agent/calendar/calendarUpdateVerification';
 import { buildCalendarUpdateEventPayload } from '@/src/features/agent/execution/calendarUpdatePayloadBuilder';
 import { createCalendarToolSuccess } from '@/src/features/agent/execution/calendarToolContract';
@@ -161,6 +169,7 @@ describe('calendar update integration', () => {
     const merged = mergeActionContextFromHistory({
       transcript: 'Team Dinner at 7 PM',
       messages,
+      referenceNow,
     });
 
     assert.equal(merged.usedContext, true);
@@ -186,5 +195,56 @@ describe('calendar update integration', () => {
 
     assert.equal(completeShift.ok, true);
     assert.equal(completeTitleSource, 'dinner');
+  });
+
+  it('extracts Russian title and 24h from/to times from one message', () => {
+    const russian = 'Перенеси чаепитие с 17:30 на 18:30';
+    const extracted = extractCalendarUpdateParameters(russian, referenceNow);
+
+    assert.equal(extracted.readyToExecute, true);
+    assert.equal(extracted.title, 'чаепитие');
+    assert.equal(extracted.fromTime, '17:30');
+    assert.equal(extracted.toTime, '18:30');
+    assert.deepEqual(extracted.missingFields, []);
+  });
+
+  it('merges pending update clarification when user replies with only destination time', () => {
+    const pending = {
+      operation: 'update' as const,
+      title: 'чаепитие',
+      fromTime: '17:30',
+      toTime: null,
+      sourceTranscript: 'Перенеси чаепитие с 17:30',
+    };
+
+    const merged = tryMergePendingCalendarUpdateReply({
+      pending,
+      reply: '18:30',
+      referenceNow,
+    });
+
+    assert.ok(merged);
+    assert.equal(merged?.context.toTime, '18:30');
+    assert.equal(merged?.readyToExecute, true);
+    assert.match(merged?.transcript ?? '', /чаепитие/);
+    assert.match(merged?.transcript ?? '', /17:30/);
+    assert.match(merged?.transcript ?? '', /18:30/);
+  });
+
+  it('builds a canonical Russian transcript from pending update context', () => {
+    const transcript = buildTranscriptFromPendingContext({
+      operation: 'update',
+      title: 'чаепитие',
+      fromTime: '17:30',
+      toTime: '18:30',
+      sourceTranscript: 'Перенеси чаепитие с 17:30 на 18:30',
+    });
+
+    assert.equal(transcript, 'Перенеси чаепитие с 17:30 на 18:30');
+  });
+
+  it('extracts update title without create-style confidence gating', () => {
+    assert.equal(extractUpdateEventTitle('Move dinner from 7 PM to 8 PM'), 'dinner');
+    assert.equal(extractUpdateEventTitle('Перенеси чаепитие с 17:30 на 18:30'), 'чаепитие');
   });
 });

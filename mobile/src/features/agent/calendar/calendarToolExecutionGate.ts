@@ -6,7 +6,7 @@ import {
 import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import {
   getLastCalendarCommandOutcome,
-  getPendingCalendarUpdateIntent,
+  getPendingCalendarUpdateContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 import {
   isOperationalCalendarWriteRequest,
@@ -24,7 +24,7 @@ export function requiresCalendarToolExecution(transcript: string) {
     return true;
   }
 
-  return Boolean(getPendingCalendarUpdateIntent());
+  return Boolean(getPendingCalendarUpdateContext());
 }
 
 export function blockLlmForCalendarMutation(params: {
@@ -53,7 +53,7 @@ export function enforceCalendarToolReply(params: {
   userTranscript: string;
   candidateReply: string;
 }) {
-  const pendingUpdate = getPendingCalendarUpdateIntent();
+  const pendingUpdate = getPendingCalendarUpdateContext();
   const requiresTool =
     requiresCalendarToolExecution(params.userTranscript) || Boolean(pendingUpdate);
 

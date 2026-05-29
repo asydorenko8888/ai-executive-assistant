@@ -1,5 +1,10 @@
 import type { ChatMessage } from '@/src/entities/chat/types';
+import { tryMergePendingCalendarUpdateReply } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import { isOperationalCalendarUpdateRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import {
+  getPendingCalendarUpdateContext,
+  setPendingCalendarUpdateContext,
+} from '@/src/features/agent/execution/calendarExecutionSession';
 
 const ACTION_CONTINUATION =
   /^(?:please\s+)?(?:так|да|yes|yeah|yep|ok|okay|sure|давай|ага|go ahead|do it|внеси|додай|add it|schedule it)(?:[,.!\s]|$)/iu;
@@ -37,8 +42,28 @@ function isAssistantClarificationReply(content: string) {
 export function mergeActionContextFromHistory(params: {
   transcript: string;
   messages: ChatMessage[];
+  referenceNow: Date;
 }) {
   const normalized = params.transcript.trim();
+  const pendingUpdate = getPendingCalendarUpdateContext();
+
+  if (pendingUpdate) {
+    const mergedPending = tryMergePendingCalendarUpdateReply({
+      pending: pendingUpdate,
+      reply: normalized,
+      referenceNow: params.referenceNow,
+    });
+
+    if (mergedPending) {
+      setPendingCalendarUpdateContext(mergedPending.context);
+
+      return {
+        mergedTranscript: mergedPending.transcript,
+        usedContext: true,
+        contextSource: 'pending_update_clarification' as const,
+      };
+    }
+  }
 
   if (isActionContinuation(normalized)) {
     const previousUser = getPreviousUserMessage(params.messages);
@@ -81,6 +106,6 @@ export function mergeActionContextFromHistory(params: {
   return {
     mergedTranscript: normalized,
     usedContext: false,
-    contextSource: null as 'previous_user' | 'assistant_offer' | 'clarification_followup' | null,
+    contextSource: null as 'previous_user' | 'assistant_offer' | 'clarification_followup' | 'pending_update_clarification' | null,
   };
 }

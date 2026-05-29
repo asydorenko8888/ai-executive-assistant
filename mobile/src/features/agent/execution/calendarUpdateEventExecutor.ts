@@ -7,6 +7,7 @@ import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecis
 import {
   logCalendarUpdateFailed,
   logCalendarUpdateIntent,
+  logUpdateExecutionStarted,
 } from '@/src/features/agent/calendar/calendarUpdateLogger';
 import { parseCalendarUpdateTimeShift } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import { buildCalendarUpdateEventPayload } from '@/src/features/agent/execution/calendarUpdatePayloadBuilder';
@@ -38,6 +39,10 @@ export type CalendarUpdateExecutionOutcome = CalendarUpdateToolReplyBundle & {
 export async function executeCalendarUpdateEvent(
   params: CalendarUpdateExecutionParams,
 ): Promise<CalendarUpdateExecutionOutcome> {
+  logUpdateExecutionStarted({
+    action: 'executeCalendarUpdateEvent',
+    transcriptPreview: params.transcript.slice(0, 120),
+  });
   logCalendarUpdateIntent({
     action: 'executeCalendarUpdateEvent',
     transcriptPreview: params.transcript.slice(0, 120),

@@ -125,10 +125,13 @@ export function resolveAssistantBehavior(params: {
   const contextMerge = mergeActionContextFromHistory({
     transcript: params.transcript,
     messages: params.messages,
+    referenceNow: params.referenceNow,
   });
   const actionTranscript = contextMerge.mergedTranscript;
   const explicitAction =
-    hasExplicitActionVerb(actionTranscript) || contextMerge.contextSource === 'clarification_followup';
+    hasExplicitActionVerb(actionTranscript) ||
+    contextMerge.contextSource === 'clarification_followup' ||
+    contextMerge.contextSource === 'pending_update_clarification';
   const fieldValidation = validateActionFields({
     transcript: actionTranscript,
     referenceNow: params.referenceNow,

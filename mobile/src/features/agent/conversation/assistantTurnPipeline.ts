@@ -32,8 +32,13 @@ import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/c
 import { detectCalendarCommandIntent, requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
 import { executeCalendarCommand } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import { assertCalendarReplyMatchesTool } from '@/src/features/agent/calendar/calendarExecutionContract';
-import { getLastCalendarCommandOutcome, setPendingCalendarUpdateIntent } from '@/src/features/agent/execution/calendarExecutionSession';
-import { logCalendarUpdateClarification } from '@/src/features/agent/calendar/calendarUpdateLogger';
+import { getLastCalendarCommandOutcome, setPendingCalendarUpdateContext } from '@/src/features/agent/execution/calendarExecutionSession';
+import { extractCalendarUpdateParameters } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
+import {
+  logCalendarUpdateClarification,
+  logUpdateClarificationStored,
+} from '@/src/features/agent/calendar/calendarUpdateLogger';
+import { pendingContextFromExtraction } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import {
   buildBehaviorModeSystemPrompt,
   resolveAssistantBehavior,
@@ -351,7 +356,19 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
 
   if (behavior.mode === 'CLARIFICATION_MODE' && behavior.clarificationReply) {
     if (behavior.intent === 'update_calendar_event') {
-      setPendingCalendarUpdateIntent({ sourceTranscript: actionTranscript });
+      const extracted = extractCalendarUpdateParameters(actionTranscript, params.referenceNow);
+      const pendingContext = pendingContextFromExtraction({
+        sourceTranscript: actionTranscript,
+        extraction: extracted,
+      });
+      setPendingCalendarUpdateContext(pendingContext);
+      logUpdateClarificationStored({
+        title: pendingContext.title,
+        fromTime: pendingContext.fromTime,
+        toTime: pendingContext.toTime,
+        missingFields: extracted.missingFields,
+        sourceTranscriptPreview: actionTranscript.slice(0, 160),
+      });
       logCalendarUpdateClarification({
         missingFields: behavior.missingFields,
         actionTranscriptPreview: actionTranscript.slice(0, 160),

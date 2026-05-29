@@ -15,10 +15,11 @@ export type CalendarUpdateTimeShift =
     };
 
 const FROM_TO_EN =
-  /\bfrom\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?|\d{1,2}:\d{2})\b\s+to\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?|\d{1,2}:\d{2})\b/i;
+  /\bfrom\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?|\d{1,2}:\d{2})\s+to\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?|\d{1,2}:\d{2})\b/i;
 
+/** JS \b is ASCII-only — do not use word boundaries before Cyrillic prepositions. */
 const FROM_TO_RU =
-  /\b(?:с|from)\s+(\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью|am|pm)?|\d{1,2}:\d{2})\b\s+(?:на|to|до)\s+(\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью|am|pm)?|\d{1,2}:\d{2})\b/iu;
+  /(?:с|з|from)\s+(\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью|am|pm)?|\d{1,2}:\d{2})\s+(?:на|to|до)\s+(\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью|am|pm)?|\d{1,2}:\d{2})/iu;
 
 export function stripCalendarUpdateTimeShiftPhrases(transcript: string) {
   return transcript.replace(FROM_TO_EN, ' ').replace(FROM_TO_RU, ' ').replace(/\s+/g, ' ').trim();
