@@ -150,7 +150,7 @@ export async function executeCalendarDeleteEvent(
 
     const tool: CalendarToolResponse = await deleteGoogleCalendarEvent(resolution.event.id);
 
-    if (tool.status === 'SUCCESS') {
+    if (tool.status === 'SUCCESS' && tool.verified) {
       await refreshCalendarAgendaState(params.referenceNow).catch((error) => {
         console.log('[Calendar Refresh] post-delete refresh failed', error);
       });
@@ -159,7 +159,21 @@ export async function executeCalendarDeleteEvent(
         ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
           referenceNow: params.referenceNow,
         }),
-        verified: tool.verified,
+        verified: true,
+      };
+    }
+
+    if (tool.status === 'SUCCESS' && !tool.verified) {
+      endCalendarOperation({ failed: true });
+      const unverified = createCalendarToolFailure(
+        'VERIFY_FAILED',
+        'Google Calendar did not confirm deletion.',
+      );
+      return {
+        ...buildCalendarDeleteToolReplyBundle(unverified, params.languageCode, {
+          referenceNow: params.referenceNow,
+        }),
+        verified: false,
       };
     }
 

@@ -1,23 +1,17 @@
-/**
- * @deprecated Delete matching is disabled until calendarEventResolver is wired for delete-by-id.
- * Use resolveCalendarEventCandidates from calendarEventResolver.ts for read-only resolution.
- */
-import { findCalendarEventForUpdateFromEvents } from '@/src/features/agent/calendarIntelligence/eventAtTimeMatch';
 import { fetchCalendarEventsForZonedDay } from '@/src/features/agent/calendar/calendarAgendaQuery';
+import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import { logUpdateParsedRequest } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
-import { extractCalendarEventTitle } from '@/src/features/agent/calendar/calendarTitleExtractor';
 import { extractUpdateEventTitle } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
-import { parseOperationalScheduleHint } from '@/src/features/agent/calendar/operationalScheduleParser';
 import {
   parseCalendarUpdateTimeShift,
   stripCalendarUpdateTimeShiftPhrases,
 } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
+import {
+  findCalendarEventForDeleteFromEvents,
+  findCalendarEventForUpdateFromEvents,
+} from '@/src/features/agent/calendarIntelligence/eventAtTimeMatch';
 import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
-import { resolveCalendarEventCandidates } from '@/src/features/agent/calendar/calendarEventResolver';
-
-const DELETE_COMMAND_PREFIX =
-  /^(?:please\s+)?(?:удали|удалить|убери|отмени|отменить|прибери|скасуй|скасувати|видали|видалити|delete|remove|cancel)(?:[\s,:-]+|$)/iu;
 
 const UPDATE_COMMAND_PREFIX =
   /^(?:please\s+)?(?:move|reschedule|update|shift|перенеси|перенести|перенес(?:ь|ьте)|перенос|измени|зміни)(?:[\s,:-]+|$)/iu;
@@ -26,24 +20,25 @@ export async function findCalendarEventForDelete(params: {
   transcript: string;
   referenceNow: Date;
 }) {
-  const titleQuery = extractCalendarEventTitle(
-    params.transcript.replace(DELETE_COMMAND_PREFIX, ''),
-    params.referenceNow,
-  );
-  const schedule = parseOperationalScheduleHint(params.transcript, params.referenceNow);
-  const targetMs = schedule.ok ? schedule.date.getTime() : null;
+  const titleQuery = extractDeleteEventTitle(params.transcript) ?? '';
+  const timeZone = getExecutiveCalendarTimezone();
+  const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
+  const { events } = await fetchCalendarEventsForZonedDay(params.referenceNow, day.dayOffset);
 
-  const resolved = await resolveCalendarEventCandidates({
-    titleQuery,
-    targetMs,
+  const resolved = findCalendarEventForDeleteFromEvents({
+    transcript: params.transcript,
     referenceNow: params.referenceNow,
+    events,
+    titleQuery,
+    timeZone,
   });
 
   return {
     match: resolved.match,
-    candidates: resolved.candidates.map((entry) => entry.event),
+    candidates: resolved.candidates,
     titleQuery,
-    targetMs,
+    targetMs: resolved.match?.startsAt ? Date.parse(resolved.match.startsAt) : null,
+    notFoundReason: resolved.notFoundReason,
   };
 }
 

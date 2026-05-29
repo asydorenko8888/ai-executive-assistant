@@ -264,6 +264,16 @@ export function stripCalendarTimeShiftPhrases(transcript: string) {
   return transcript.replace(FROM_TO_EN, ' ').replace(FROM_TO_RU, ' ').replace(/\s+/g, ' ').trim();
 }
 
+export function stripCalendarClockPhrases(transcript: string) {
+  let text = transcript;
+
+  for (const entry of CLOCK_FRAGMENT_PATTERNS) {
+    text = text.replace(entry.pattern, ' ');
+  }
+
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 export function parseCalendarTimeShift(
   transcript: string,
   referenceNow: Date,

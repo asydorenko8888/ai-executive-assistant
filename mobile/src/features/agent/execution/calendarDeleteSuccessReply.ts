@@ -77,7 +77,7 @@ export function buildNaturalCalendarDeleteSuccessReply(params: {
   }
 
   if (locale === 'ru') {
-    const spokenReply = `Я удалил событие: ${title}, ${dayPhrase}, ${timeLabel}.`;
+    const spokenReply = `Событие удалено: ${title}, ${dayPhrase}, ${timeLabel}.`;
     return {
       reply: spokenReply,
       spokenReply,

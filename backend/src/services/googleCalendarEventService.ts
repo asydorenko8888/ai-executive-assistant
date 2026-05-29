@@ -480,13 +480,24 @@ export async function deleteGoogleCalendarEventForDevice(deviceId: string, event
   }
 
   const verifyGet = await getGoogleCalendarEventById(tokens, eventId, DELETE_FALLBACK);
-  const deleted = !verifyGet.ok || verifyGet.event?.summary === undefined;
+  const deleted = !verifyGet.ok;
 
   logCalendarPipeline('delete_success', {
     eventId,
     summary: existing.event.summary,
     verified: deleted,
   });
+
+  if (!deleted) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: true,
+      errorCode: 'VERIFY_FAILED',
+      errorMessage: 'Google Calendar still returned the event after delete.',
+    };
+  }
 
   return {
     ok: true as const,

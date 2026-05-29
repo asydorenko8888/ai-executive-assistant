@@ -5,6 +5,10 @@ import {
   createCalendarToolSuccess,
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
+import {
+  logDeleteBackendResponse,
+  logDeleteVerificationResult,
+} from '@/src/features/agent/calendar/calendarDeleteDiagnostics';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import { ApiError } from '@/src/shared/api/api-error';
 
@@ -29,6 +33,16 @@ export async function deleteGoogleCalendarEvent(eventId: string): Promise<Calend
 
   try {
     const response = await deleteGoogleCalendarEventOnBackend(eventId);
+    logDeleteBackendResponse({
+      eventId: response.event?.id ?? eventId,
+      verified: response.verified,
+      verificationFetched: response.verificationFetched,
+      status: response.executionState,
+    });
+    logDeleteVerificationResult({
+      verified: response.verified,
+      eventId: response.event?.id ?? eventId,
+    });
     logCalendarCreate('delete result', {
       eventId: response.event?.id ?? eventId,
       verified: response.verified,

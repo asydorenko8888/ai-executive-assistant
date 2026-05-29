@@ -30,7 +30,7 @@ export function buildCalendarDeleteRecurringNotSupportedReply(locale: CalendarDe
   }
 
   if (locale === 'ru') {
-    return 'Повторяющиеся события пока не поддерживаются для удаления. Уточните, пожалуйста, одно конкретное событие.';
+    return 'Повторяющиеся события пока не поддерживаются для удаления.';
   }
 
   return 'Recurring events are not supported for deletion yet. Please specify a single event.';

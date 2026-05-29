@@ -4,10 +4,12 @@ import {
   parseCalendarTimeShift,
 } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import { logUpdateMatch, logUpdateRequest } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
+import { logDeleteCandidate, logDeleteNotFoundReason } from '@/src/features/agent/calendar/calendarDeleteDiagnostics';
 import { normalizeCalendarEvents } from '@/src/features/agent/calendarIntelligence/normalizeEvents';
 import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
 import {
   getEventsActiveAtTime,
+  getEventsForDay,
   getEventsStartingAtTime,
 } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import type { NormalizedCalendarEvent } from '@/src/features/agent/calendarIntelligence/types';
@@ -235,5 +237,221 @@ export function findCalendarEventForUpdateFromEvents(params: {
     ...resolved,
     fromMs: shift.fromMs,
     toMs: shift.toMs,
+  };
+}
+
+export type CalendarDeleteEventMatchResult = {
+  match: CalendarEvent | null;
+  titleQuery: string;
+  clockMinutes: number | null;
+  candidates: CalendarEvent[];
+  hasExplicitTime: boolean;
+  matchSource: 'pinned_read' | 'starting_at_time' | 'title_only' | 'title_rank' | 'none';
+  notFoundReason:
+    | 'empty_title'
+    | 'no_clock_minutes'
+    | 'no_events_at_start_time'
+    | 'no_title_match_at_time'
+    | 'ambiguous_title_at_time'
+    | 'no_title_match_on_day'
+    | 'ambiguous_title_on_day'
+    | null;
+};
+
+export function findCalendarEventForDeleteFromEvents(params: {
+  transcript: string;
+  referenceNow: Date;
+  events: CalendarEvent[];
+  titleQuery: string;
+  timeZone?: string;
+}): CalendarDeleteEventMatchResult {
+  const timeZone = params.timeZone ?? resolveTargetDayContext(params.transcript, params.referenceNow).timezone;
+  const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
+  const titleQuery = params.titleQuery.trim();
+  const clockMinutes = parseCalendarClockMinutes(params.transcript, day);
+  const activeEvents = params.events.filter((event) => !event.isCancelled);
+
+  if (!titleQuery) {
+    logDeleteNotFoundReason({
+      reason: 'empty_title',
+      titleQuery,
+      clockMinutes,
+      candidateCount: 0,
+    });
+
+    return {
+      match: null,
+      titleQuery,
+      clockMinutes,
+      candidates: [],
+      hasExplicitTime: clockMinutes !== null,
+      matchSource: 'none',
+      notFoundReason: 'empty_title',
+    };
+  }
+
+  if (clockMinutes !== null) {
+    const resolved = findCalendarEventAtTimeFromEvents({
+      events: activeEvents,
+      transcript: params.transcript,
+      referenceNow: params.referenceNow,
+      titleQuery,
+      clockMinutes,
+      timeZone,
+      matchMode: 'starting_at_time',
+    });
+
+    logDeleteCandidate({
+      count: resolved.candidates.length,
+      candidates: resolved.candidates.map((event) => ({
+        id: event.id,
+        title: event.title,
+        startsAt: event.startsAt,
+      })),
+    });
+
+    if (resolved.candidates.length === 0) {
+      logDeleteNotFoundReason({
+        reason: 'no_events_at_start_time',
+        titleQuery,
+        clockMinutes,
+        candidateCount: 0,
+      });
+
+      return {
+        match: null,
+        titleQuery,
+        clockMinutes,
+        candidates: [],
+        hasExplicitTime: true,
+        matchSource: 'none',
+        notFoundReason: 'no_events_at_start_time',
+      };
+    }
+
+    if (resolved.candidates.length > 1) {
+      const topScore = scoreTitleMatch(titleQuery, resolved.candidates[0].title);
+      const strongMatches = resolved.candidates.filter(
+        (event) => scoreTitleMatch(titleQuery, event.title) >= Math.max(70, topScore - 5),
+      );
+
+      if (strongMatches.length > 1) {
+        logDeleteNotFoundReason({
+          reason: 'ambiguous_title_at_time',
+          titleQuery,
+          clockMinutes,
+          candidateCount: strongMatches.length,
+        });
+
+        return {
+          match: null,
+          titleQuery,
+          clockMinutes,
+          candidates: strongMatches,
+          hasExplicitTime: true,
+          matchSource: 'none',
+          notFoundReason: 'ambiguous_title_at_time',
+        };
+      }
+    }
+
+    if (!resolved.match) {
+      logDeleteNotFoundReason({
+        reason: 'no_title_match_at_time',
+        titleQuery,
+        clockMinutes,
+        candidateCount: resolved.candidates.length,
+      });
+
+      return {
+        match: null,
+        titleQuery,
+        clockMinutes,
+        candidates: resolved.candidates,
+        hasExplicitTime: true,
+        matchSource: 'none',
+        notFoundReason: 'no_title_match_at_time',
+      };
+    }
+
+    return {
+      match: resolved.match,
+      titleQuery,
+      clockMinutes,
+      candidates: resolved.candidates,
+      hasExplicitTime: true,
+      matchSource: resolved.matchSource,
+      notFoundReason: null,
+    };
+  }
+
+  const normalized = normalizeCalendarEvents(activeEvents, timeZone);
+  const dayEvents = getEventsForDay(normalized, day);
+  const titleMatches = dayEvents
+    .map((event) => ({
+      event,
+      score: scoreTitleMatch(titleQuery, event.title),
+    }))
+    .filter((entry) => entry.score >= 70)
+    .sort((left, right) => right.score - left.score);
+
+  const candidateIds = new Set(titleMatches.map((entry) => entry.event.id));
+  const candidates = activeEvents.filter((event) => candidateIds.has(event.id));
+
+  logDeleteCandidate({
+    count: candidates.length,
+    candidates: candidates.map((event) => ({
+      id: event.id,
+      title: event.title,
+      startsAt: event.startsAt,
+    })),
+  });
+
+  if (candidates.length === 0) {
+    logDeleteNotFoundReason({
+      reason: 'no_title_match_on_day',
+      titleQuery,
+      clockMinutes: null,
+      candidateCount: 0,
+    });
+
+    return {
+      match: null,
+      titleQuery,
+      clockMinutes: null,
+      candidates: [],
+      hasExplicitTime: false,
+      matchSource: 'none',
+      notFoundReason: 'no_title_match_on_day',
+    };
+  }
+
+  if (candidates.length > 1) {
+    logDeleteNotFoundReason({
+      reason: 'ambiguous_title_on_day',
+      titleQuery,
+      clockMinutes: null,
+      candidateCount: candidates.length,
+    });
+
+    return {
+      match: null,
+      titleQuery,
+      clockMinutes: null,
+      candidates,
+      hasExplicitTime: false,
+      matchSource: 'none',
+      notFoundReason: 'ambiguous_title_on_day',
+    };
+  }
+
+  return {
+    match: candidates[0],
+    titleQuery,
+    clockMinutes: null,
+    candidates,
+    hasExplicitTime: false,
+    matchSource: 'title_only',
+    notFoundReason: null,
   };
 }

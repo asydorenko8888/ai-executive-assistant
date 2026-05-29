@@ -56,7 +56,15 @@ const WEEKDAY_HINT =
 export function isOperationalCalendarDeleteRequest(transcript: string) {
   const normalized = transcript.trim();
 
-  if (!normalized || isExactTimeReadQuery(normalized)) {
+  if (!normalized) {
+    return false;
+  }
+
+  if (DELETE_VERB_AT_START.test(normalized)) {
+    return true;
+  }
+
+  if (isExactTimeReadQuery(normalized)) {
     return false;
   }
 
@@ -64,10 +72,6 @@ export function isOperationalCalendarDeleteRequest(transcript: string) {
     RU_UK_CALENDAR_DELETE_PHRASE.test(normalized) ||
     EN_CALENDAR_DELETE_PHRASE.test(normalized)
   ) {
-    return true;
-  }
-
-  if (DELETE_VERB_AT_START.test(normalized)) {
     return true;
   }
 

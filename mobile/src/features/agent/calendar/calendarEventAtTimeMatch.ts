@@ -3,12 +3,14 @@ import { fetchCalendarEventsForZonedDay } from '@/src/features/agent/calendar/ca
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import {
   findCalendarEventAtTimeFromEvents,
+  findCalendarEventForDeleteFromEvents,
   findCalendarEventForUpdateFromEvents,
 } from '@/src/features/agent/calendarIntelligence/eventAtTimeMatch';
 import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
 
 export {
   findCalendarEventAtTimeFromEvents,
+  findCalendarEventForDeleteFromEvents,
   findCalendarEventForUpdateFromEvents,
 } from '@/src/features/agent/calendarIntelligence/eventAtTimeMatch';
 
@@ -33,6 +35,24 @@ export async function findCalendarEventAtTime(params: {
     referenceNow: params.referenceNow,
     titleQuery: params.titleQuery,
     clockMinutes: params.clockMinutes,
+    timeZone,
+  });
+}
+
+export async function findCalendarEventForDelete(params: {
+  transcript: string;
+  referenceNow: Date;
+  titleQuery: string;
+}): Promise<ReturnType<typeof findCalendarEventForDeleteFromEvents>> {
+  const timeZone = getExecutiveCalendarTimezone();
+  const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
+  const { events } = await fetchCalendarEventsForZonedDay(params.referenceNow, day.dayOffset);
+
+  return findCalendarEventForDeleteFromEvents({
+    transcript: params.transcript,
+    referenceNow: params.referenceNow,
+    events,
+    titleQuery: params.titleQuery,
     timeZone,
   });
 }
