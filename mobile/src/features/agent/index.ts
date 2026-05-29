@@ -1,5 +1,7 @@
 export * from './types';
 export * from './calendar';
+export * from './calendar/calendarCommandExtractor';
+export * from './calendar/operationalScheduleParser';
 export * from './userPreferences';
 export * from './integrations';
 export * from './tools';

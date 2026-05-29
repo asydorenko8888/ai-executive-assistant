@@ -1,5 +1,9 @@
-import { extractCalendarEventTitle } from '@/src/features/agent/calendar/calendarTitleExtractor';
-import { parseOperationalScheduleHint } from '@/src/features/agent/execution/calendarEventPayloadBuilder';
+import {
+  extractCalendarCommand,
+  getCalendarExtractionConfidenceThreshold,
+  isCalendarExtractionExecutable,
+} from '@/src/features/agent/calendar/calendarCommandExtractor';
+import { parseOperationalScheduleHint } from '@/src/features/agent/calendar/operationalScheduleParser';
 import {
   isOperationalCalendarCreateRequest,
   isOperationalCalendarDeleteRequest,
@@ -8,13 +12,14 @@ import {
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 
-export type ActionRequiredField = 'title' | 'date' | 'time';
+export type ActionRequiredField = 'title' | 'date' | 'time' | 'confidence';
 
 export type ActionFieldValidation = {
   actionKind: 'create_calendar_event' | 'delete_calendar_event' | 'update_calendar_event' | 'reminder' | 'none';
   requiredFields: ActionRequiredField[];
   missingFields: ActionRequiredField[];
   readyToExecute: boolean;
+  extractionConfidence: number;
 };
 
 function detectActionKind(transcript: string): ActionFieldValidation['actionKind'] {
@@ -49,6 +54,7 @@ export function validateActionFields(params: {
       requiredFields: [],
       missingFields: [],
       readyToExecute: false,
+      extractionConfidence: 0,
     };
   }
 
@@ -58,14 +64,44 @@ export function validateActionFields(params: {
       requiredFields: ['title', 'time'],
       missingFields: [],
       readyToExecute: true,
+      extractionConfidence: 1,
     };
   }
 
-  const requiredFields: ActionRequiredField[] = ['title', 'date', 'time'];
-  const missingFields: ActionRequiredField[] = [];
-  const title = extractCalendarEventTitle(params.transcript)?.trim() ?? '';
+  const extraction = extractCalendarCommand({
+    transcript: params.transcript,
+    referenceNow: params.referenceNow,
+  });
 
-  if (!title || title.length < 2) {
+  const threshold = getCalendarExtractionConfidenceThreshold();
+
+  if (actionKind === 'delete_calendar_event') {
+    const missingFields: ActionRequiredField[] = [];
+
+    if (!extraction.title || extraction.title.length < 2) {
+      missingFields.push('title');
+    }
+
+    if (extraction.confidence < threshold) {
+      missingFields.push('confidence');
+    }
+
+    return {
+      actionKind,
+      requiredFields: ['title', 'confidence'],
+      missingFields,
+      readyToExecute:
+        missingFields.length === 0 &&
+        extraction.confidence >= threshold &&
+        Boolean(extraction.title),
+      extractionConfidence: extraction.confidence,
+    };
+  }
+
+  const requiredFields: ActionRequiredField[] = ['title', 'date', 'time', 'confidence'];
+  const missingFields: ActionRequiredField[] = [];
+
+  if (!extraction.title || extraction.title.length < 2) {
     missingFields.push('title');
   }
 
@@ -77,11 +113,16 @@ export function validateActionFields(params: {
     missingFields.push('time');
   }
 
+  if (extraction.confidence < threshold) {
+    missingFields.push('confidence');
+  }
+
   return {
     actionKind,
     requiredFields,
     missingFields,
-    readyToExecute: missingFields.length === 0,
+    readyToExecute: isCalendarExtractionExecutable(extraction),
+    extractionConfidence: extraction.confidence,
   };
 }
 
@@ -91,6 +132,18 @@ export function buildClarificationQuestion(params: {
 }) {
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
   const missing = new Set(params.missingFields);
+
+  if (missing.has('confidence') || (missing.has('title') && missing.has('time'))) {
+    if (locale === 'uk') {
+      return 'Уточни, будь ласка: назву події і точний час.';
+    }
+
+    if (locale === 'ru') {
+      return 'Уточни, пожалуйста: название события и точное время.';
+    }
+
+    return 'Please confirm the event title and exact time.';
+  }
 
   if (missing.has('title')) {
     if (locale === 'uk') {

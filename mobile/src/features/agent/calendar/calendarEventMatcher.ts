@@ -7,7 +7,7 @@ import {
   getEventStartTimestamp,
   sortEventsChronologically,
 } from '@/src/features/agent/calendar/calendarSchedule';
-import { parseOperationalScheduleHint } from '@/src/features/agent/execution/calendarEventPayloadBuilder';
+import { parseOperationalScheduleHint } from '@/src/features/agent/calendar/operationalScheduleParser';
 
 const DELETE_COMMAND_PREFIX =
   /^(?:please\s+)?(?:удали|удалить|убери|отмени|отменить|прибери|скасуй|скасувати|видали|видалити|delete|remove|cancel)(?:[\s,:-]+|$)/iu;
@@ -102,6 +102,7 @@ export async function findCalendarEventForDelete(params: {
   const upcoming = filterUpcomingTimedEvents(events, params.referenceNow);
   const titleQuery = extractCalendarEventTitle(
     params.transcript.replace(DELETE_COMMAND_PREFIX, ''),
+    params.referenceNow,
   );
   const schedule = parseOperationalScheduleHint(params.transcript, params.referenceNow);
   const targetMs = schedule.ok ? schedule.date.getTime() : null;

@@ -7,6 +7,10 @@ import {
   buildFailureTerminalReply,
   isVerifiedCalendarCreateSuccess,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
+import {
+  extractCalendarCommand,
+  isCalendarExtractionExecutable,
+} from '@/src/features/agent/calendar/calendarCommandExtractor';
 import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import type { CalendarToolStatus } from '@/src/features/agent/execution/calendarToolContract';
@@ -114,6 +118,43 @@ export async function executeCalendarCommand(params: {
 
   if (intent === 'update_calendar_event') {
     console.log('[Calendar Execution] update intent routed to create until PATCH API exists');
+  }
+
+  const extraction = extractCalendarCommand({
+    transcript: params.transcript,
+    referenceNow: params.referenceNow,
+  });
+
+  if (!isCalendarExtractionExecutable(extraction)) {
+    const failureReply = buildFailureTerminalReply(
+      'CALENDAR_EXTRACTION_FAILED',
+      extraction.confidence < 0.8
+        ? `extraction confidence ${extraction.confidence} below 0.8 — clarify title and time`
+        : 'could not extract title and datetime from command',
+    );
+
+    setLastCalendarCommandOutcome({
+      intent,
+      tool: {
+        status: 'FAILURE',
+        verified: false,
+        verificationFetched: false,
+        errorCode: 'CALENDAR_DATE_PARSE_FAILED',
+        error: failureReply,
+      },
+      terminalReply: failureReply,
+      verified: false,
+    });
+
+    return {
+      matched: true,
+      intent,
+      reply: failureReply,
+      spokenReply: failureReply,
+      toolStatus: 'FAILURE',
+      executionState: 'tool_failure',
+      verified: false,
+    };
   }
 
   const outcome = await executeCalendarCreateEvent({

@@ -155,9 +155,11 @@ export function resolveAssistantBehavior(params: {
         ...base,
         mode: 'CLARIFICATION_MODE',
         intent: fieldValidation.actionKind,
-        reason: contextMerge.usedContext
-          ? 'action_continuation_missing_fields'
-          : 'action_intent_missing_fields',
+        reason: fieldValidation.missingFields.includes('confidence')
+          ? 'extraction_confidence_below_threshold'
+          : contextMerge.usedContext
+            ? 'action_continuation_missing_fields'
+            : 'action_intent_missing_fields',
         clarificationReply,
         blockEmotionalRouting: true,
         blockCalendarMutation: true,
