@@ -274,6 +274,64 @@ export function stripCalendarClockPhrases(transcript: string) {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+export type CalendarPointSchedule =
+  | {
+      ok: true;
+      startMs: number;
+      endMs: number;
+      hasExplicitTime: true;
+      explicitDayOffset: number;
+    }
+  | {
+      ok: false;
+      reason: 'date_parse_failed';
+      detail: string;
+    };
+
+export function parseCalendarPointSchedule(
+  transcript: string,
+  referenceNow: Date,
+  timeZone = DEFAULT_CALENDAR_INTELLIGENCE_TIMEZONE,
+): CalendarPointSchedule {
+  const day = resolveTargetDayContext(transcript, referenceNow, timeZone);
+  const startMinutes = parseCalendarClockMinutes(transcript, day);
+
+  if (startMinutes === null) {
+    return {
+      ok: false,
+      reason: 'date_parse_failed',
+      detail: 'Could not parse start time',
+    };
+  }
+
+  const startMs = zonedMinutesToInstantMs(day, startMinutes);
+  let endMs = startMs + 60 * 60 * 1000;
+
+  const endMatch = transcript.match(
+    /(?:до|until)\s+(\d{1,2}(?::\d{2})?(?:\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью|вечора|ранку|ночі|am|pm))?)/iu,
+  );
+
+  if (endMatch?.[1]) {
+    const endMinutes = parseClockFragmentToMinutes(endMatch[1].trim(), transcript);
+
+    if (endMinutes !== null) {
+      const candidateEndMs = zonedMinutesToInstantMs(day, endMinutes);
+
+      if (candidateEndMs > startMs) {
+        endMs = candidateEndMs;
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    startMs,
+    endMs,
+    hasExplicitTime: true,
+    explicitDayOffset: day.dayOffset,
+  };
+}
+
 export function parseCalendarTimeShift(
   transcript: string,
   referenceNow: Date,

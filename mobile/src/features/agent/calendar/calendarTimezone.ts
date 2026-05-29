@@ -21,6 +21,12 @@ function pad2(value: number) {
   return String(value).padStart(2, '0');
 }
 
+export function formatGoogleDateTimeFromUtcMs(instantMs: number, timeZone: string) {
+  const parts = getZonedTimeParts(new Date(instantMs), timeZone);
+
+  return `${parts.year}-${pad2(parts.month)}-${pad2(parts.day)}T${pad2(parts.hour)}:${pad2(parts.minute)}:${pad2(parts.second)}`;
+}
+
 export function getExecutiveCalendarTimezone() {
   try {
     // Lazy load so pure calendar modules can be unit-tested without Expo.

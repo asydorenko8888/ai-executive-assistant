@@ -1,20 +1,22 @@
 import type { CalendarCreateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
+import { extractCreateEventTitle } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
+import { parseCalendarCreateSchedule } from '@/src/features/agent/calendar/calendarCreateScheduleParser';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import {
   extractCalendarCommand,
   isCalendarExtractionExecutable,
 } from '@/src/features/agent/calendar/calendarCommandExtractor';
-import { getBrowserTimezone } from '@/src/features/agent/calendar/calendarTime';
 import { formatLocationShort } from '@/src/features/agent/calendar/calendarLocation';
-import { parseOperationalScheduleHint } from '@/src/features/agent/calendar/operationalScheduleParser';
+import {
+  formatGoogleDateTimeFromUtcMs,
+  getExecutiveCalendarTimezone,
+} from '@/src/features/agent/calendar/calendarTimezone';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 import { logActionExecution } from '@/src/features/agent/execution/actionExecutionLogger';
 
 export { parseOperationalScheduleHint } from '@/src/features/agent/calendar/operationalScheduleParser';
 export type { OperationalScheduleParseResult } from '@/src/features/agent/calendar/operationalScheduleParser';
-
-const DEFAULT_EVENT_DURATION_MS = 60 * 60 * 1000;
 
 export function extractCalendarEventLocation(transcript: string) {
   const patterns = [
@@ -34,12 +36,6 @@ export function extractCalendarEventLocation(transcript: string) {
   return null;
 }
 
-function toGoogleDateTimeLocal(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, '0');
-
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
 export function buildCalendarCreateEventPayload(params: {
   transcript: string;
   languageCode: VoiceLanguageCode;
@@ -52,12 +48,12 @@ export function buildCalendarCreateEventPayload(params: {
 
   if (!isCalendarExtractionExecutable(extraction)) {
     const detail =
-      extraction.confidence < 0.8
-        ? `Extraction confidence ${extraction.confidence} below threshold — title/datetime not confirmed`
-        : !extraction.title
-          ? 'Could not extract event title from command'
-          : !extraction.datetime
-            ? 'Could not extract event datetime from command'
+      !extraction.title
+        ? 'Could not extract event title from command'
+        : !extraction.datetime
+          ? 'Could not extract event start time from command'
+          : extraction.confidence < 0.8
+            ? `Extraction confidence ${extraction.confidence} below threshold — title/datetime not confirmed`
             : 'Calendar command extraction failed';
 
     logCalendarCreate('parsed payload', {
@@ -75,7 +71,7 @@ export function buildCalendarCreateEventPayload(params: {
     };
   }
 
-  const schedule = parseOperationalScheduleHint(params.transcript, params.referenceNow);
+  const schedule = parseCalendarCreateSchedule(params.transcript, params.referenceNow);
 
   if (!schedule.ok) {
     return schedule;
@@ -83,20 +79,18 @@ export function buildCalendarCreateEventPayload(params: {
 
   const location = extractCalendarEventLocation(params.transcript);
   const summary = extraction.title;
-  const timeZone = getBrowserTimezone();
-  const startDate = new Date(extraction.datetime!);
-  const durationMs = (extraction.durationMinutes ?? 60) * 60 * 1000;
-  const endDate = new Date(startDate.getTime() + durationMs);
+  const timeZone = getExecutiveCalendarTimezone();
+  const durationMs = schedule.endMs - schedule.startMs;
 
   const payload: CalendarCreateEventPayload = {
     summary,
     location: location ?? undefined,
     start: {
-      dateTime: toGoogleDateTimeLocal(startDate),
+      dateTime: formatGoogleDateTimeFromUtcMs(schedule.startMs, timeZone),
       timeZone,
     },
     end: {
-      dateTime: toGoogleDateTimeLocal(endDate),
+      dateTime: formatGoogleDateTimeFromUtcMs(schedule.endMs, timeZone),
       timeZone,
     },
   };
@@ -109,10 +103,11 @@ export function buildCalendarCreateEventPayload(params: {
         : schedule.explicitDayOffset === 1
           ? 'TOMORROW'
           : 'RELATIVE',
-    time: `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}`,
+    time: payload.start.dateTime.slice(11, 16),
     calendarAction: 'create_event',
     timeZone,
-    startIso: startDate.toISOString(),
+    startIso: new Date(schedule.startMs).toISOString(),
+    durationMinutes: Math.round(durationMs / 60_000),
     confidence: extraction.confidence,
     cleanedCommand: extraction.cleanedCommand.slice(0, 120),
   };
@@ -131,7 +126,7 @@ export function buildCalendarCreateEventPayload(params: {
   return {
     ok: true,
     payload,
-    scheduleIso: startDate.toISOString(),
+    scheduleIso: new Date(schedule.startMs).toISOString(),
   };
 }
 

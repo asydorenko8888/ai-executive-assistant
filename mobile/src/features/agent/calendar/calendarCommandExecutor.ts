@@ -27,6 +27,10 @@ import {
   logCalendarToolSelected,
 } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import {
+  buildClarificationQuestion,
+  validateActionFields,
+} from '@/src/features/agent/intent/actionFieldValidator';
 
 export type CalendarCommandResult = {
   matched: boolean;
@@ -177,12 +181,14 @@ export async function executeCalendarCommand(params: {
   });
 
   if (!isCalendarExtractionExecutable(extraction)) {
-    const failureReply = buildFailureTerminalReply(
-      'CALENDAR_EXTRACTION_FAILED',
-      extraction.confidence < 0.8
-        ? `extraction confidence ${extraction.confidence} below 0.8 — clarify title and time`
-        : 'could not extract title and datetime from command',
-    );
+    const validation = validateActionFields({
+      transcript: params.transcript,
+      referenceNow: params.referenceNow,
+    });
+    const failureReply = buildClarificationQuestion({
+      missingFields: validation.missingFields,
+      languageCode: params.languageCode,
+    });
 
     setLastCalendarCommandOutcome({
       intent,

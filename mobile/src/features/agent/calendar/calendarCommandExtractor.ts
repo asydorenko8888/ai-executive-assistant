@@ -1,4 +1,6 @@
 import { parseOperationalScheduleHint } from '@/src/features/agent/calendar/operationalScheduleParser';
+import { extractCreateEventTitle } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
+import { parseCalendarCreateSchedule } from '@/src/features/agent/calendar/calendarCreateScheduleParser';
 import {
   isOperationalCalendarCreateRequest,
   isOperationalCalendarDeleteRequest,
@@ -337,13 +339,33 @@ export function extractCalendarCommand(params: {
   const commandSegment = isolateCommandSegment(afterNoise);
   const cleanedCommand = normalizeWhitespace(commandSegment);
 
-  const titleAfterTime = extractTitleAfterLastTimeSegment(cleanedCommand);
-  const titleFromStrip = stripSchedulingTokens(cleanedCommand);
-  const title = pickBestTitle([titleAfterTime, titleFromStrip]);
+  let title = '';
+  let datetime: string | null = null;
+  let hasExplicitTime = false;
+  let durationMinutes: number | null = null;
+  let explicitDayOffset: number | null = null;
 
-  const schedule = parseOperationalScheduleHint(rawInput, params.referenceNow);
-  const datetime = schedule.ok ? schedule.date.toISOString() : null;
-  const hasExplicitTime = schedule.ok ? schedule.hasExplicitTime : false;
+  if (intent === 'calendar_create') {
+    title = extractCreateEventTitle(rawInput) ?? '';
+    const schedule = parseCalendarCreateSchedule(rawInput, params.referenceNow);
+
+    if (schedule.ok) {
+      datetime = new Date(schedule.startMs).toISOString();
+      hasExplicitTime = schedule.hasExplicitTime;
+      durationMinutes = Math.max(30, Math.round((schedule.endMs - schedule.startMs) / 60_000));
+      explicitDayOffset = schedule.explicitDayOffset;
+    }
+  } else {
+    const titleAfterTime = extractTitleAfterLastTimeSegment(cleanedCommand);
+    const titleFromStrip = stripSchedulingTokens(cleanedCommand);
+    title = pickBestTitle([titleAfterTime, titleFromStrip]);
+
+    const schedule = parseOperationalScheduleHint(rawInput, params.referenceNow);
+    datetime = schedule.ok ? schedule.date.toISOString() : null;
+    hasExplicitTime = schedule.ok ? schedule.hasExplicitTime : false;
+    durationMinutes = schedule.ok ? 60 : null;
+    explicitDayOffset = schedule.ok ? schedule.explicitDayOffset : null;
+  }
 
   const confidence = scoreExtraction({
     title,
@@ -357,7 +379,7 @@ export function extractCalendarCommand(params: {
     intent,
     title,
     datetime,
-    durationMinutes: schedule.ok ? 60 : null,
+    durationMinutes,
     confidence,
     cleanedCommand,
   };
@@ -378,7 +400,8 @@ export function isCalendarExtractionExecutable(extraction: CalendarCommandExtrac
     extraction.intent !== 'none' &&
     extraction.confidence >= CONFIDENCE_EXECUTE_THRESHOLD &&
     Boolean(extraction.title) &&
-    Boolean(extraction.datetime)
+    Boolean(extraction.datetime) &&
+    (extraction.intent !== 'calendar_create' || extraction.durationMinutes !== null)
   );
 }
 

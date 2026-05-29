@@ -8,6 +8,7 @@ import {
   type CalendarUpdateMissingField,
 } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import { parseOperationalScheduleHint } from '@/src/features/agent/calendar/operationalScheduleParser';
+import { parseCalendarCreateSchedule } from '@/src/features/agent/calendar/calendarCreateScheduleParser';
 import {
   isOperationalCalendarCreateRequest,
   isOperationalCalendarDeleteRequest,
@@ -129,11 +130,13 @@ export function validateActionFields(params: {
     missingFields.push('title');
   }
 
-  const schedule = parseOperationalScheduleHint(params.transcript, params.referenceNow);
+  const schedule = parseCalendarCreateSchedule(params.transcript, params.referenceNow);
 
   if (!schedule.ok) {
-    missingFields.push('date', 'time');
-  } else if (!schedule.hasExplicitTime) {
+    if (!schedule.detail.includes('start time')) {
+      missingFields.push('date');
+    }
+
     missingFields.push('time');
   }
 

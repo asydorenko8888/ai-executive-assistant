@@ -1,28 +1,30 @@
 import type { VerifiedCalendarEvent } from '@/src/features/agent/execution/actionExecutionTypes';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
+import { formatTimeInExecutiveTimezone } from '@/src/features/agent/calendar/calendarTime';
+import {
+  getExecutiveCalendarTimezone,
+  getZonedTimeParts,
+  getZonedYmd,
+} from '@/src/features/agent/calendar/calendarTimezone';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 
-function isSameCalendarDay(left: Date, right: Date) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
+function isSameExecutiveDay(leftMs: number, rightMs: number, timeZone: string) {
+  const left = getZonedYmd(new Date(leftMs), timeZone);
+  const right = getZonedYmd(new Date(rightMs), timeZone);
+
+  return left.year === right.year && left.month === right.month && left.day === right.day;
 }
 
-function isTomorrow(start: Date, referenceNow: Date) {
-  const tomorrow = new Date(referenceNow);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
-  const startDay = new Date(start);
-  startDay.setHours(0, 0, 0, 0);
+function isTomorrowExecutive(startMs: number, referenceMs: number, timeZone: string) {
+  const start = getZonedYmd(new Date(startMs), timeZone);
+  const tomorrow = getZonedYmd(new Date(referenceMs + 24 * 60 * 60 * 1000), timeZone);
 
-  return startDay.getTime() === tomorrow.getTime();
+  return start.year === tomorrow.year && start.month === tomorrow.month && start.day === tomorrow.day;
 }
 
-function formatDayPhrase(start: Date, referenceNow: Date, locale: 'uk' | 'ru' | 'en') {
-  if (isSameCalendarDay(start, referenceNow)) {
+function formatDayPhrase(startMs: number, referenceMs: number, locale: 'uk' | 'ru' | 'en', timeZone: string) {
+  if (isSameExecutiveDay(startMs, referenceMs, timeZone)) {
     if (locale === 'uk') {
       return 'сьогодні';
     }
@@ -34,7 +36,7 @@ function formatDayPhrase(start: Date, referenceNow: Date, locale: 'uk' | 'ru' | 
     return 'today';
   }
 
-  if (isTomorrow(start, referenceNow)) {
+  if (isTomorrowExecutive(startMs, referenceMs, timeZone)) {
     if (locale === 'uk') {
       return 'завтра';
     }
@@ -47,59 +49,57 @@ function formatDayPhrase(start: Date, referenceNow: Date, locale: 'uk' | 'ru' | 
   }
 
   const intlLocale = locale === 'ru' ? 'ru-RU' : locale === 'uk' ? 'uk-UA' : 'en-US';
+  const parts = getZonedTimeParts(new Date(startMs), timeZone);
 
-  return start.toLocaleDateString(intlLocale, {
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).toLocaleDateString(intlLocale, {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
   });
 }
 
-function formatTimePhrase(start: Date, locale: 'uk' | 'ru' | 'en') {
-  const hours = start.getHours();
-  const minutes = start.getMinutes();
+function formatTimePhrase(startsAt: string, locale: 'uk' | 'ru' | 'en', timeZone: string) {
+  const clock = formatTimeInExecutiveTimezone(startsAt, timeZone);
+  const parts = getZonedTimeParts(new Date(startsAt), timeZone);
+  const hours = parts.hour;
+  const minutes = parts.minute;
   const hour12 = hours % 12 || 12;
-  const clock =
-    minutes > 0
-      ? `${hour12}:${String(minutes).padStart(2, '0')}`
-      : `${hour12}`;
+  const withMinutes =
+    minutes > 0 ? `${hour12}:${String(minutes).padStart(2, '0')}` : `${hour12}`;
 
   if (locale === 'uk') {
     if (hours >= 17) {
-      return `${clock} вечора`;
+      return `${withMinutes} вечора`;
     }
 
     if (hours >= 12) {
-      return `${clock} дня`;
+      return `${withMinutes} дня`;
     }
 
     if (hours >= 5) {
-      return `${clock} ранку`;
+      return `${withMinutes} ранку`;
     }
 
-    return `${clock} ночі`;
+    return `${withMinutes} ночі`;
   }
 
   if (locale === 'ru') {
     if (hours >= 17) {
-      return `${clock} вечера`;
+      return `${withMinutes} вечера`;
     }
 
     if (hours >= 12) {
-      return `${clock} дня`;
+      return `${withMinutes} дня`;
     }
 
     if (hours >= 5) {
-      return `${clock} утра`;
+      return `${withMinutes} утра`;
     }
 
-    return `${clock} ночи`;
+    return `${withMinutes} ночи`;
   }
 
-  return start.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return clock;
 }
 
 export function buildNaturalCalendarCreateSuccessReply(params: {
@@ -109,11 +109,12 @@ export function buildNaturalCalendarCreateSuccessReply(params: {
 }) {
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
   const referenceNow = params.referenceNow ?? new Date();
+  const timeZone = getExecutiveCalendarTimezone();
   const startMs = Date.parse(params.event.startsAt);
-  const start = Number.isNaN(startMs) ? referenceNow : new Date(startMs);
+  const referenceMs = referenceNow.getTime();
   const exactTitle = params.event.summary.trim();
-  const dayPhrase = formatDayPhrase(start, referenceNow, locale);
-  const timePhrase = formatTimePhrase(start, locale);
+  const dayPhrase = formatDayPhrase(startMs, referenceMs, locale, timeZone);
+  const timePhrase = formatTimePhrase(params.event.startsAt, locale, timeZone);
   const scheduleLabel = `${dayPhrase}, ${timePhrase}`;
 
   let reply = '';
