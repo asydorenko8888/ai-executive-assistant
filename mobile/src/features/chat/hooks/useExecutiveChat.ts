@@ -27,7 +27,9 @@ import {
 } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
 import {
   classifyCalendarAgendaQueryIntent,
+  formatAgendaListForDisplay,
   formatVoiceResponse,
+  shouldPreserveFullCalendarAgenda,
 } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import { executiveChatThread } from '@/src/features/chat/data/chatSeed';
 import {
@@ -523,16 +525,28 @@ export function useExecutiveChat() {
           ? result.spokenReply.trim()
           : null;
 
+      const agendaFormattingOptions = {
+        userTranscript: latestUserTranscript,
+        queryIntent: classifyCalendarAgendaQueryIntent(latestUserTranscript),
+        preserveFullCalendarList: true,
+        disableVoiceShortening: true,
+      };
+      const shouldUseAgendaFormatting =
+        isCalendarAgendaQuery(latestUserTranscript) ||
+        shouldPreserveFullCalendarAgenda(assistantReply, agendaFormattingOptions);
+
       const displayReply = operationalVoiceReply
         ? operationalVoiceReply
-        : shouldFormatReplyForVoice(result.executionState, result.responseMode)
-          ? formatVoiceResponse(assistantReply, {
-              maxSentences: 2,
-              locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
-              userTranscript: latestUserTranscript,
-              queryIntent: classifyCalendarAgendaQueryIntent(latestUserTranscript),
-            })
-          : assistantReply;
+        : shouldUseAgendaFormatting
+          ? formatAgendaListForDisplay(assistantReply, agendaFormattingOptions)
+          : shouldFormatReplyForVoice(result.executionState, result.responseMode)
+            ? formatVoiceResponse(assistantReply, {
+                maxSentences: 2,
+                locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
+                userTranscript: latestUserTranscript,
+                queryIntent: agendaFormattingOptions.queryIntent,
+              })
+            : assistantReply;
       const orchestrator = await createExecutiveAgentOrchestrator({
         locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
         chatMessages: freshMessages,

@@ -8,10 +8,7 @@ import { formatTimeInExecutiveTimezone } from '@/src/features/agent/calendar/cal
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
-import {
-  CALENDAR_AGENDA_SENTENCE_LIMIT,
-  formatVoiceResponse,
-} from '@/src/features/voice/speech/voiceSpeechFormatter';
+import { formatAgendaListForDisplay } from '@/src/features/voice/speech/voiceSpeechFormatter';
 
 function formatAgendaListLine(event: CalendarEvent, index: number, timeZone: string) {
   const time = formatTimeInExecutiveTimezone(event.startsAt, timeZone);
@@ -99,10 +96,9 @@ export function tryBuildCalendarAgendaListReply(params: {
   const lines = scopedEvents.map((event, index) => formatAgendaListLine(event, index, timezone));
   const draft = `${intro}\n${lines.join('\n')}`;
 
-  return formatVoiceResponse(draft, {
-    maxSentences: CALENDAR_AGENDA_SENTENCE_LIMIT,
+  return formatAgendaListForDisplay(draft, {
     preserveFullCalendarList: true,
-    preserveSentences: true,
+    disableVoiceShortening: true,
     userTranscript: params.transcript,
     queryIntent: 'agenda_query',
   });

@@ -42,7 +42,9 @@ import {
 import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
 import {
   classifyCalendarAgendaQueryIntent,
+  formatAgendaListForDisplay,
   formatVoiceResponse,
+  shouldPreserveFullCalendarAgenda,
 } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import {
   isSpeechSynthesisSupported,
@@ -136,14 +138,29 @@ export function useHomeVoiceAssistant() {
       reply: string,
       userTranscript = '',
       urgency: 'immediate' | 'soon' | 'relaxed' | 'free' = 'relaxed',
-    ) =>
-      formatVoiceResponse(reply, {
+    ) => {
+      const agendaOptions = {
+        userTranscript,
+        queryIntent: classifyCalendarAgendaQueryIntent(userTranscript),
+        preserveFullCalendarList: true,
+        disableVoiceShortening: true,
+      };
+
+      if (
+        isCalendarAgendaQuery(userTranscript) ||
+        shouldPreserveFullCalendarAgenda(reply, agendaOptions)
+      ) {
+        return formatAgendaListForDisplay(reply, agendaOptions);
+      }
+
+      return formatVoiceResponse(reply, {
         maxSentences: 2,
         urgency,
         locale: getChatLocaleFromVoiceLanguage(languageCodeRef.current),
         userTranscript,
-        queryIntent: classifyCalendarAgendaQueryIntent(userTranscript),
-      }),
+        queryIntent: agendaOptions.queryIntent,
+      });
+    },
     [],
   );
 

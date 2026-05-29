@@ -19,6 +19,14 @@ import {
   isCalendarListQuestion,
 } from '@/src/features/voice/speech/voiceSpeechFormatter';
 
+const FULL_AGENDA_REQUEST_PATTERNS = [
+  /\bfull\s+list\b/i,
+  /\ball\s+tasks?\b/i,
+  /\bplans?\s+for\s+(?:today|tomorrow)\b/i,
+  /\b(?:today|tomorrow)(?:'s)?\s+plans?\b/i,
+  /\bagenda\b/i,
+];
+
 const TOMORROW_AGENDA_PATTERNS = [
   /\b(?:завтра|tomorrow)\b/i,
   /\bзадач[аи]?\s+на\s+завтра/i,
@@ -46,6 +54,7 @@ export function isCalendarAgendaQuery(transcript: string) {
   return (
     Boolean(classifyCalendarAgendaQueryIntent(normalized)) ||
     isCalendarListQuestion(normalized) ||
+    FULL_AGENDA_REQUEST_PATTERNS.some((pattern) => pattern.test(normalized)) ||
     TOMORROW_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized)) ||
     TODAY_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized)) ||
     /\b(?:какие|які|what|which|сколько|скільки).{0,32}(?:задач|tasks?|events?|meetings?|зустріч)/i.test(

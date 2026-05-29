@@ -1,4 +1,17 @@
+import {
+  isNumberedAgendaListText,
+  shouldPreserveFullCalendarAgenda,
+} from '@/src/features/voice/speech/voiceSpeechFormatter';
+
 export function prepareTextForSpeech(text: string) {
+  if (shouldPreserveFullCalendarAgenda(text) || isNumberedAgendaListText(text)) {
+    return text
+      .replace(/\r\n/g, '\n')
+      .replace(/[*_#`]/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
   return text
     .replace(/\r\n/g, '\n')
     .replace(/[*_#`]/g, '')
@@ -8,16 +21,16 @@ export function prepareTextForSpeech(text: string) {
     .trim();
 }
 
-import { shouldPreserveFullCalendarAgenda } from '@/src/features/voice/speech/voiceSpeechFormatter';
-
 export function splitTextForSpeech(text: string, maxSentences = 6) {
+  const preserveAgenda =
+    shouldPreserveFullCalendarAgenda(text) || isNumberedAgendaListText(text);
   const prepared = prepareTextForSpeech(text);
 
   if (!prepared) {
     return [];
   }
 
-  if (shouldPreserveFullCalendarAgenda(prepared)) {
+  if (preserveAgenda) {
     return [prepared];
   }
 

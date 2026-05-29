@@ -20,6 +20,8 @@ export type FormatVoiceResponseOptions = {
   preserveFullCalendarList?: boolean;
   /** Explicit calendar read intent — never truncate agenda output. */
   queryIntent?: CalendarAgendaQueryIntent | string | null;
+  /** Skip maxSentences / pause injection for agenda listing. */
+  disableVoiceShortening?: boolean;
 };
 
 const CALENDAR_AGENDA_QUERY_INTENTS = new Set<CalendarAgendaQueryIntent>([
@@ -45,6 +47,10 @@ const CALENDAR_AGENDA_RESPONSE_MARKERS: RegExp[] = [
 const CALENDAR_LIST_QUESTION_PATTERNS: RegExp[] = [
   /\bagenda\b/i,
   /\bschedule\b/i,
+  /\bfull\s+list\b/i,
+  /\ball\s+tasks?\b/i,
+  /\bplans?\s+for\s+(?:today|tomorrow)\b/i,
+  /\b(?:today|tomorrow)(?:'s)?\s+plans?\b/i,
   /\b(?:list|переліч|перечисл|список).{0,32}(?:задач|tasks?|events?|meetings?|подій|зустріч|встреч)/i,
   /\b(?:які|which|what).{0,24}(?:задачі|tasks?|events?|meetings?|події|зустрічі)\b/i,
   /\bсколько\s+задач/i,
@@ -133,11 +139,27 @@ export function isCalendarAgendaResponseText(text: string) {
   return semicolonSeparatedItems.length >= 3;
 }
 
+export function isNumberedAgendaListText(text: string) {
+  const normalized = text.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const numberedLines = normalized.match(/(?:^|\n)\s*\d+[\.\):\-]\s+\S+/g);
+
+  return (numberedLines?.length ?? 0) >= 2;
+}
+
 export function shouldPreserveFullCalendarAgenda(
   responseText: string,
   options: FormatVoiceResponseOptions = {},
 ) {
   if (options.preserveFullCalendarList) {
+    return true;
+  }
+
+  if (options.disableVoiceShortening) {
     return true;
   }
 
@@ -157,7 +179,39 @@ export function shouldPreserveFullCalendarAgenda(
     }
   }
 
-  return isCalendarAgendaResponseText(responseText);
+  return isCalendarAgendaResponseText(responseText) || isNumberedAgendaListText(responseText);
+}
+
+/**
+ * Agenda lists: preserve every line, no "..." pauses, no sentence caps.
+ */
+export function formatAgendaListForDisplay(
+  text: string,
+  options: FormatVoiceResponseOptions = {},
+) {
+  const raw = text.trim();
+  console.log('[Agenda Raw]', raw);
+
+  const afterFormatting = raw
+    .replace(/\r\n/g, '\n')
+    .replace(/[*_#`]/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  console.log('[Agenda After Formatting]', afterFormatting);
+  console.log('[Agenda Final]', afterFormatting);
+
+  if (options.userTranscript || options.queryIntent) {
+    console.log('[Voice Premium] formatAgendaListForDisplay', {
+      preserveAgenda: true,
+      queryIntent: options.queryIntent ?? classifyCalendarAgendaQueryIntent(options.userTranscript ?? ''),
+      inputLength: raw.length,
+      outputLength: afterFormatting.length,
+      lineCount: afterFormatting.split('\n').filter(Boolean).length,
+    });
+  }
+
+  return afterFormatting;
 }
 
 function resolveVoiceSentenceLimit(responseText: string, options: FormatVoiceResponseOptions) {
@@ -258,6 +312,13 @@ export function joinSpokenClauses(
 }
 
 function splitIntoSentences(text: string) {
+  if (isNumberedAgendaListText(text)) {
+    return text
+      .split(/\n+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
   return text
     .split(/(?<=[.!?…])\s+/)
     .map((part) => part.trim())
@@ -279,6 +340,10 @@ function injectSpokenPauses(
   urgency: SpokenUrgency = 'relaxed',
   maxSentences = 2,
 ) {
+  if (isNumberedAgendaListText(text)) {
+    return text.trim();
+  }
+
   const normalized = text
     .replace(/\s*[,;—–-]\s+/g, ' ... ')
     .replace(/\s+\.\.\.\s+\.\.\./g, ' ... ')
@@ -315,21 +380,11 @@ export function formatVoiceResponse(text: string, options: FormatVoiceResponseOp
     return '';
   }
 
-  const sanitized = sanitizeRoboticSpeech(text);
-
   if (preserveAgenda) {
-    console.log('[Voice Premium] formatVoiceResponse', {
-      urgency,
-      maxSentences: CALENDAR_AGENDA_SENTENCE_LIMIT,
-      preserveAgenda: true,
-      queryIntent: options.queryIntent ?? classifyCalendarAgendaQueryIntent(options.userTranscript ?? ''),
-      inputLength: text.length,
-      outputLength: sanitized.length,
-      preview: sanitized.slice(0, 320),
-    });
-
-    return sanitized;
+    return formatAgendaListForDisplay(text, options);
   }
+
+  const sanitized = sanitizeRoboticSpeech(text);
 
   const limited = limitSpokenSentences(sanitized, maxSentences);
   const paced = options.preserveSentences
