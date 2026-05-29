@@ -1,5 +1,6 @@
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { findCalendarEventForUpdate } from '@/src/features/agent/calendar/calendarEventMatcher';
+import { logUpdateSuccess } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import { logUpdateNotFound } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
 import { refreshCalendarAgendaState } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { updateGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarUpdateService';
@@ -176,6 +177,12 @@ export async function executeCalendarUpdateEvent(
     );
 
     if (tool.status === 'SUCCESS') {
+      logUpdateSuccess({
+        eventId: payloadResult.eventId,
+        title: matchResult.match.title,
+        fromStart: matchResult.match.startsAt,
+        toStart: payloadResult.payload.start.dateTime ?? matchResult.match.startsAt,
+      });
       await refreshCalendarAgendaState(params.referenceNow).catch((error) => {
         console.log('[Calendar Refresh] post-update refresh failed', error);
       });

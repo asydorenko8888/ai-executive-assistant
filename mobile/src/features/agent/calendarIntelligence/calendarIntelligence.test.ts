@@ -106,15 +106,15 @@ describe('calendarIntelligence', () => {
   it('classifies Russian at-time queries with equivalent prepositions', () => {
     assert.equal(
       classifyCalendarQueryIntent('Какая задача у меня сегодня в 17:30'),
-      'events_at_time',
+      'events_starting_at_time',
     );
     assert.equal(
       classifyCalendarQueryIntent('Какая задача у меня сегодня на 17:30'),
-      'events_at_time',
+      'events_starting_at_time',
     );
     assert.equal(
       classifyCalendarQueryIntent('Какая задача у меня сегодня о 17:30'),
-      'events_at_time',
+      'events_starting_at_time',
     );
   });
 
@@ -137,7 +137,7 @@ describe('calendarIntelligence', () => {
         timeZone,
       });
 
-      assert.equal(answer?.intent, 'events_at_time');
+      assert.equal(answer?.intent, 'events_starting_at_time');
       assert.equal(answer?.payload.count, 1);
 
       const reply = formatDeterministicCalendarReply({

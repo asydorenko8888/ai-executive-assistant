@@ -2,6 +2,12 @@
  * Detects calendar create/update vs delete instructions (any supported language).
  */
 
+import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
+
+function isExactTimeReadQuery(transcript: string) {
+  return isCalendarExactTimeReadQuery(transcript);
+}
+
 const CREATE_WRITE_VERBS =
   /(?:add|put|create|book|set\s*up|insert|schedule|внеси|внести|добав(?:ь|ьте|ить)|создай|создать|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|заплануй)/iu;
 
@@ -50,7 +56,7 @@ const WEEKDAY_HINT =
 export function isOperationalCalendarDeleteRequest(transcript: string) {
   const normalized = transcript.trim();
 
-  if (!normalized) {
+  if (!normalized || isExactTimeReadQuery(normalized)) {
     return false;
   }
 
@@ -71,7 +77,7 @@ export function isOperationalCalendarDeleteRequest(transcript: string) {
 export function isOperationalCalendarUpdateRequest(transcript: string) {
   const normalized = transcript.trim();
 
-  if (!normalized || isOperationalCalendarDeleteRequest(normalized)) {
+  if (!normalized || isExactTimeReadQuery(normalized) || isOperationalCalendarDeleteRequest(normalized)) {
     return false;
   }
 
@@ -91,6 +97,7 @@ export function isOperationalCalendarCreateRequest(transcript: string) {
 
   if (
     !normalized ||
+    isExactTimeReadQuery(normalized) ||
     isOperationalCalendarDeleteRequest(normalized) ||
     isOperationalCalendarUpdateRequest(normalized)
   ) {
@@ -122,6 +129,12 @@ export function isOperationalCalendarCreateRequest(transcript: string) {
 
 /** Create, update, or delete — routes to operational executor (never LLM). */
 export function isOperationalCalendarWriteRequest(transcript: string) {
+  const normalized = transcript.trim();
+
+  if (!normalized || isExactTimeReadQuery(normalized)) {
+    return false;
+  }
+
   return (
     isOperationalCalendarCreateRequest(transcript) ||
     isOperationalCalendarUpdateRequest(transcript) ||

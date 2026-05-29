@@ -19,6 +19,8 @@ export { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligen
 export {
   findBestSlot,
   getEventsAtTime,
+  getEventsStartingAtTime,
+  getEventsActiveAtTime,
   getEventsForDay,
   getFreeWindows,
   getLastEvent,

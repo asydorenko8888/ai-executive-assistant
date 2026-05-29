@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "verify:routes": "node ./scripts/verify-expo-routes.mjs",
     "lint": "expo lint",
-    "test:calendar-intelligence": "npx tsx --test src/features/agent/calendarIntelligence/calendarIntelligence.test.ts",
+    "test:calendar-intelligence": "npx tsx --test src/features/agent/calendarIntelligence/calendarIntelligence.test.ts src/features/agent/calendarIntelligence/calendarExactTimeReadDetection.test.ts src/features/agent/calendarIntelligence/calendarReadTimeIntent.test.ts",
     "test:calendar-update": "npx tsx --test src/features/agent/calendar/calendarUpdate.test.ts",
     "test:calendar-delete": "npx tsx --test src/features/agent/calendar/calendarDelete.test.ts"
   },

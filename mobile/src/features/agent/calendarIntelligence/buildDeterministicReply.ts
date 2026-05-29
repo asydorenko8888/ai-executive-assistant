@@ -4,6 +4,7 @@ import {
   classifyCalendarQueryIntent,
   isDeterministicCalendarReadQuery,
 } from '@/src/features/agent/calendarIntelligence/classifyQuery';
+import { logReadEventList } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import { formatDeterministicCalendarReply } from '@/src/features/agent/calendarIntelligence/formatDeterministicReply';
 import {
   filterRawEventsForDay,
@@ -49,11 +50,7 @@ export async function tryBuildDeterministicCalendarReply(params: {
           day,
         });
 
-  const { logReadEventListForDiagnostics } = await import(
-    '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics'
-  );
-
-  logReadEventListForDiagnostics({
+  logReadEventList({
     transcript: params.transcript,
     dayDateKey: day.dateKey,
     events: rawEvents,

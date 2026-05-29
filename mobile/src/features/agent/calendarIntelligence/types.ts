@@ -29,6 +29,7 @@ export type CalendarDayContext = {
 export type CalendarQueryIntent =
   | 'list_day'
   | 'events_at_time'
+  | 'events_starting_at_time'
   | 'count_at_time'
   | 'next_event'
   | 'last_event'

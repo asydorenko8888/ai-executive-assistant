@@ -3,10 +3,15 @@ import {
   parseCalendarClockMinutes,
   parseCalendarTimeShift,
 } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
+import { logUpdateMatch, logUpdateRequest } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import { normalizeCalendarEvents } from '@/src/features/agent/calendarIntelligence/normalizeEvents';
 import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
-import { getEventsAtTime } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
+import {
+  getEventsActiveAtTime,
+  getEventsStartingAtTime,
+} from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import type { NormalizedCalendarEvent } from '@/src/features/agent/calendarIntelligence/types';
+import { getLastCalendarReadMatch } from '@/src/features/agent/execution/calendarExecutionSession';
 
 function normalizeMatchText(value: string) {
   return value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -67,6 +72,36 @@ function pickBestNormalizedMatch(
   return ranked[0]?.event ?? null;
 }
 
+function formatClockLabel(minutes: number) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+
+  return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+}
+
+function tryPinnedReadMatch(params: {
+  events: CalendarEvent[];
+  titleQuery: string;
+  clockMinutes: number;
+}) {
+  const pinned = getLastCalendarReadMatch();
+
+  if (!pinned || pinned.clockMinutes !== params.clockMinutes) {
+    return null;
+  }
+
+  if (params.titleQuery && scoreTitleMatch(params.titleQuery, pinned.title) <= 0) {
+    return null;
+  }
+
+  const match = params.events.find((event) => event.id === pinned.eventId) ?? null;
+
+  if (!match) {
+    return null;
+  }
+
+  return { match, source: 'pinned_read' as const };
+}
+
 export function findCalendarEventAtTimeFromEvents(params: {
   events: CalendarEvent[];
   transcript: string;
@@ -74,11 +109,13 @@ export function findCalendarEventAtTimeFromEvents(params: {
   titleQuery?: string;
   clockMinutes?: number;
   timeZone?: string;
+  matchMode?: 'starting_at_time' | 'active_at_time';
 }): {
   match: CalendarEvent | null;
   titleQuery: string;
   clockMinutes: number | null;
   candidates: CalendarEvent[];
+  matchSource: 'pinned_read' | 'starting_at_time' | 'title_rank' | 'none';
 } {
   const timeZone = params.timeZone ?? resolveTargetDayContext(params.transcript, params.referenceNow).timezone;
   const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
@@ -89,11 +126,26 @@ export function findCalendarEventAtTimeFromEvents(params: {
     null;
 
   if (clockMinutes === null) {
-    return { match: null, titleQuery, clockMinutes, candidates: [] };
+    return { match: null, titleQuery, clockMinutes, candidates: [], matchSource: 'none' };
+  }
+
+  const pinned = tryPinnedReadMatch({ events: params.events, titleQuery, clockMinutes });
+
+  if (pinned) {
+    return {
+      match: pinned.match,
+      titleQuery,
+      clockMinutes,
+      candidates: [pinned.match],
+      matchSource: pinned.source,
+    };
   }
 
   const normalized = normalizeCalendarEvents(params.events, timeZone);
-  const atTimeNormalized = getEventsAtTime(normalized, day, clockMinutes);
+  const atTimeNormalized =
+    params.matchMode === 'active_at_time'
+      ? getEventsActiveAtTime(normalized, day, clockMinutes)
+      : getEventsStartingAtTime(normalized, day, clockMinutes);
 
   let selected: NormalizedCalendarEvent | null = pickBestNormalizedMatch(
     atTimeNormalized,
@@ -114,7 +166,13 @@ export function findCalendarEventAtTimeFromEvents(params: {
   const candidates = params.events.filter((event) => candidateIds.has(event.id));
   const match = selected ? params.events.find((event) => event.id === selected.id) ?? null : null;
 
-  return { match, titleQuery, clockMinutes, candidates };
+  return {
+    match,
+    titleQuery,
+    clockMinutes,
+    candidates,
+    matchSource: match ? 'starting_at_time' : 'none',
+  };
 }
 
 export function findCalendarEventForUpdateFromEvents(params: {
@@ -130,6 +188,7 @@ export function findCalendarEventForUpdateFromEvents(params: {
   candidates: CalendarEvent[];
   fromMs: number | null;
   toMs: number | null;
+  matchSource: 'pinned_read' | 'starting_at_time' | 'title_rank' | 'none';
 } {
   const timeZone = params.timeZone ?? resolveTargetDayContext(params.transcript, params.referenceNow).timezone;
   const shift = parseCalendarTimeShift(params.transcript, params.referenceNow, timeZone);
@@ -142,8 +201,17 @@ export function findCalendarEventForUpdateFromEvents(params: {
       candidates: [],
       fromMs: null,
       toMs: null,
+      matchSource: 'none',
     };
   }
+
+  logUpdateRequest({
+    transcript: params.transcript,
+    titleQuery: params.titleQuery,
+    fromTime: formatClockLabel(shift.fromMinutes),
+    toTime: formatClockLabel(shift.toMinutes),
+    pinnedEventId: getLastCalendarReadMatch()?.eventId ?? null,
+  });
 
   const resolved = findCalendarEventAtTimeFromEvents({
     events: params.events,
@@ -152,6 +220,15 @@ export function findCalendarEventForUpdateFromEvents(params: {
     titleQuery: params.titleQuery,
     clockMinutes: shift.fromMinutes,
     timeZone,
+    matchMode: 'starting_at_time',
+  });
+
+  logUpdateMatch({
+    titleQuery: params.titleQuery,
+    fromTime: formatClockLabel(shift.fromMinutes),
+    match: resolved.match,
+    source: resolved.matchSource,
+    candidateCount: resolved.candidates.length,
   });
 
   return {

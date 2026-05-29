@@ -14,7 +14,17 @@ export type PendingCalendarUpdateContext = {
   toTime: string | null;
   sourceTranscript: string;
 };
+
+export type LastCalendarReadMatch = {
+  eventId: string;
+  title: string;
+  startISO: string;
+  clockMinutes: number;
+  readTimeKind: 'event_at_time' | 'event_starting_at_time';
+};
+
 let pendingCalendarUpdateContext: PendingCalendarUpdateContext | null = null;
+let lastCalendarReadMatch: LastCalendarReadMatch | null = null;
 let lastCommandOutcome: {
   intent: CalendarCommandKind;
   tool: CalendarToolResponse;
@@ -28,6 +38,14 @@ export function getLastCalendarCommandOutcome() {
 
 export function getPendingCalendarUpdateContext() {
   return pendingCalendarUpdateContext;
+}
+
+export function setLastCalendarReadMatch(match: LastCalendarReadMatch | null) {
+  lastCalendarReadMatch = match;
+}
+
+export function getLastCalendarReadMatch() {
+  return lastCalendarReadMatch;
 }
 
 export function setPendingCalendarUpdateContext(context: PendingCalendarUpdateContext | null) {
@@ -166,4 +184,5 @@ export function resetCalendarExecutionSession() {
   lastToolResponse = null;
   lastCommandOutcome = null;
   pendingCalendarUpdateContext = null;
+  lastCalendarReadMatch = null;
 }

@@ -6,6 +6,7 @@ import {
   validateActionFields,
   type ActionRequiredField,
 } from '@/src/features/agent/intent/actionFieldValidator';
+import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import { mergeActionContextFromHistory, isActionContinuation } from '@/src/features/agent/intent/actionContextMerge';
 import type { AssistantIntentAnalysis } from '@/src/features/agent/intent/assistantIntentRouter';
 import { requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
@@ -128,6 +129,28 @@ export function resolveAssistantBehavior(params: {
     referenceNow: params.referenceNow,
   });
   const actionTranscript = contextMerge.mergedTranscript;
+
+  if (
+    isCalendarExactTimeReadQuery(params.transcript) ||
+    isCalendarExactTimeReadQuery(actionTranscript)
+  ) {
+    const route: AssistantBehaviorRoute = {
+      requiredFields: [],
+      missingFields: [],
+      selectedTool: 'none',
+      actionTranscript,
+      clarificationReply: null,
+      blockEmotionalRouting: true,
+      blockCalendarMutation: true,
+      mode: 'ADVISORY_MODE',
+      intent: 'calendar_read_at_time',
+      reason: 'exact_time_read_query',
+    };
+
+    logBehaviorRoute(route);
+    return route;
+  }
+
   const explicitAction =
     hasExplicitActionVerb(actionTranscript) ||
     contextMerge.contextSource === 'clarification_followup' ||

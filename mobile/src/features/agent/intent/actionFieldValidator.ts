@@ -13,6 +13,7 @@ import {
   isOperationalCalendarDeleteRequest,
   isOperationalCalendarUpdateRequest,
 } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 
@@ -42,6 +43,10 @@ function mapUpdateMissingFields(missingFields: CalendarUpdateMissingField[]): Ac
 }
 
 function detectActionKind(transcript: string): ActionFieldValidation['actionKind'] {
+  if (isCalendarExactTimeReadQuery(transcript)) {
+    return 'none';
+  }
+
   if (isOperationalCalendarDeleteRequest(transcript)) {
     return 'delete_calendar_event';
   }

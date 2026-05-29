@@ -8,6 +8,13 @@ import {
   CALENDAR_WORD_EDGE,
   CALENDAR_WORD_END,
 } from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
+import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
+import { logIntentClassified } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
+import {
+  calendarReadTimeKindToQueryIntent,
+  classifyCalendarReadTimeKind,
+  normalizeCalendarReadSemantics,
+} from '@/src/features/agent/calendarIntelligence/calendarReadTimeIntent';
 import type { CalendarQueryIntent } from '@/src/features/agent/calendarIntelligence/types';
 
 const CLOCK_PREPOSITION = CALENDAR_CLOCK_PREPOSITION;
@@ -87,54 +94,61 @@ export function isDeterministicCalendarReadQuery(transcript: string) {
     return false;
   }
 
+  if (isCalendarExactTimeReadQuery(normalized)) {
+    return true;
+  }
+
   return classifyCalendarQueryIntent(normalized) !== null;
 }
 
 export function classifyCalendarQueryIntent(transcript: string): CalendarQueryIntent {
-  const normalized = transcript.trim();
+  const normalized = normalizeCalendarReadSemantics(transcript);
 
   if (!normalized) {
     return null;
   }
 
-  console.log('[Calendar Query Intent]', { transcript: normalized });
+  let intent: CalendarQueryIntent = null;
 
   if (COUNT_AT_TIME_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return 'count_at_time';
+    intent = 'count_at_time';
+  } else {
+    const readTimeKind = classifyCalendarReadTimeKind(transcript);
+
+    if (readTimeKind) {
+      intent = calendarReadTimeKindToQueryIntent(readTimeKind);
+    } else if (isCalendarExactTimeReadQuery(transcript)) {
+      intent = 'events_starting_at_time';
+    } else {
+      const hasClock = extractCalendarClockFragment(normalized) !== null;
+      const asksEventsAtClock =
+        (AT_TIME_PATTERNS.some((pattern) => pattern.test(normalized)) || hasClock) &&
+        asksAboutEventsAtClock(normalized);
+
+      if (asksEventsAtClock && !/\b(?:full list|all tasks|agenda|plans?\s+for)\b/i.test(normalized)) {
+        intent = 'events_at_time';
+      } else if (COMBINE_ACTIVITY_PATTERNS.some((pattern) => pattern.test(normalized))) {
+        intent = 'combine_activity';
+      } else if (FREE_SLOT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+        intent = /\b(?:best|оптимальн|лучш)/i.test(normalized) ? 'best_slot' : 'free_windows';
+      } else if (NEXT_EVENT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+        intent = 'next_event';
+      } else if (LAST_EVENT_PATTERNS.some((pattern) => pattern.test(normalized))) {
+        intent = 'last_event';
+      } else if (OVERLAP_PATTERNS.some((pattern) => pattern.test(normalized))) {
+        intent = 'overlaps';
+      } else if (isListDayQuery(normalized)) {
+        intent = 'list_day';
+      }
+    }
   }
 
-  const hasClock = extractCalendarClockFragment(normalized) !== null;
-  const asksEventsAtClock =
-    (AT_TIME_PATTERNS.some((pattern) => pattern.test(normalized)) || hasClock) &&
-    asksAboutEventsAtClock(normalized);
+  logIntentClassified({
+    transcript,
+    normalizedTranscript: normalized,
+    readTimeKind: classifyCalendarReadTimeKind(transcript),
+    calendarIntent: intent,
+  });
 
-  if (asksEventsAtClock && !/\b(?:full list|all tasks|agenda|plans?\s+for)\b/i.test(normalized)) {
-    return 'events_at_time';
-  }
-
-  if (COMBINE_ACTIVITY_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return 'combine_activity';
-  }
-
-  if (FREE_SLOT_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return /\b(?:best|оптимальн|лучш)/i.test(normalized) ? 'best_slot' : 'free_windows';
-  }
-
-  if (NEXT_EVENT_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return 'next_event';
-  }
-
-  if (LAST_EVENT_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return 'last_event';
-  }
-
-  if (OVERLAP_PATTERNS.some((pattern) => pattern.test(normalized))) {
-    return 'overlaps';
-  }
-
-  if (isListDayQuery(normalized)) {
-    return 'list_day';
-  }
-
-  return null;
+  return intent;
 }

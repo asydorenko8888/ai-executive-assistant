@@ -6,6 +6,11 @@ import {
   parseQueryClockMinutes,
   parseRequestedDurationMinutes,
 } from '@/src/features/agent/calendarIntelligence/parseQueryClock';
+import { logReadMatch } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
+import {
+  classifyCalendarReadTimeKind,
+  type CalendarReadTimeKind,
+} from '@/src/features/agent/calendarIntelligence/calendarReadTimeIntent';
 import {
   DEFAULT_CALENDAR_INTELLIGENCE_TIMEZONE,
   resolveTargetDayContext,
@@ -13,13 +18,40 @@ import {
 import {
   findBestSlot,
   findOverlappingEventPairs,
-  getEventsAtTime,
+  getEventsActiveAtTime,
   getEventsForDay,
+  getEventsStartingAtTime,
   getFreeWindows,
   getLastEvent,
   getNextEvent,
 } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import type { DeterministicCalendarAnswer } from '@/src/features/agent/calendarIntelligence/types';
+import { setLastCalendarReadMatch } from '@/src/features/agent/execution/calendarExecutionSession';
+
+function resolveAtTimeEvents(params: {
+  intent: 'events_at_time' | 'events_starting_at_time' | 'count_at_time';
+  transcript: string;
+  normalized: ReturnType<typeof normalizeCalendarEvents>;
+  day: ReturnType<typeof resolveTargetDayContext>;
+  clockMinutes: number;
+}) {
+  const readTimeKind: CalendarReadTimeKind =
+    params.intent === 'events_starting_at_time'
+      ? 'event_starting_at_time'
+      : classifyCalendarReadTimeKind(params.transcript) ?? 'event_at_time';
+
+  if (readTimeKind === 'event_starting_at_time') {
+    return {
+      readTimeKind,
+      events: getEventsStartingAtTime(params.normalized, params.day, params.clockMinutes),
+    };
+  }
+
+  return {
+    readTimeKind,
+    events: getEventsActiveAtTime(params.normalized, params.day, params.clockMinutes),
+  };
+}
 
 export function buildDeterministicCalendarAnswer(params: {
   transcript: string;
@@ -46,20 +78,56 @@ export function buildDeterministicCalendarAnswer(params: {
     return { intent, day, events: dayEvents, payload: { count: dayEvents.length } };
   }
 
-  if (intent === 'events_at_time' || intent === 'count_at_time') {
+  if (
+    intent === 'events_at_time' ||
+    intent === 'events_starting_at_time' ||
+    intent === 'count_at_time'
+  ) {
     const clockMinutes = parseQueryClockMinutes(params.transcript, day);
 
     if (clockMinutes === null) {
       return null;
     }
 
-    const atTimeEvents = getEventsAtTime(normalized, day, clockMinutes);
+    const { readTimeKind, events: atTimeEvents } = resolveAtTimeEvents({
+      intent,
+      transcript: params.transcript,
+      normalized,
+      day,
+      clockMinutes,
+    });
+
+    const rawMatches = scopedRaw.filter((event) =>
+      atTimeEvents.some((match) => match.id === event.id),
+    );
+
+    logReadMatch({
+      transcript: params.transcript,
+      readTimeKind,
+      clockMinutes,
+      matchedEvents: rawMatches,
+      pinnedEventId: rawMatches.length === 1 ? rawMatches[0]?.id ?? null : null,
+    });
+
+    if (rawMatches.length === 1) {
+      const only = rawMatches[0]!;
+
+      setLastCalendarReadMatch({
+        eventId: only.id,
+        title: only.title,
+        startISO: only.startsAt,
+        clockMinutes,
+        readTimeKind,
+      });
+    } else {
+      setLastCalendarReadMatch(null);
+    }
 
     return {
       intent,
       day,
       events: dayEvents,
-      payload: { clockMinutes, atTimeEvents, count: atTimeEvents.length },
+      payload: { clockMinutes, atTimeEvents, count: atTimeEvents.length, readTimeKind },
     };
   }
 

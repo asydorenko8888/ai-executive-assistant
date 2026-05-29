@@ -1,4 +1,5 @@
 import { formatTimeInExecutiveTimezone } from '@/src/features/agent/calendar/calendarTime';
+import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import type {
   CalendarDayContext,
   CalendarFreeSlot,
@@ -7,6 +8,20 @@ import type {
 } from '@/src/features/agent/calendarIntelligence/types';
 import { formatAgendaListForDisplay } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import type { VoiceLanguageChatLocale } from '@/src/features/chat/services/voiceLanguage';
+
+function ruAtTimePreposition(userTranscript?: string) {
+  const prep = userTranscript ? extractCalendarClockFragment(userTranscript)?.preposition : null;
+
+  if (prep && /^(?:на|о|к)$/iu.test(prep)) {
+    return 'На';
+  }
+
+  return 'В';
+}
+
+function formatRuAtTimeIntro(clock: string, userTranscript?: string) {
+  return `${ruAtTimePreposition(userTranscript)} ${clock}`;
+}
 
 function formatClock(minutes: number, timeZone: string, sampleIso: string) {
   const hour = Math.floor(minutes / 60);
@@ -97,7 +112,7 @@ export function formatDeterministicCalendarReply(params: {
     });
   }
 
-  if (intent === 'events_at_time' || intent === 'count_at_time') {
+  if (intent === 'events_at_time' || intent === 'events_starting_at_time' || intent === 'count_at_time') {
     const clock =
       params.clockMinutes === null || params.clockMinutes === undefined
         ? ''
@@ -110,7 +125,7 @@ export function formatDeterministicCalendarReply(params: {
       }
 
       if (locale === 'ru') {
-        return `В ${clock} у тебя ${matches.length} задач.`;
+        return `${formatRuAtTimeIntro(clock, params.userTranscript)} у тебя ${matches.length} задач.`;
       }
 
       return `At ${clock}, you have ${matches.length} event${matches.length === 1 ? '' : 's'}.`;
@@ -120,19 +135,18 @@ export function formatDeterministicCalendarReply(params: {
       return locale === 'uk'
         ? `О ${clock} нічого не заплановано.`
         : locale === 'ru'
-          ? `В ${clock} ничего не запланировано.`
+          ? `${formatRuAtTimeIntro(clock, params.userTranscript)} ничего не запланировано.`
           : `Nothing is scheduled at ${clock}.`;
     }
 
     if (matches.length === 1) {
       const event = matches[0];
-      const time = formatTimeInExecutiveTimezone(event.startISO, day.timezone);
 
       return locale === 'uk'
-        ? `О ${clock}: ${time} — ${event.title}.`
+        ? `О ${clock}: ${formatTimeInExecutiveTimezone(event.startISO, day.timezone)} — ${event.title}.`
         : locale === 'ru'
-          ? `В ${clock}: ${time} — ${event.title}.`
-          : `At ${clock}: ${time} — ${event.title}.`;
+          ? `${formatRuAtTimeIntro(clock, params.userTranscript)} у тебя запланировано ${event.title}.`
+          : `At ${clock}: ${formatTimeInExecutiveTimezone(event.startISO, day.timezone)} — ${event.title}.`;
     }
 
     const lines = matches
@@ -143,7 +157,7 @@ export function formatDeterministicCalendarReply(params: {
       locale === 'uk'
         ? `О ${clock} у тебе кілька подій:\n${lines}`
         : locale === 'ru'
-          ? `В ${clock} у тебя несколько задач:\n${lines}`
+          ? `${formatRuAtTimeIntro(clock, params.userTranscript)} у тебя несколько задач:\n${lines}`
           : `At ${clock}, you have multiple events:\n${lines}`,
       { preserveFullCalendarList: true, disableVoiceShortening: true },
     );

@@ -84,15 +84,28 @@ export function buildAssistantCalendarContextLines(params: {
       lines.push(
         `Deterministic calendar facts (${answer.day.dateKey}, intent=${answer.intent}): ${JSON.stringify(answer.payload)}`,
       );
-      lines.push(
-        `Normalized events: ${answer.events
-          .map((event) => `${event.startISO} ${event.title}`)
-          .join('; ') || 'none'}.`,
-      );
+
+      if (answer.intent === 'events_at_time' || answer.intent === 'events_starting_at_time' || answer.intent === 'count_at_time') {
+        const atTimeEvents = (answer.payload.atTimeEvents ?? []) as Array<{ startISO: string; title: string }>;
+
+        lines.push(
+          `Events at requested time (${answer.payload.readTimeKind ?? answer.intent}): ${
+            atTimeEvents.map((event) => `${event.startISO} ${event.title}`).join('; ') || 'none'
+          }.`,
+        );
+      } else {
+        lines.push(
+          `Normalized events: ${answer.events
+            .map((event) => `${event.startISO} ${event.title}`)
+            .join('; ') || 'none'}.`,
+        );
+      }
     }
   }
 
-  lines.push(buildAssistantVisibleCalendarEventsLine(visibleEvents));
+  if (!(transcript && deterministicRead)) {
+    lines.push(buildAssistantVisibleCalendarEventsLine(visibleEvents));
+  }
 
   if (params.languageCode) {
     const guidance = buildHumanizedCalendarGuidanceLine({

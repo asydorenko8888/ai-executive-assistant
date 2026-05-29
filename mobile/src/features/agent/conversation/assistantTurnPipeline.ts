@@ -354,7 +354,51 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const suppressCalendarAgendaMemory =
     isCalendarAgendaQuery(userTranscript) || isDeterministicCalendarReadQuery(userTranscript);
 
-  if (behavior.mode === 'CLARIFICATION_MODE' && behavior.clarificationReply) {
+  if (isDeterministicCalendarReadQuery(userTranscript) && calendarConnected) {
+    const deterministicCalendarReply = await tryBuildDeterministicCalendarReply({
+      transcript: userTranscript,
+      languageCode: params.languageCode,
+      referenceNow: params.referenceNow,
+      calendarConnected,
+      prefetchedEvents: calendarEvents,
+    });
+
+    if (deterministicCalendarReply) {
+      logTurnPipeline('route selected', {
+        route: 'advisory_local',
+        behaviorMode: behavior.mode,
+        deterministicCalendar: true,
+        exactTimeRead: true,
+      });
+
+      return {
+        route: 'advisory_local',
+        intent,
+        reply: guardAgainstRepeatedAssistantResponse({
+          messages: params.messages,
+          candidateReply: deterministicCalendarReply,
+          languageCode: params.languageCode,
+          calendarConnected,
+          referenceNow: params.referenceNow,
+        }),
+        intentPrompt: [behaviorPrompt, buildIntentPrioritySystemPrompt(intent)].filter(Boolean).join(' '),
+        userTranscript,
+        latestUserMessageId: userMessage?.id ?? null,
+        executionState: 'conversational',
+        operationalStarted: false,
+        responseMode: 'factual',
+        factualGroundingStatus: factualGrounding.snapshot.status,
+        behaviorMode: behavior.mode,
+        selectedTool: 'none',
+      };
+    }
+  }
+
+  if (
+    behavior.mode === 'CLARIFICATION_MODE' &&
+    behavior.clarificationReply &&
+    !isDeterministicCalendarReadQuery(userTranscript)
+  ) {
     if (behavior.intent === 'update_calendar_event') {
       const extracted = extractCalendarUpdateParameters(actionTranscript, params.referenceNow);
       const pendingContext = pendingContextFromExtraction({
