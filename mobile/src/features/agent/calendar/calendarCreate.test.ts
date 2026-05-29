@@ -72,7 +72,55 @@ const TITLE_BUG_FIX_SAMPLES = [
   },
 ];
 
+const ENGLISH_TITLE_SAMPLES = [
+  {
+    transcript: 'Add a walk today at 8:00 PM',
+    title: 'Walk',
+  },
+  {
+    transcript: 'Schedule a meeting with an investor tomorrow at 3:30 PM',
+    title: 'Meeting with Investor',
+  },
+  {
+    transcript: 'Create a call with Sergey today at 6:00 PM',
+    title: 'Call with Sergey',
+  },
+  {
+    transcript: 'Add grocery shopping on Friday at 7:00 PM',
+    title: 'Grocery Shopping',
+  },
+  {
+    transcript: 'Add coffee in one hour',
+    title: 'Coffee',
+  },
+  {
+    transcript: 'Create a walk after 15 minutes',
+    title: 'Walk',
+  },
+];
+
+const BAD_TITLE_PREVENTION_SAMPLES = [
+  { transcript: 'Add a walk today at 8:00 PM', forbidden: /\b(at|today|pm)\b/i },
+  { transcript: 'Add coffee in one hour', forbidden: /\b(in|hour)\b/i },
+  { transcript: 'Add grocery shopping on Friday at 7:00 PM', forbidden: /\b(on|friday|at)\b/i },
+  { transcript: 'Create a walk after 15 minutes', forbidden: /\b(after|minutes)\b/i },
+];
+
 describe('calendar create integration', () => {
+  it('extracts clean English titles without schedule words', () => {
+    for (const sample of ENGLISH_TITLE_SAMPLES) {
+      assert.equal(extractCreateEventTitle(sample.transcript), sample.title, sample.transcript);
+    }
+  });
+
+  it('never leaves date or time residue in extracted titles', () => {
+    for (const sample of BAD_TITLE_PREVENTION_SAMPLES) {
+      const title = extractCreateEventTitle(sample.transcript);
+      assert.ok(title, sample.transcript);
+      assert.doesNotMatch(title ?? '', sample.forbidden, sample.transcript);
+    }
+  });
+
   it('extracts nominative titles from accusative RU/UA phrases', () => {
     for (const sample of TITLE_BUG_FIX_SAMPLES) {
       assert.equal(extractCreateEventTitle(sample.transcript), sample.title, sample.transcript);
