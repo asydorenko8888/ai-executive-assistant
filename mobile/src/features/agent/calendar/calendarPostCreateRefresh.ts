@@ -1,33 +1,13 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import {
   fetchGoogleCalendarEventByIdFromBackend,
-  fetchGoogleCalendarEventsFromBackend,
-  type GoogleCalendarBackendEvent,
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
+import { refreshAgendaVisibilityState } from '@/src/features/agent/calendar/calendarAgendaRefresh';
 import {
-  mergeCalendarEventLists,
-  setLiveCalendarEvents,
-} from '@/src/features/agent/calendar/calendarLiveState';
-import { getCalendarAgendaWindow } from '@/src/features/agent/calendar/calendarTime';
-import { logCalendarUiRefresh, logCalendarVerificationFetch } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
-import { refreshHomeBriefing } from '@/src/features/home/services/refreshHomeBriefing';
-import { queryClient } from '@/src/shared/api/query-client';
-
-function logCalendarRefresh(stage: string, details: Record<string, unknown>) {
-  console.log(`[Calendar Refresh] ${stage}`, details);
-}
-
-function mapBackendEventToCalendarEvent(event: GoogleCalendarBackendEvent): CalendarEvent {
-  return {
-    id: event.id,
-    title: event.summary.trim() || 'Untitled event',
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-    location: event.location,
-    isAllDay: !event.startsAt.includes('T'),
-    attendees: [],
-  };
-}
+  logCalendarCreate,
+  logCalendarRefresh,
+  logAgendaRefresh,
+} from '@/src/features/agent/calendar/calendarPipelineLogger';
 
 export type CalendarPostCreateRefreshResult = {
   verifiedEvent: CalendarEvent | null;
@@ -61,37 +41,31 @@ export async function refreshCalendarStateAfterCreate(params: {
   endIso: string;
   referenceNow: Date;
 }): Promise<CalendarPostCreateRefreshResult> {
-  logCalendarUiRefresh({
-    stage: 'post_create_start',
+  logCalendarCreate('post_create_refresh_start', {
+    eventId: params.eventId,
+    extractedTitle: params.extractedTitle,
     start: params.startIso,
     end: params.endIso,
-    extractedTitle: params.extractedTitle,
   });
 
-  const window = getCalendarAgendaWindow(params.referenceNow);
+  const fetchedEvent = await fetchGoogleCalendarEventByIdFromBackend(params.eventId).catch((error) => {
+    logCalendarRefresh('fetch_event_by_id_failed', {
+      eventId: params.eventId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
 
-  const [fetchedEvent, listed] = await Promise.all([
-    fetchGoogleCalendarEventByIdFromBackend(params.eventId).catch((error) => {
-      logCalendarRefresh('fetch event by id failed', {
-        eventId: params.eventId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }),
-    fetchGoogleCalendarEventsFromBackend({
-      timeMin: window.timeMin,
-      timeMax: window.timeMax,
-    }).catch((error) => {
-      logCalendarRefresh('list events failed', {
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return null;
-    }),
-  ]);
-
-  const listedEvents = (listed?.events ?? []).map(mapBackendEventToCalendarEvent);
   const verifiedEvent = fetchedEvent?.event
-    ? mapBackendEventToCalendarEvent(fetchedEvent.event)
+    ? {
+        id: fetchedEvent.event.id,
+        title: fetchedEvent.event.summary.trim() || 'Untitled event',
+        startsAt: fetchedEvent.event.startsAt,
+        endsAt: fetchedEvent.event.endsAt,
+        location: fetchedEvent.event.location,
+        isAllDay: !fetchedEvent.event.startsAt.includes('T'),
+        attendees: [],
+      }
     : null;
 
   if (verifiedEvent) {
@@ -102,62 +76,40 @@ export async function refreshCalendarStateAfterCreate(params: {
       event: verifiedEvent,
     });
 
-    logCalendarVerificationFetch({
+    logCalendarCreate('verified_event', {
       eventId: verifiedEvent.id,
       summary: verifiedEvent.title,
       startsAt: verifiedEvent.startsAt,
-      endsAt: verifiedEvent.endsAt,
       verification,
     });
   }
-  const merged = mergeCalendarEventLists(
-    verifiedEvent ? [verifiedEvent] : [],
-    listedEvents,
-  );
 
-  setLiveCalendarEvents(merged);
-
-  logCalendarUiRefresh({
-    eventCount: merged.length,
-    titles: merged.slice(0, 8).map((event) => event.title),
+  const agenda = await refreshAgendaVisibilityState({
+    referenceNow: params.referenceNow,
+    eventId: params.eventId,
+    reason: 'post_create',
   });
 
-  await refreshHomeBriefing(queryClient);
-
-  logCalendarUiRefresh({
-    stage: 'briefing_updated',
+  logAgendaRefresh('post_create_synced', {
     eventId: params.eventId,
+    mergedCount: agenda.horizonEvents.length,
+    todayCount: agenda.todayEvents.length,
+    tomorrowCount: agenda.tomorrowEvents.length,
   });
 
   return {
     verifiedEvent,
-    mergedEvents: merged,
+    mergedEvents: agenda.horizonEvents,
   };
 }
 
 export async function refreshCalendarAgendaState(referenceNow: Date) {
-  const window = getCalendarAgendaWindow(referenceNow);
-  const listed = await fetchGoogleCalendarEventsFromBackend({
-    timeMin: window.timeMin,
-    timeMax: window.timeMax,
-  }).catch((error) => {
-    logCalendarRefresh('list events failed', {
-      message: error instanceof Error ? error.message : String(error),
-    });
-    return null;
+  logAgendaRefresh('manual_refresh', { referenceNow: referenceNow.toISOString() });
+
+  const agenda = await refreshAgendaVisibilityState({
+    referenceNow,
+    reason: 'agenda_sync',
   });
 
-  const merged = (listed?.events ?? []).map(mapBackendEventToCalendarEvent);
-  setLiveCalendarEvents(merged);
-
-  logCalendarRefresh('home state updated', {
-    eventCount: merged.length,
-    titles: merged.slice(0, 8).map((event) => event.title),
-  });
-
-  await refreshHomeBriefing(queryClient);
-
-  logCalendarRefresh('briefing updated', { reason: 'agenda_refresh' });
-
-  return merged;
+  return agenda.horizonEvents;
 }

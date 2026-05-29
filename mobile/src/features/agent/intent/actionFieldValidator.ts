@@ -68,35 +68,22 @@ export function validateActionFields(params: {
     };
   }
 
+  if (actionKind === 'delete_calendar_event') {
+    return {
+      actionKind,
+      requiredFields: [],
+      missingFields: [],
+      readyToExecute: true,
+      extractionConfidence: 1,
+    };
+  }
+
   const extraction = extractCalendarCommand({
     transcript: params.transcript,
     referenceNow: params.referenceNow,
   });
 
   const threshold = getCalendarExtractionConfidenceThreshold();
-
-  if (actionKind === 'delete_calendar_event') {
-    const missingFields: ActionRequiredField[] = [];
-
-    if (!extraction.title || extraction.title.length < 2) {
-      missingFields.push('title');
-    }
-
-    if (extraction.confidence < threshold) {
-      missingFields.push('confidence');
-    }
-
-    return {
-      actionKind,
-      requiredFields: ['title', 'confidence'],
-      missingFields,
-      readyToExecute:
-        missingFields.length === 0 &&
-        extraction.confidence >= threshold &&
-        Boolean(extraction.title),
-      extractionConfidence: extraction.confidence,
-    };
-  }
 
   const requiredFields: ActionRequiredField[] = ['title', 'date', 'time', 'confidence'];
   const missingFields: ActionRequiredField[] = [];

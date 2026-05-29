@@ -1,3 +1,1 @@
-export function logCalendarCreate(stage: string, details: Record<string, unknown>) {
-  console.log(`[Calendar Create] ${stage}`, details);
-}
+export { logCalendarCreate, logCalendarRefresh, logAgendaRefresh } from '@/src/features/agent/calendar/calendarPipelineLogger';

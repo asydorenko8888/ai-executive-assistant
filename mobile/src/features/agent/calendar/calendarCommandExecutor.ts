@@ -11,7 +11,10 @@ import {
   extractCalendarCommand,
   isCalendarExtractionExecutable,
 } from '@/src/features/agent/calendar/calendarCommandExtractor';
-import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
+import {
+  buildCalendarDeleteDisabledReply,
+  CALENDAR_DELETE_DISABLED_CODE,
+} from '@/src/features/agent/calendar/calendarDeleteDisabledReply';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import type { CalendarToolStatus } from '@/src/features/agent/execution/calendarToolContract';
 import {
@@ -76,36 +79,37 @@ export async function executeCalendarCommand(params: {
   }
 
   if (intent === 'delete_calendar_event') {
-    logCalendarToolSelected({ intent, tool: 'google_calendar_delete_event' });
+    logCalendarToolSelected({ intent, tool: 'delete_disabled_pending_resolution' });
 
-    const outcome = await executeCalendarDeleteEvent({
-      transcript: params.transcript,
-      languageCode: params.languageCode,
-      referenceNow: params.referenceNow,
-    });
+    const disabledReply = buildCalendarDeleteDisabledReply(params.languageCode);
 
     setLastCalendarCommandOutcome({
       intent,
-      tool: outcome.tool,
-      terminalReply: outcome.reply,
-      verified: outcome.verified,
+      tool: {
+        status: 'FAILURE',
+        verified: false,
+        verificationFetched: false,
+        errorCode: 'CALENDAR_DATE_PARSE_FAILED',
+        error: `${CALENDAR_DELETE_DISABLED_CODE}: ${disabledReply}`,
+      },
+      terminalReply: disabledReply,
+      verified: false,
     });
 
     logCalendarTerminalReply({
       intent,
-      tool: outcome.tool,
-      replyPreview: outcome.reply,
+      tool: null,
+      replyPreview: disabledReply,
     });
 
     return {
       matched: true,
       intent,
-      reply: outcome.reply,
-      spokenReply: outcome.spokenReply,
-      toolStatus: outcome.tool.status,
-      executionState: mapExecutionState(outcome.tool.status),
-      verified: outcome.verified,
-      eventId: outcome.tool.eventId ?? null,
+      reply: disabledReply,
+      spokenReply: disabledReply,
+      toolStatus: 'FAILURE',
+      executionState: 'tool_failure',
+      verified: false,
     };
   }
 
