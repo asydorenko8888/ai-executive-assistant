@@ -1,88 +1,19 @@
-import { parseSpokenClockTime } from '@/src/features/reminders/reminderTimeParser';
-import { resolveDayOffset } from '@/src/features/agent/calendar/operationalScheduleParser';
+import {
+  parseCalendarTimeShift,
+  stripCalendarTimeShiftPhrases,
+} from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 
-export type CalendarUpdateTimeShift =
-  | {
-      ok: true;
-      fromMs: number;
-      toMs: number;
-      hasExplicitDay: boolean;
-    }
-  | {
-      ok: false;
-      reason: 'date_parse_failed';
-      detail: string;
-    };
+export type CalendarUpdateTimeShift = ReturnType<typeof parseCalendarTimeShift>;
 
-const FROM_TO_EN =
-  /\bfrom\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?|\d{1,2}:\d{2})\s+to\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)?|\d{1,2}:\d{2})\b/i;
-
-/** JS \b is ASCII-only — do not use word boundaries before Cyrillic prepositions. */
-const FROM_TO_RU =
-  /(?:с|з|from)\s+(\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью|am|pm)?|\d{1,2}:\d{2})\s+(?:на|to|до)\s+(\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью|am|pm)?|\d{1,2}:\d{2})/iu;
-
-export function stripCalendarUpdateTimeShiftPhrases(transcript: string) {
-  return transcript.replace(FROM_TO_EN, ' ').replace(FROM_TO_RU, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function parseClockOnDay(clockFragment: string, transcript: string, base: Date, hasExplicitDay: boolean) {
-  const clockParseInput = /вечер|утр|дн[её]м|ноч|am|pm/i.test(clockFragment)
-    ? clockFragment
-    : `${clockFragment} ${transcript}`;
-
-  const parsedTime = parseSpokenClockTime(clockParseInput, base, {
-    rollToNextDayIfPast: !hasExplicitDay,
-  });
-
-  if (!parsedTime) {
-    return null;
-  }
-
-  if (hasExplicitDay) {
-    parsedTime.setFullYear(base.getFullYear(), base.getMonth(), base.getDate());
-  }
-
-  return parsedTime;
-}
+export { stripCalendarTimeShiftPhrases };
 
 export function parseCalendarUpdateTimeShift(
   transcript: string,
   referenceNow: Date,
 ): CalendarUpdateTimeShift {
-  const match = transcript.match(FROM_TO_EN) ?? transcript.match(FROM_TO_RU);
+  return parseCalendarTimeShift(transcript, referenceNow);
+}
 
-  if (!match?.[1] || !match[2]) {
-    return {
-      ok: false,
-      reason: 'date_parse_failed',
-      detail: 'Could not parse from/to time shift (expected e.g. from 7 PM to 8 PM)',
-    };
-  }
-
-  const dayOffset = resolveDayOffset(transcript);
-  const hasExplicitDay = dayOffset !== null;
-  const base = new Date(referenceNow);
-
-  if (dayOffset !== null) {
-    base.setHours(0, 0, 0, 0);
-    base.setDate(base.getDate() + dayOffset);
-  }
-
-  const fromDate = parseClockOnDay(match[1].trim(), transcript, base, hasExplicitDay);
-  const toDate = parseClockOnDay(match[2].trim(), transcript, base, hasExplicitDay);
-
-  if (!fromDate || !toDate) {
-    return {
-      ok: false,
-      reason: 'date_parse_failed',
-      detail: 'Could not parse from/to clock times',
-    };
-  }
-
-  return {
-    ok: true,
-    fromMs: fromDate.getTime(),
-    toMs: toDate.getTime(),
-    hasExplicitDay,
-  };
+export function stripCalendarUpdateTimeShiftPhrases(transcript: string) {
+  return stripCalendarTimeShiftPhrases(transcript);
 }

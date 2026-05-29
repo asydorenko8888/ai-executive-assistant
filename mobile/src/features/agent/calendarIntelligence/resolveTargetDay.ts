@@ -1,5 +1,9 @@
 import { formatDateKey, zonedDateKeyFromInstant } from '@/src/features/agent/calendarIntelligence/zonedEventTime';
 import {
+  CALENDAR_WORD_EDGE,
+  CALENDAR_WORD_END,
+} from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
+import {
   addDaysToZonedYmd,
   getZonedDayRange,
   getZonedYmd,
@@ -8,13 +12,13 @@ import {
 export const DEFAULT_CALENDAR_INTELLIGENCE_TIMEZONE = 'America/Chicago';
 
 const TOMORROW_DAY_PATTERNS = [
-  /\b(?:завтра|tomorrow)\b/i,
+  new RegExp(`${CALENDAR_WORD_EDGE}(?:завтра|tomorrow)${CALENDAR_WORD_END}`, 'iu'),
   /\bзадач[аи]?\s+на\s+завтра/i,
   /\bplans?\s+for\s+tomorrow\b/i,
 ];
 
 const TODAY_DAY_PATTERNS = [
-  /\b(?:сьогодні|сегодня|today)\b/i,
+  new RegExp(`${CALENDAR_WORD_EDGE}(?:сьогодні|сегодня|today)${CALENDAR_WORD_END}`, 'iu'),
   /\bplans?\s+for\s+today\b/i,
 ];
 

@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import { buildDeterministicCalendarAnswer } from '@/src/features/agent/calendarIntelligence/calendarAnswerEngine';
 import { classifyCalendarQueryIntent } from '@/src/features/agent/calendarIntelligence/classifyQuery';
+import { formatDeterministicCalendarReply } from '@/src/features/agent/calendarIntelligence/formatDeterministicReply';
 import {
   findBestSlot,
   getEventsAtTime,
@@ -100,5 +101,56 @@ describe('calendarIntelligence', () => {
 
     assert.equal(slot, null);
     assert.equal(getFreeWindows(normalized, day, referenceNow, 60).length, 0);
+  });
+
+  it('classifies Russian at-time queries with equivalent prepositions', () => {
+    assert.equal(
+      classifyCalendarQueryIntent('Какая задача у меня сегодня в 17:30'),
+      'events_at_time',
+    );
+    assert.equal(
+      classifyCalendarQueryIntent('Какая задача у меня сегодня на 17:30'),
+      'events_at_time',
+    );
+    assert.equal(
+      classifyCalendarQueryIntent('Какая задача у меня сегодня о 17:30'),
+      'events_at_time',
+    );
+  });
+
+  it('finds chaepitie at 17:30 for both в and на phrasing', () => {
+    const teaParty = event(
+      'tea',
+      'чаепитие',
+      '2026-05-28T17:30:00-05:00',
+      '2026-05-28T18:00:00-05:00',
+    );
+
+    for (const transcript of [
+      'Какая задача у меня сегодня в 17:30',
+      'Какая задача у меня сегодня на 17:30',
+    ]) {
+      const answer = buildDeterministicCalendarAnswer({
+        transcript,
+        events: [teaParty],
+        referenceNow,
+        timeZone,
+      });
+
+      assert.equal(answer?.intent, 'events_at_time');
+      assert.equal(answer?.payload.count, 1);
+
+      const reply = formatDeterministicCalendarReply({
+        intent: answer!.intent,
+        day: answer!.day,
+        locale: 'ru',
+        events: answer!.events,
+        atTimeEvents: answer!.payload.atTimeEvents as typeof answer.events,
+        clockMinutes: answer!.payload.clockMinutes as number,
+      });
+
+      assert.match(reply, /чаепитие/i);
+      assert.doesNotMatch(reply, /ничего не запланировано/i);
+    }
   });
 });

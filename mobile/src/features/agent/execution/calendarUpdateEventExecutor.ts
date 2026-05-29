@@ -1,5 +1,6 @@
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { findCalendarEventForUpdate } from '@/src/features/agent/calendar/calendarEventMatcher';
+import { logUpdateNotFound } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
 import { refreshCalendarAgendaState } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { updateGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarUpdateService';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
@@ -112,6 +113,19 @@ export async function executeCalendarUpdateEvent(
 
     if (!matchResult.match) {
       endCalendarOperation({ failed: true });
+
+      const formatClock = (ms: number) => {
+        const date = new Date(ms);
+        const pad = (value: number) => String(value).padStart(2, '0');
+        return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      };
+
+      logUpdateNotFound({
+        requestedTitle: matchResult.titleQuery,
+        requestedFromTime: formatClock(shift.fromMs),
+        requestedToTime: formatClock(shift.toMs),
+      });
+
       const tool = createCalendarToolFailure(
         'CALENDAR_EVENT_NOT_FOUND',
         'Could not find a matching calendar event to update.',

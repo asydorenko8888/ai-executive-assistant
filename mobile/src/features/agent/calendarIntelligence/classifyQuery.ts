@@ -1,5 +1,16 @@
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import {
+  asksAboutEventsAtClock,
+  extractCalendarClockFragment,
+} from '@/src/features/agent/calendarIntelligence/calendarClockParser';
+import {
+  CALENDAR_CLOCK_PREPOSITION,
+  CALENDAR_WORD_EDGE,
+  CALENDAR_WORD_END,
+} from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
 import type { CalendarQueryIntent } from '@/src/features/agent/calendarIntelligence/types';
+
+const CLOCK_PREPOSITION = CALENDAR_CLOCK_PREPOSITION;
 
 const LIST_DAY_PATTERNS = [
   /\bfull\s+list\b/i,
@@ -7,10 +18,10 @@ const LIST_DAY_PATTERNS = [
   /\bplans?\s+for\s+(?:today|tomorrow)\b/i,
   /\b(?:today|tomorrow)(?:'s)?\s+plans?\b/i,
   /\bagenda\b/i,
-  /\b(?:сьогодні|сегодня|today)\b/i,
-  /\b(?:завтра|tomorrow)\b/i,
+  new RegExp(`${CALENDAR_WORD_EDGE}(?:сьогодні|сегодня|today)${CALENDAR_WORD_END}`, 'iu'),
+  new RegExp(`${CALENDAR_WORD_EDGE}(?:завтра|tomorrow)${CALENDAR_WORD_END}`, 'iu'),
   /\b(?:які|which|what).{0,24}(?:задачі|tasks?|events?|meetings?)/i,
-  /\b(?:какие|які|what|which|сколько|скільки).{0,32}(?:задач|tasks?|events?|meetings?)/i,
+  /(?:какие|какая|які|what|which|сколько|скільки).{0,32}(?:задач|tasks?|events?|meetings?)/iu,
 ];
 
 function isListDayQuery(transcript: string) {
@@ -20,10 +31,10 @@ function isListDayQuery(transcript: string) {
 }
 
 const AT_TIME_PATTERNS = [
-  /\b(?:at|@|в|на|о)\s+\d/i,
+  new RegExp(`${CALENDAR_WORD_EDGE}${CLOCK_PREPOSITION}\\s+\\d`, 'iu'),
   /\b\d{1,2}\s*(?:am|pm)\b/i,
   /\b\d{1,2}:\d{2}\b/,
-  /\b(?:в|на)\s+\d{1,2}/iu,
+  new RegExp(`${CALENDAR_WORD_EDGE}${CLOCK_PREPOSITION}\\s+\\d{1,2}`, 'iu'),
   /\b(?:о|в)\s+семь/i,
   /\b7\s*pm\b/i,
   /\b19:?\d{0,2}\b/,
@@ -92,9 +103,10 @@ export function classifyCalendarQueryIntent(transcript: string): CalendarQueryIn
     return 'count_at_time';
   }
 
+  const hasClock = extractCalendarClockFragment(normalized) !== null;
   const asksEventsAtClock =
-    AT_TIME_PATTERNS.some((pattern) => pattern.test(normalized)) &&
-    /\b(?:what is|what's|что|що|скільки|сколько|how many|at|@|в|на|о)\b/i.test(normalized);
+    (AT_TIME_PATTERNS.some((pattern) => pattern.test(normalized)) || hasClock) &&
+    asksAboutEventsAtClock(normalized);
 
   if (asksEventsAtClock && !/\b(?:full list|all tasks|agenda|plans?\s+for)\b/i.test(normalized)) {
     return 'events_at_time';

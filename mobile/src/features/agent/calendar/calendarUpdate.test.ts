@@ -13,6 +13,7 @@ import {
   extractCalendarUpdateParameters,
   extractUpdateEventTitle,
 } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
+import { findCalendarEventForUpdateFromEvents } from '@/src/features/agent/calendarIntelligence/eventAtTimeMatch';
 import {
   buildTranscriptFromPendingContext,
   tryMergePendingCalendarUpdateReply,
@@ -23,7 +24,7 @@ import { createCalendarToolSuccess } from '@/src/features/agent/execution/calend
 import { mergeActionContextFromHistory } from '@/src/features/agent/intent/actionContextMerge';
 
 const transcript = 'Move dinner from 7 PM to 8 PM';
-const referenceNow = new Date('2026-05-28T15:00:00');
+const referenceNow = new Date('2026-05-28T15:00:00-05:00');
 
 function dinnerEvent(): CalendarEvent {
   const start = new Date(referenceNow);
@@ -61,13 +62,9 @@ describe('calendar update integration', () => {
       return;
     }
 
-    const from = new Date(shift.fromMs);
-    const to = new Date(shift.toMs);
-
-    assert.equal(from.getHours(), 19);
-    assert.equal(to.getHours(), 20);
-    assert.equal(to.getTime() - from.getTime(), 60 * 60 * 1000);
-    assert.equal(from.getDate(), to.getDate());
+    assert.equal(shift.fromMinutes, 19 * 60);
+    assert.equal(shift.toMinutes, 20 * 60);
+    assert.equal(shift.toMs - shift.fromMs, 60 * 60 * 1000);
   });
 
   it('builds PATCH payload that moves dinner from 7 PM to 8 PM preserving duration', () => {
@@ -246,5 +243,82 @@ describe('calendar update integration', () => {
   it('extracts update title without create-style confidence gating', () => {
     assert.equal(extractUpdateEventTitle('Move dinner from 7 PM to 8 PM'), 'dinner');
     assert.equal(extractUpdateEventTitle('Перенеси чаепитие с 17:30 на 18:30'), 'чаепитие');
+  });
+
+  it('parses Russian split-minute update shift', () => {
+    const shift = parseCalendarUpdateTimeShift(
+      'Перенеси чаепитие с 17 и 30 на 18:30',
+      referenceNow,
+    );
+
+    assert.equal(shift.ok, true);
+
+    if (!shift.ok) {
+      return;
+    }
+
+    assert.equal(shift.fromMinutes, 17 * 60 + 30);
+    assert.equal(shift.toMinutes, 18 * 60 + 30);
+  });
+
+  it('parses evening meridiem on destination update shift', () => {
+    const shift = parseCalendarUpdateTimeShift(
+      'Перенеси чаепитие с 5:30 на 6:30 вечера',
+      referenceNow,
+    );
+
+    assert.equal(shift.ok, true);
+
+    if (!shift.ok) {
+      return;
+    }
+
+    assert.equal(shift.fromMinutes, 17 * 60 + 30);
+    assert.equal(shift.toMinutes, 18 * 60 + 30);
+  });
+
+  it('finds the same event for update that READ resolves at 17:30', () => {
+    const teaParty = (() => {
+      const start = new Date('2026-05-28T17:30:00-05:00');
+      const end = new Date('2026-05-28T18:00:00-05:00');
+
+      return {
+        id: 'evt-tea',
+        title: 'чаепитие',
+        startsAt: start.toISOString(),
+        endsAt: end.toISOString(),
+        isAllDay: false,
+      } satisfies CalendarEvent;
+    })();
+
+    const updateTranscript = 'Перенеси чаепитие с 17:30 на 18:30';
+    const resolved = findCalendarEventForUpdateFromEvents({
+      transcript: updateTranscript,
+      referenceNow,
+      events: [teaParty],
+      titleQuery: 'чаепитие',
+    });
+
+    assert.equal(resolved.match?.id, 'evt-tea');
+    assert.equal(resolved.clockMinutes, 17 * 60 + 30);
+  });
+
+  it('finds event for split-minute update shift', () => {
+    const teaParty = {
+      id: 'evt-tea',
+      title: 'чаепитие',
+      startsAt: '2026-05-28T22:30:00.000Z',
+      endsAt: '2026-05-28T23:00:00.000Z',
+      isAllDay: false,
+    } satisfies CalendarEvent;
+
+    const resolved = findCalendarEventForUpdateFromEvents({
+      transcript: 'Перенеси чаепитие с 17 и 30 на 18:30',
+      referenceNow,
+      events: [teaParty],
+      titleQuery: 'чаепитие',
+    });
+
+    assert.equal(resolved.match?.id, 'evt-tea');
   });
 });

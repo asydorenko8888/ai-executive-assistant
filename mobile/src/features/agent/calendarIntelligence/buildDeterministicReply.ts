@@ -49,6 +49,16 @@ export async function tryBuildDeterministicCalendarReply(params: {
           day,
         });
 
+  const { logReadEventListForDiagnostics } = await import(
+    '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics'
+  );
+
+  logReadEventListForDiagnostics({
+    transcript: params.transcript,
+    dayDateKey: day.dateKey,
+    events: rawEvents,
+  });
+
   const answer = buildDeterministicCalendarAnswer({
     transcript: params.transcript,
     events: rawEvents,

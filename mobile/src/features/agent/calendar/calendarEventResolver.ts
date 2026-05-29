@@ -120,7 +120,9 @@ export async function resolveCalendarEventCandidates(params: {
   targetMs?: number | null;
   referenceNow: Date;
   minScore?: number;
+  logUpdateDiagnostics?: boolean;
 }) {
+  const minScore = params.minScore ?? 40;
   const events = await loadEventsForResolution({ referenceNow: params.referenceNow });
   const upcoming = filterUpcomingTimedEvents(events, params.referenceNow);
   const titleMatches = searchEventsByTitle(upcoming, params.titleQuery);
@@ -134,8 +136,23 @@ export async function resolveCalendarEventCandidates(params: {
         score: entry.titleScore + timeScore,
       };
     })
-    .filter((entry) => entry.score >= (params.minScore ?? 40))
+    .filter((entry) => entry.score >= minScore)
     .sort((left, right) => right.score - left.score);
+
+  const match = ranked[0]?.event ?? null;
+
+  if (params.logUpdateDiagnostics) {
+    const { logUpdateResolutionDiagnostics } = await import(
+      '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics'
+    );
+
+    logUpdateResolutionDiagnostics({
+      titleQuery: params.titleQuery,
+      targetMs: params.targetMs ?? null,
+      rawEvents: events,
+      upcomingEvents: upcoming,
+    });
+  }
 
   logCalendarRefresh('resolve_candidates', {
     titleQuery: params.titleQuery,
@@ -150,7 +167,7 @@ export async function resolveCalendarEventCandidates(params: {
   });
 
   return {
-    match: ranked[0]?.event ?? null,
+    match,
     candidates: ranked,
     eventsScanned: upcoming.length,
   };

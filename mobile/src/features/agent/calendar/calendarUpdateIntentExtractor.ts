@@ -23,10 +23,10 @@ export type CalendarUpdateExtractResult = {
   readyToExecute: boolean;
 };
 
-function formatClockLabel(instant: Date) {
+function formatClockLabelFromMinutes(clockMinutes: number) {
   const pad = (value: number) => String(value).padStart(2, '0');
 
-  return `${pad(instant.getHours())}:${pad(instant.getMinutes())}`;
+  return `${pad(Math.floor(clockMinutes / 60))}:${pad(clockMinutes % 60)}`;
 }
 
 export function extractUpdateEventTitle(transcript: string) {
@@ -59,8 +59,8 @@ export function extractCalendarUpdateParameters(
   if (shift.ok) {
     fromMs = shift.fromMs;
     toMs = shift.toMs;
-    fromTime = formatClockLabel(new Date(shift.fromMs));
-    toTime = formatClockLabel(new Date(shift.toMs));
+    fromTime = formatClockLabelFromMinutes(shift.fromMinutes);
+    toTime = formatClockLabelFromMinutes(shift.toMinutes);
   }
 
   const missingFields: CalendarUpdateMissingField[] = [];
