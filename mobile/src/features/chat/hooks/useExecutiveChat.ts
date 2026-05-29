@@ -420,7 +420,6 @@ export function useExecutiveChat() {
       const intentSystemMessages = turn.intentPrompt
         ? [createConversationMessage('system', turn.intentPrompt)]
         : [];
-      const referenceNow = new Date(orchestrator.context.now);
       const visibleCalendarEvents = getAssistantVisibleCalendarEvents(
         orchestrator.snapshot,
         referenceNow,
