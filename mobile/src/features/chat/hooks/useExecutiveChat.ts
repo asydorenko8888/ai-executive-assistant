@@ -9,6 +9,7 @@ import {
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
+import { isCalendarAgendaQuery } from '@/src/features/agent/calendar/calendarAgendaSync';
 import { warnIfFalseExecutionClaim, enforceCalendarReplyIfNeeded } from '@/src/features/agent/capabilityHonesty';
 import {
   finalizeTurnReply,
@@ -41,6 +42,7 @@ import {
   prepareMemoryPromptContext,
   upsertLongTermMemories,
 } from '@/src/features/chat/memory';
+import { buildShortTermMemory } from '@/src/features/chat/memory/shortTermMemory';
 import {
   isAbortError,
   logAssistantConversation,
@@ -392,7 +394,13 @@ export function useExecutiveChat() {
         };
       }
 
-      const memoryContext = await prepareMemoryPromptContext(nextMessages);
+      const memoryContext = isCalendarAgendaQuery(turn.userTranscript)
+        ? {
+            systemMessages: [],
+            shortTermMemory: buildShortTermMemory(nextMessages),
+            relevantLongTermMemories: [],
+          }
+        : await prepareMemoryPromptContext(nextMessages);
       coordinator.touch(requestId);
 
       if (requiresCalendarToolExecution(turn.userTranscript)) {

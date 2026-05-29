@@ -57,6 +57,10 @@ const CALENDAR_LIST_QUESTION_PATTERNS: RegExp[] = [
   /\b(?:розклад|календар).{0,20}(?:сьогодні|завтра|today|tomorrow)\b/i,
   /\bmeetings?\s+today\b/i,
   /\bзустріч.{0,12}сьогодні/i,
+  /\b(?:завтра|tomorrow).{0,32}(?:задач|tasks?|events?|що|что|what)\b/i,
+  /\b(?:какие|які).{0,20}задач[аи]?\s+завтра/i,
+  /\bчто\s+у\s+меня\s+завтра/i,
+  /\bщо\s+у\s+мене\s+завтра/i,
 ];
 
 export function isCalendarListQuestion(transcript: string) {

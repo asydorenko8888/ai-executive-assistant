@@ -117,7 +117,7 @@ function calculateTimePressure(eventsCount: number, busyMinutes: number, hasBack
   return 'light';
 }
 
-function buildCalendarSummary(
+export function buildCalendarSummary(
   events: CalendarEvent[],
   connection: CalendarConnection,
   referenceDate: Date,
@@ -281,7 +281,11 @@ export async function getGoogleCalendarMorningContext(referenceDate: string): Pr
     : parsedReferenceDate;
 
   const remoteEvents = await fetchGoogleCalendarEventsForAgenda(effectiveReferenceDate);
-  const calendarEvents = mergeCalendarEventLists(getLiveCalendarEvents(), remoteEvents);
+  const liveEvents = getLiveCalendarEvents();
+  const calendarEvents =
+    liveEvents.length > 0
+      ? mergeCalendarEventLists(liveEvents, remoteEvents)
+      : sortEventsChronologically(remoteEvents);
   const upcomingEvents = filterUpcomingTimedEvents(calendarEvents, effectiveReferenceDate);
 
   console.log('[Calendar Audit] getGoogleCalendarMorningContext — fetched real events', {

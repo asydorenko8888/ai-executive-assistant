@@ -2,7 +2,7 @@ import type { CalendarEvent } from '@/src/entities/calendar/types';
 import {
   fetchGoogleCalendarEventByIdFromBackend,
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
-import { refreshAgendaVisibilityState } from '@/src/features/agent/calendar/calendarAgendaRefresh';
+import { refreshCalendarStateAfterMutation } from '@/src/features/agent/calendar/calendarAgendaSync';
 import {
   logCalendarCreate,
   logCalendarRefresh,
@@ -84,9 +84,10 @@ export async function refreshCalendarStateAfterCreate(params: {
     });
   }
 
-  const agenda = await refreshAgendaVisibilityState({
+  const agenda = await refreshCalendarStateAfterMutation({
     referenceNow: params.referenceNow,
     eventId: params.eventId,
+    eventStartIso: params.startIso,
     reason: 'post_create',
   });
 
@@ -106,9 +107,9 @@ export async function refreshCalendarStateAfterCreate(params: {
 export async function refreshCalendarAgendaState(referenceNow: Date) {
   logAgendaRefresh('manual_refresh', { referenceNow: referenceNow.toISOString() });
 
-  const agenda = await refreshAgendaVisibilityState({
+  const agenda = await refreshCalendarStateAfterMutation({
     referenceNow,
-    reason: 'agenda_sync',
+    reason: 'post_mutation',
   });
 
   return agenda.horizonEvents;

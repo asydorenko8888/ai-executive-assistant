@@ -2,6 +2,7 @@ import type { CalendarEvent } from '@/src/entities/calendar/types';
 import { buildHumanizedCalendarGuidanceLine } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import { filterVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarVisibleEvents';
 import { formatTimeInLocalTimezone } from '@/src/features/agent/calendar/calendarTime';
+import { isCalendarAgendaQuery } from '@/src/features/agent/calendar/calendarAgendaSync';
 import type { ExecutiveAgentSnapshot } from '@/src/features/agent/types';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -40,7 +41,15 @@ export function buildAssistantCalendarContextLines(params: {
   userTranscript?: string;
 }): string[] {
   const visibleEvents = getAssistantVisibleCalendarEvents(params.snapshot, params.referenceNow);
-  const lines = [buildAssistantVisibleCalendarEventsLine(visibleEvents)];
+  const lines: string[] = [];
+
+  if (params.userTranscript && isCalendarAgendaQuery(params.userTranscript)) {
+    lines.push(
+      'Calendar agenda query: answer ONLY from the authoritative Google Calendar list in this turn. Ignore earlier chat turns, rolling session summaries, voice session facts, and memory about prior schedule answers.',
+    );
+  }
+
+  lines.push(buildAssistantVisibleCalendarEventsLine(visibleEvents));
 
   if (params.languageCode) {
     const guidance = buildHumanizedCalendarGuidanceLine({

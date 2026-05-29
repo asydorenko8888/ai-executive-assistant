@@ -305,13 +305,20 @@ export function buildVoiceSessionContext(memory: VoiceSessionMemory): VoiceSessi
   };
 }
 
+const CALENDAR_AGENDA_MEMORY_PATTERN =
+  /\b(?:calendar|schedule|agenda|meeting|event|зустріч|встреч|календар|розклад|задач|tasks?|planned|запланован)\b/i;
+
 export function buildVoiceSessionSystemPrompt(
   memory: VoiceSessionMemory,
-  options?: { suppressEmotionalContinuation?: boolean },
+  options?: {
+    suppressEmotionalContinuation?: boolean;
+    suppressCalendarAgendaMemory?: boolean;
+  },
 ): string | null {
   const { state, rollingSummary, recentTurns } = buildVoiceSessionContext(memory);
   const segments: string[] = [];
   const suppressEmotionalContinuation = options?.suppressEmotionalContinuation ?? false;
+  const suppressCalendarAgendaMemory = options?.suppressCalendarAgendaMemory ?? false;
 
   segments.push(
     suppressEmotionalContinuation
@@ -335,7 +342,11 @@ export function buildVoiceSessionSystemPrompt(
     segments.push(`User tone: ${state.emotionalTone}. Stay calm, practical, slightly caring — not robotic.`);
   }
 
-  if (state.lastAssistantRecommendation && !suppressEmotionalContinuation) {
+  if (
+    state.lastAssistantRecommendation &&
+    !suppressEmotionalContinuation &&
+    !(suppressCalendarAgendaMemory && CALENDAR_AGENDA_MEMORY_PATTERN.test(state.lastAssistantRecommendation))
+  ) {
     segments.push(
       `Your previous recommendation in this session: "${state.lastAssistantRecommendation}". Do not contradict it unless the new message changes the situation.`,
     );

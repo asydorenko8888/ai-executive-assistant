@@ -1,6 +1,10 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import type { ChatMessage } from '@/src/entities/chat/types';
-import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
+import { tryBuildCalendarAgendaListReply } from '@/src/features/agent/calendar/calendarAgendaListReply';
+import {
+  ensureFreshCalendarForAgendaTurn,
+  isCalendarAgendaQuery,
+} from '@/src/features/agent/calendar/calendarAgendaSync';
 import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import type { ExecutiveAgentOrchestrator } from '@/src/features/agent/agentOrchestrator';
 import {
@@ -325,15 +329,18 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     dayOfWeek: factualGrounding.snapshot.dayOfWeekEn,
   });
 
-  const calendarEvents = getAssistantVisibleCalendarEvents(
-    params.orchestrator.snapshot,
-    params.referenceNow,
-  );
   const { refreshCalendarAuthCapabilities } = await import(
     '@/src/features/agent/calendar/calendarAuthCapabilities'
   );
   const calendarAuth = await refreshCalendarAuthCapabilities({ heal: true });
   const calendarConnected = calendarAuth.canReadCalendar;
+  const calendarEvents = await ensureFreshCalendarForAgendaTurn({
+    orchestrator: params.orchestrator,
+    referenceNow: params.referenceNow,
+    userTranscript,
+    calendarConnected,
+  });
+  const suppressCalendarAgendaMemory = isCalendarAgendaQuery(userTranscript);
 
   if (behavior.mode === 'CLARIFICATION_MODE' && behavior.clarificationReply) {
     logTurnPipeline('route selected', {
@@ -485,6 +492,43 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       }
     }
 
+    const agendaListReply = tryBuildCalendarAgendaListReply({
+      transcript: userTranscript,
+      events: calendarEvents,
+      languageCode: params.languageCode,
+      referenceNow: params.referenceNow,
+    });
+
+    if (agendaListReply) {
+      logTurnPipeline('route selected', {
+        route: 'advisory_local',
+        behaviorMode: behavior.mode,
+        emotionalFallback: false,
+        agendaList: true,
+      });
+
+      return {
+        route: 'advisory_local',
+        intent,
+        reply: guardAgainstRepeatedAssistantResponse({
+          messages: params.messages,
+          candidateReply: agendaListReply,
+          languageCode: params.languageCode,
+          calendarConnected,
+          referenceNow: params.referenceNow,
+        }),
+        intentPrompt: [behaviorPrompt, buildIntentPrioritySystemPrompt(intent)].filter(Boolean).join(' '),
+        userTranscript,
+        latestUserMessageId: userMessage?.id ?? null,
+        executionState: 'conversational',
+        operationalStarted: false,
+        responseMode: 'factual',
+        factualGroundingStatus: factualGrounding.snapshot.status,
+        behaviorMode: behavior.mode,
+        selectedTool: 'none',
+      };
+    }
+
     const sessionContext = buildVoiceSessionContext(
       buildVoiceSessionMemoryFromMessages(params.messages),
     );
@@ -493,7 +537,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       visibleEvents: calendarEvents,
       languageCode: params.languageCode,
       referenceNow: params.referenceNow,
-      sessionContext,
+      sessionContext: suppressCalendarAgendaMemory ? null : sessionContext,
     });
 
     if (humanizedReply) {

@@ -3,11 +3,13 @@ import type { GoogleCalendarBackendEvent } from '@/src/features/agent/calendar/g
 import { fetchGoogleCalendarEventsFromBackend } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import {
   mergeCalendarEventLists,
-  setLiveCalendarEvents,
+  replaceLiveCalendarEvents,
 } from '@/src/features/agent/calendar/calendarLiveState';
 import {
-  getLocalDayBounds,
   getCalendarAgendaWindow,
+  getLocalDayBounds,
+  getLocalStartOfDay,
+  parseGoogleCalendarInstant,
 } from '@/src/features/agent/calendar/calendarTime';
 import { logAgendaRefresh, logCalendarRefresh } from '@/src/features/agent/calendar/calendarPipelineLogger';
 import { queryClient } from '@/src/shared/api/query-client';
@@ -78,18 +80,55 @@ export async function invalidateCalendarVisibilityCaches(referenceNow: Date) {
   await queryClient.refetchQueries({ queryKey: queryKeys.agent.homePreview() });
 }
 
+function uniqueDayOffsets(offsets: number[]) {
+  return Array.from(new Set(offsets.filter((offset) => Number.isFinite(offset) && offset >= 0 && offset <= 14)));
+}
+
+function resolveFocusDayOffsets(
+  referenceNow: Date,
+  focusDayOffsets?: number[],
+  eventStartIso?: string | null,
+) {
+  const offsets = new Set<number>(focusDayOffsets ?? [0, 1]);
+
+  if (eventStartIso) {
+    const parsed = parseGoogleCalendarInstant(eventStartIso);
+
+    if (parsed !== null) {
+      const refDay = getLocalStartOfDay(referenceNow).getTime();
+      const eventDay = getLocalStartOfDay(new Date(parsed)).getTime();
+      const dayOffset = Math.round((eventDay - refDay) / 86400000);
+      offsets.add(dayOffset);
+      offsets.add(0);
+      offsets.add(1);
+    }
+  }
+
+  return uniqueDayOffsets([...offsets]);
+}
+
 export async function refreshAgendaVisibilityState(params: {
   referenceNow: Date;
   eventId?: string | null;
-  reason: 'post_create' | 'manual' | 'agenda_sync';
+  reason: 'post_create' | 'post_mutation' | 'manual' | 'agenda_sync';
+  focusDayOffsets?: number[];
+  eventStartIso?: string | null;
 }) {
   logAgendaRefresh('start', {
     reason: params.reason,
     eventId: params.eventId ?? null,
   });
 
+  const focusOffsets = resolveFocusDayOffsets(
+    params.referenceNow,
+    params.focusDayOffsets,
+    params.eventStartIso ?? null,
+  );
   const window = getCalendarAgendaWindow(params.referenceNow);
-  const [todayEvents, tomorrowEvents, horizonListed] = await Promise.all([
+  const focusedDayFetches = focusOffsets.map((dayOffset: number) =>
+    fetchEventsForDay(params.referenceNow, dayOffset),
+  );
+  const [todayEvents, tomorrowEvents, horizonListed, ...extraFocusedEvents] = await Promise.all([
     fetchEventsForDay(params.referenceNow, 0),
     fetchEventsForDay(params.referenceNow, 1),
     fetchGoogleCalendarEventsFromBackend({
@@ -101,12 +140,17 @@ export async function refreshAgendaVisibilityState(params: {
       });
       return null;
     }),
+    ...focusedDayFetches,
   ]);
 
   const horizonEvents = (horizonListed?.events ?? []).map(mapBackendEvent);
-  const merged = mergeCalendarEventLists(horizonEvents, [...todayEvents, ...tomorrowEvents]);
+  const dayScopedEvents = mergeCalendarEventLists(
+    todayEvents,
+    mergeCalendarEventLists(tomorrowEvents, extraFocusedEvents.flat()),
+  );
+  const merged = mergeCalendarEventLists(dayScopedEvents, horizonEvents);
 
-  setLiveCalendarEvents(merged);
+  replaceLiveCalendarEvents(merged);
 
   logAgendaRefresh('live_state_updated', {
     todayCount: todayEvents.length,

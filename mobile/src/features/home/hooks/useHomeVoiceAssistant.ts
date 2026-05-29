@@ -11,6 +11,7 @@ import {
   createExecutiveAgentOrchestrator,
 } from '@/src/features/agent';
 import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarAssistantContext';
+import { isCalendarAgendaQuery } from '@/src/features/agent/calendar/calendarAgendaSync';
 import { warnIfFalseExecutionClaim, enforceCalendarReplyIfNeeded } from '@/src/features/agent/capabilityHonesty';
 import {
   finalizeTurnReply,
@@ -19,6 +20,7 @@ import {
 } from '@/src/features/agent/conversation/assistantTurnPipeline';
 import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
 import { prepareMemoryPromptContext } from '@/src/features/chat/memory';
+import { buildShortTermMemory } from '@/src/features/chat/memory/shortTermMemory';
 import {
   buildAssistantRecoveryMessage,
   createAssistantRequestAbortController,
@@ -284,10 +286,17 @@ export function useHomeVoiceAssistant() {
 
         try {
           requestAbort.touch();
-          const memoryContext = await prepareMemoryPromptContext(payloadMessages);
+          const memoryContext = isCalendarAgendaQuery(trimmedTranscript)
+            ? {
+                systemMessages: [],
+                shortTermMemory: buildShortTermMemory(payloadMessages),
+                relevantLongTermMemories: [],
+              }
+            : await prepareMemoryPromptContext(payloadMessages);
           requestAbort.touch();
           const voiceSessionPrompt = buildVoiceSessionSystemPrompt(voiceSession, {
             suppressEmotionalContinuation: turn.intent.shouldBypassEmotionalRouting,
+            suppressCalendarAgendaMemory: isCalendarAgendaQuery(trimmedTranscript),
           });
           const systemMessages = [
             ...memoryContext.systemMessages,
