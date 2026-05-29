@@ -4,6 +4,10 @@ export type SpokenUrgency = 'immediate' | 'soon' | 'relaxed' | 'free';
 
 export type SpokenDayLoad = 'empty' | 'light' | 'steady' | 'overloaded';
 
+export type CalendarAgendaQueryIntent = 'calendar_query' | 'schedule_query' | 'agenda_query';
+
+export const CALENDAR_AGENDA_SENTENCE_LIMIT = 20;
+
 export type FormatVoiceResponseOptions = {
   maxSentences?: number;
   urgency?: SpokenUrgency;
@@ -14,7 +18,29 @@ export type FormatVoiceResponseOptions = {
   userTranscript?: string;
   /** Skip sentence limits (e.g. calendar agenda listing). */
   preserveFullCalendarList?: boolean;
+  /** Explicit calendar read intent — never truncate agenda output. */
+  queryIntent?: CalendarAgendaQueryIntent | string | null;
 };
+
+const CALENDAR_AGENDA_QUERY_INTENTS = new Set<CalendarAgendaQueryIntent>([
+  'calendar_query',
+  'schedule_query',
+  'agenda_query',
+]);
+
+const CALENDAR_AGENDA_RESPONSE_MARKERS: RegExp[] = [
+  /запланированы\s+следующие\s+задачи/i,
+  /следующие\s+задачи/i,
+  /у\s+тебя\s+запланировано/i,
+  /задачи\s+на\s+завтра/i,
+  /задачи\s+на\s+сегодня/i,
+  /на\s+сьогодні\s+заплановано/i,
+  /на\s+завтра\s+заплановано/i,
+  /visible google calendar events/i,
+  /authoritative list/i,
+  /\bhere(?:'s| is) your (?:schedule|agenda)\b/i,
+  /\b(?:events?|meetings?) for today\b/i,
+];
 
 const CALENDAR_LIST_QUESTION_PATTERNS: RegExp[] = [
   /\bagenda\b/i,
@@ -43,12 +69,99 @@ export function isCalendarListQuestion(transcript: string) {
   return CALENDAR_LIST_QUESTION_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
-function wantsFullCalendarListOutput(options: FormatVoiceResponseOptions) {
+export function isCalendarAgendaQueryIntent(
+  intent: string | null | undefined,
+): intent is CalendarAgendaQueryIntent {
+  return Boolean(intent && CALENDAR_AGENDA_QUERY_INTENTS.has(intent as CalendarAgendaQueryIntent));
+}
+
+export function classifyCalendarAgendaQueryIntent(transcript: string): CalendarAgendaQueryIntent | null {
+  const normalized = transcript.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (/\bagenda\b/i.test(normalized)) {
+    return 'agenda_query';
+  }
+
+  if (/\b(?:schedule|розклад)\b/i.test(normalized)) {
+    return 'schedule_query';
+  }
+
+  if (
+    isCalendarListQuestion(normalized) ||
+    /\b(?:календар|calendar|зустріч|встреч|meetings?|задач|tasks?|events?)\b/i.test(normalized)
+  ) {
+    return 'calendar_query';
+  }
+
+  return null;
+}
+
+export function hasNumberedAgendaList(text: string) {
+  const matches = text.match(/(?:^|\n)\s*\d+[\.\):\-]\s+\S+/g);
+
+  return (matches?.length ?? 0) >= 2;
+}
+
+export function isCalendarAgendaResponseText(text: string) {
+  const normalized = text.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  if (CALENDAR_AGENDA_RESPONSE_MARKERS.some((pattern) => pattern.test(normalized))) {
+    return true;
+  }
+
+  if (hasNumberedAgendaList(normalized)) {
+    return true;
+  }
+
+  const semicolonSeparatedItems = normalized
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  return semicolonSeparatedItems.length >= 3;
+}
+
+export function shouldPreserveFullCalendarAgenda(
+  responseText: string,
+  options: FormatVoiceResponseOptions = {},
+) {
   if (options.preserveFullCalendarList) {
     return true;
   }
 
-  return options.userTranscript ? isCalendarListQuestion(options.userTranscript) : false;
+  if (isCalendarAgendaQueryIntent(options.queryIntent)) {
+    return true;
+  }
+
+  if (options.userTranscript) {
+    const classified = classifyCalendarAgendaQueryIntent(options.userTranscript);
+
+    if (classified) {
+      return true;
+    }
+
+    if (isCalendarListQuestion(options.userTranscript)) {
+      return true;
+    }
+  }
+
+  return isCalendarAgendaResponseText(responseText);
+}
+
+function resolveVoiceSentenceLimit(responseText: string, options: FormatVoiceResponseOptions) {
+  if (shouldPreserveFullCalendarAgenda(responseText, options)) {
+    return CALENDAR_AGENDA_SENTENCE_LIMIT;
+  }
+
+  return options.maxSentences ?? 2;
 }
 
 const ROBOTIC_SPEECH_PATTERNS: RegExp[] = [
@@ -191,8 +304,8 @@ function compressForListening(text: string) {
  */
 export function formatVoiceResponse(text: string, options: FormatVoiceResponseOptions = {}) {
   const urgency = options.urgency ?? 'relaxed';
-  const fullCalendarList = wantsFullCalendarListOutput(options);
-  const maxSentences = fullCalendarList ? undefined : (options.maxSentences ?? 2);
+  const preserveAgenda = shouldPreserveFullCalendarAgenda(text, options);
+  const maxSentences = resolveVoiceSentenceLimit(text, options);
 
   if (!text.trim()) {
     return '';
@@ -200,25 +313,24 @@ export function formatVoiceResponse(text: string, options: FormatVoiceResponseOp
 
   const sanitized = sanitizeRoboticSpeech(text);
 
-  if (fullCalendarList) {
-    const compressed = compressForListening(sanitized);
-
+  if (preserveAgenda) {
     console.log('[Voice Premium] formatVoiceResponse', {
       urgency,
-      maxSentences: 'full',
-      calendarListQuestion: true,
+      maxSentences: CALENDAR_AGENDA_SENTENCE_LIMIT,
+      preserveAgenda: true,
+      queryIntent: options.queryIntent ?? classifyCalendarAgendaQueryIntent(options.userTranscript ?? ''),
       inputLength: text.length,
-      outputLength: compressed.length,
-      preview: compressed.slice(0, 240),
+      outputLength: sanitized.length,
+      preview: sanitized.slice(0, 320),
     });
 
-    return compressed;
+    return sanitized;
   }
 
-  const limited = limitSpokenSentences(sanitized, maxSentences ?? 2);
+  const limited = limitSpokenSentences(sanitized, maxSentences);
   const paced = options.preserveSentences
     ? limited
-    : injectSpokenPauses(limited, urgency, maxSentences ?? 2);
+    : injectSpokenPauses(limited, urgency, maxSentences);
   const compressed = compressForListening(paced);
 
   console.log('[Voice Premium] formatVoiceResponse', {

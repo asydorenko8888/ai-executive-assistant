@@ -21,6 +21,8 @@ export type WeatherSummary = {
 };
 
 export type AgendaItem = {
+  id?: string;
+  startsAt?: string;
   time: string;
   title: string;
   detail: string;

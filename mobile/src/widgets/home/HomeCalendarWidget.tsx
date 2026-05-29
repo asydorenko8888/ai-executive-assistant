@@ -35,8 +35,11 @@ export function HomeCalendarWidget({ agenda }: HomeCalendarWidgetProps) {
       />
 
       <View style={styles.agendaList}>
-        {agenda.map((item) => (
-          <View key={item.time} style={styles.agendaItem}>
+        {agenda.map((item, index) => (
+          <View
+            key={item.id ?? `${item.startsAt ?? item.time}-${item.title}-${index}`}
+            style={styles.agendaItem}
+          >
             <Text style={styles.agendaTime}>{item.time}</Text>
             <View style={styles.agendaContent}>
               <Text style={styles.agendaTitle}>{item.title}</Text>

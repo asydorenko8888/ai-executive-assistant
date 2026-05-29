@@ -38,7 +38,10 @@ import {
   requiresCalendarToolExecution,
 } from '@/src/features/agent/calendar/calendarToolExecutionGate';
 import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
-import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
+import {
+  classifyCalendarAgendaQueryIntent,
+  formatVoiceResponse,
+} from '@/src/features/voice/speech/voiceSpeechFormatter';
 import {
   isSpeechSynthesisSupported,
   speakText,
@@ -137,6 +140,7 @@ export function useHomeVoiceAssistant() {
         urgency,
         locale: getChatLocaleFromVoiceLanguage(languageCodeRef.current),
         userTranscript,
+        queryIntent: classifyCalendarAgendaQueryIntent(userTranscript),
       }),
     [],
   );

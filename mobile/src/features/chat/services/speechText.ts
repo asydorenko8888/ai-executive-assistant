@@ -8,11 +8,17 @@ export function prepareTextForSpeech(text: string) {
     .trim();
 }
 
+import { shouldPreserveFullCalendarAgenda } from '@/src/features/voice/speech/voiceSpeechFormatter';
+
 export function splitTextForSpeech(text: string, maxSentences = 6) {
   const prepared = prepareTextForSpeech(text);
 
   if (!prepared) {
     return [];
+  }
+
+  if (shouldPreserveFullCalendarAgenda(prepared)) {
+    return [prepared];
   }
 
   const sentences = prepared

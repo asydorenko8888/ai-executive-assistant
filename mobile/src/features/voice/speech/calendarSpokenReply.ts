@@ -13,9 +13,9 @@ import { enrichTranscriptWithSessionContext } from '@/src/features/voice/memory/
 import { buildDetailedLunchTimeSpeech } from '@/src/features/voice/speech/calendarLunchTimeSpeech';
 import { buildSituationalSpeechDraft } from '@/src/features/voice/speech/calendarSituationalSpeech';
 import {
+  classifyCalendarAgendaQueryIntent,
   formatSpokenMinutesUntil,
   formatVoiceResponse,
-  isCalendarListQuestion,
   joinSpokenClauses,
   resolveSpokenDayLoad,
   resolveSpokenUrgency,
@@ -255,7 +255,8 @@ export function tryBuildSpokenCalendarReply(params: {
   });
   const dayLoad = situation.dayLoad;
   const contextualTranscriptForFormat = contextualTranscript || params.transcript;
-  const preserveFullCalendarList = isCalendarListQuestion(contextualTranscriptForFormat);
+  const queryIntent = classifyCalendarAgendaQueryIntent(contextualTranscriptForFormat);
+  const preserveFullCalendarList = Boolean(queryIntent);
 
   if (params.visibleEvents.length === 0) {
     const situationalDraft = buildSituationalSpeechDraft(situation, locale);
@@ -302,6 +303,7 @@ export function tryBuildSpokenCalendarReply(params: {
     maxSentences: detailedDraft ? 4 : 2,
     preserveSentences: Boolean(detailedDraft) || preserveFullCalendarList,
     userTranscript: contextualTranscriptForFormat,
+    queryIntent,
     preserveFullCalendarList,
   });
 

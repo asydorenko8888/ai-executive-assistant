@@ -26,6 +26,8 @@ export function mapCalendarEventsToAgenda(
     const locationLabel = event.location ? formatLocationShort(event.location) || event.location : '';
 
     return {
+      id: event.id,
+      startsAt: event.startsAt,
       time: formatTimeInLocalTimezone(event.startsAt),
       title: event.title,
       detail: locationLabel || 'Calendar event',

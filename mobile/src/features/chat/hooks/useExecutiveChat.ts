@@ -24,7 +24,10 @@ import {
   runCalendarAuthAndResume,
   type CalendarOperationalUxPhase,
 } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
-import { formatVoiceResponse } from '@/src/features/voice/speech/voiceSpeechFormatter';
+import {
+  classifyCalendarAgendaQueryIntent,
+  formatVoiceResponse,
+} from '@/src/features/voice/speech/voiceSpeechFormatter';
 import { executiveChatThread } from '@/src/features/chat/data/chatSeed';
 import {
   createAssistantRequestCoordinator,
@@ -519,6 +522,7 @@ export function useExecutiveChat() {
               maxSentences: 2,
               locale: getChatLocaleFromVoiceLanguage(voiceLanguage),
               userTranscript: latestUserTranscript,
+              queryIntent: classifyCalendarAgendaQueryIntent(latestUserTranscript),
             })
           : assistantReply;
       const orchestrator = await createExecutiveAgentOrchestrator({
