@@ -1,13 +1,21 @@
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
+import {
+  buildCalendarDeleteAllDayNotSupportedReply,
+  buildCalendarDeleteAmbiguousReply,
+  buildCalendarDeleteNotFoundReply,
+  buildCalendarDeleteRecurringNotSupportedReply,
+} from '@/src/features/agent/calendar/calendarDeleteNaturalReplies';
 import { buildNaturalCalendarDeleteSuccessReply } from '@/src/features/agent/execution/calendarDeleteSuccessReply';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 
 export type CalendarDeleteToolReplyBundle = {
   tool: CalendarToolResponse;
   reply: string;
   spokenReply: string;
   executionState: CalendarExecutionState;
+  requiresCalendarAuth?: boolean;
 };
 
 function mapToolStatusToExecutionState(tool: CalendarToolResponse): CalendarExecutionState {
@@ -16,10 +24,35 @@ function mapToolStatusToExecutionState(tool: CalendarToolResponse): CalendarExec
   }
 
   if (tool.status === 'PENDING') {
-    return 'authenticating';
+    return tool.errorCode === 'CALENDAR_AUTH_REQUIRED' ? 'authenticating' : 'verifying_event';
   }
 
   return 'failed';
+}
+
+function buildNaturalDeleteFailureReply(
+  tool: CalendarToolResponse,
+  languageCode: VoiceLanguageCode,
+): string | null {
+  const locale = getChatLocaleFromVoiceLanguage(languageCode);
+
+  if (tool.errorCode === 'CALENDAR_EVENT_NOT_FOUND') {
+    return buildCalendarDeleteNotFoundReply(locale);
+  }
+
+  if (tool.errorCode === 'CALENDAR_EVENT_AMBIGUOUS') {
+    return buildCalendarDeleteAmbiguousReply(locale);
+  }
+
+  if (tool.errorCode === 'CALENDAR_RECURRING_NOT_SUPPORTED') {
+    return buildCalendarDeleteRecurringNotSupportedReply(locale);
+  }
+
+  if (tool.errorCode === 'CALENDAR_ALL_DAY_NOT_SUPPORTED') {
+    return buildCalendarDeleteAllDayNotSupportedReply(locale);
+  }
+
+  return null;
 }
 
 export function buildCalendarDeleteToolReplyBundle(
@@ -39,12 +72,33 @@ export function buildCalendarDeleteToolReplyBundle(
       reply: copy.reply,
       spokenReply: copy.spokenReply,
       executionState: 'success',
+      requiresCalendarAuth: false,
+    };
+  }
+
+  const naturalFailure = buildNaturalDeleteFailureReply(tool, languageCode);
+
+  if (naturalFailure) {
+    return {
+      tool,
+      reply: naturalFailure,
+      spokenReply: naturalFailure,
+      executionState: 'failed',
+      requiresCalendarAuth: false,
     };
   }
 
   if (tool.status === 'PENDING') {
-    const text = `PENDING: ${tool.errorCode ?? 'PENDING'}`;
-    return { tool, reply: text, spokenReply: text, executionState: 'authenticating' };
+    const code = tool.errorCode ?? 'PENDING';
+    const text = `PENDING: ${code}`;
+
+    return {
+      tool,
+      reply: text,
+      spokenReply: text,
+      executionState: mapToolStatusToExecutionState(tool),
+      requiresCalendarAuth: tool.errorCode === 'CALENDAR_AUTH_REQUIRED',
+    };
   }
 
   const code = tool.errorCode ?? 'UNKNOWN';
@@ -56,5 +110,10 @@ export function buildCalendarDeleteToolReplyBundle(
     reply: text,
     spokenReply: text,
     executionState: mapToolStatusToExecutionState(tool),
+    requiresCalendarAuth:
+      tool.errorCode === 'CALENDAR_AUTH_REQUIRED' ||
+      tool.errorCode === 'WRITE_SCOPE_MISSING' ||
+      tool.errorCode === 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED' ||
+      tool.errorCode === 'GOOGLE_WRITE_PERMISSION_MISSING',
   };
 }

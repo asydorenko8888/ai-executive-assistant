@@ -1,5 +1,5 @@
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
-import { findCalendarEventForDelete } from '@/src/features/agent/calendar/calendarEventMatcher';
+import { resolveCalendarDeleteTarget } from '@/src/features/agent/calendar/calendarDeleteEventResolver';
 import { refreshCalendarAgendaState } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { deleteGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarDeleteService';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
@@ -81,12 +81,12 @@ export async function executeCalendarDeleteEvent(
   }
 
   try {
-    const matchResult = await findCalendarEventForDelete({
+    const resolution = await resolveCalendarDeleteTarget({
       transcript: params.transcript,
       referenceNow: params.referenceNow,
     });
 
-    if (!matchResult.match) {
+    if (resolution.status === 'not_found') {
       endCalendarOperation({ failed: true });
       const tool = createCalendarToolFailure(
         'CALENDAR_EVENT_NOT_FOUND',
@@ -100,13 +100,55 @@ export async function executeCalendarDeleteEvent(
       };
     }
 
+    if (resolution.status === 'ambiguous') {
+      endCalendarOperation({ failed: true });
+      const tool = createCalendarToolFailure(
+        'CALENDAR_EVENT_AMBIGUOUS',
+        'Multiple matching calendar events found.',
+      );
+      return {
+        ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
+          referenceNow: params.referenceNow,
+        }),
+        verified: false,
+      };
+    }
+
+    if (resolution.status === 'recurring_not_supported') {
+      endCalendarOperation({ failed: true });
+      const tool = createCalendarToolFailure(
+        'CALENDAR_RECURRING_NOT_SUPPORTED',
+        'Recurring calendar event deletion is not supported yet.',
+      );
+      return {
+        ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
+          referenceNow: params.referenceNow,
+        }),
+        verified: false,
+      };
+    }
+
+    if (resolution.status === 'all_day_not_supported') {
+      endCalendarOperation({ failed: true });
+      const tool = createCalendarToolFailure(
+        'CALENDAR_ALL_DAY_NOT_SUPPORTED',
+        'All-day calendar event deletion is not supported yet.',
+      );
+      return {
+        ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
+          referenceNow: params.referenceNow,
+        }),
+        verified: false,
+      };
+    }
+
     logCalendarCreate('delete match', {
-      eventId: matchResult.match.id,
-      title: matchResult.match.title,
-      startsAt: matchResult.match.startsAt,
+      eventId: resolution.event.id,
+      title: resolution.event.title,
+      startsAt: resolution.event.startsAt,
     });
 
-    const tool: CalendarToolResponse = await deleteGoogleCalendarEvent(matchResult.match.id);
+    const tool: CalendarToolResponse = await deleteGoogleCalendarEvent(resolution.event.id);
 
     if (tool.status === 'SUCCESS') {
       await refreshCalendarAgendaState(params.referenceNow).catch((error) => {

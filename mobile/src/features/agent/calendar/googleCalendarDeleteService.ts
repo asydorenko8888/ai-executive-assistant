@@ -34,7 +34,11 @@ export async function deleteGoogleCalendarEvent(eventId: string): Promise<Calend
       verified: response.verified,
     });
 
-    if (!response.verified || !response.event?.id) {
+    if (
+      !response.verified ||
+      !response.verificationFetched ||
+      !response.event?.id
+    ) {
       return createCalendarToolFailure('VERIFY_FAILED', 'Google Calendar did not confirm deletion.');
     }
 

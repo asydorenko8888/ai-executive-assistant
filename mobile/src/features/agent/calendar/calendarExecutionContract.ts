@@ -48,7 +48,12 @@ export function isTerminalCalendarToolReply(text: string) {
     normalized.includes('Я добавил:') ||
     normalized.includes('Я видалив:') ||
     normalized.includes('Я удалил:') ||
-    normalized.includes('I removed:')
+    normalized.includes('Я удалил событие:') ||
+    normalized.includes('I deleted the event:') ||
+    normalized.includes('Я не нашёл такое событие') ||
+    normalized.includes('Я нашёл несколько похожих') ||
+    normalized.includes('I could not find that event') ||
+    normalized.includes('I found several similar events')
   );
 }
 
@@ -64,7 +69,13 @@ export function isVerifiedCalendarCreateSuccess(tool: CalendarToolResponse | nul
 }
 
 export function isVerifiedCalendarDeleteSuccess(tool: CalendarToolResponse | null | undefined) {
-  return Boolean(tool && tool.status === 'SUCCESS' && tool.verified && tool.eventId);
+  return Boolean(
+    tool &&
+      tool.status === 'SUCCESS' &&
+      tool.verified &&
+      tool.verificationFetched &&
+      tool.eventId,
+  );
 }
 
 export function isVerifiedCalendarUpdateSuccess(tool: CalendarToolResponse | null | undefined) {
@@ -157,6 +168,13 @@ export function assertCalendarReplyMatchesTool(params: {
       return buildFailureTerminalReply(
         'CALENDAR_EXECUTION_CONTRACT',
         'update success reply blocked — missing verified eventId',
+      );
+    }
+
+    if (params.intent === 'delete_calendar_event' && !isVerifiedCalendarDeleteSuccess(params.tool)) {
+      return buildFailureTerminalReply(
+        'CALENDAR_EXECUTION_CONTRACT',
+        'delete success reply blocked — missing verified delete confirmation',
       );
     }
 

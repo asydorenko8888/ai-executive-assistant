@@ -6,17 +6,15 @@ import {
 import {
   buildFailureTerminalReply,
   isVerifiedCalendarCreateSuccess,
+  isVerifiedCalendarDeleteSuccess,
   isVerifiedCalendarUpdateSuccess,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
 import {
   extractCalendarCommand,
   isCalendarExtractionExecutable,
 } from '@/src/features/agent/calendar/calendarCommandExtractor';
-import {
-  buildCalendarDeleteDisabledReply,
-  CALENDAR_DELETE_DISABLED_CODE,
-} from '@/src/features/agent/calendar/calendarDeleteDisabledReply';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
+import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
 import { executeCalendarUpdateEvent } from '@/src/features/agent/execution/calendarUpdateEventExecutor';
 import type { CalendarToolStatus } from '@/src/features/agent/execution/calendarToolContract';
 import {
@@ -81,37 +79,46 @@ export async function executeCalendarCommand(params: {
   }
 
   if (intent === 'delete_calendar_event') {
-    logCalendarToolSelected({ intent, tool: 'delete_disabled_pending_resolution' });
+    logCalendarToolSelected({ intent, tool: 'google_calendar_delete_event' });
 
-    const disabledReply = buildCalendarDeleteDisabledReply(params.languageCode);
+    const outcome = await executeCalendarDeleteEvent({
+      transcript: params.transcript,
+      languageCode: params.languageCode,
+      referenceNow: params.referenceNow,
+    });
+
+    const contractOk = isVerifiedCalendarDeleteSuccess(outcome.tool);
+    const terminalReply =
+      outcome.tool.status === 'SUCCESS' && !contractOk
+        ? buildFailureTerminalReply(
+            'CALENDAR_EXECUTION_CONTRACT',
+            'API reported success but verified delete confirmation is missing',
+          )
+        : outcome.reply;
 
     setLastCalendarCommandOutcome({
       intent,
-      tool: {
-        status: 'FAILURE',
-        verified: false,
-        verificationFetched: false,
-        errorCode: 'CALENDAR_DATE_PARSE_FAILED',
-        error: `${CALENDAR_DELETE_DISABLED_CODE}: ${disabledReply}`,
-      },
-      terminalReply: disabledReply,
-      verified: false,
+      tool: outcome.tool,
+      terminalReply,
+      verified: contractOk,
     });
 
     logCalendarTerminalReply({
       intent,
-      tool: null,
-      replyPreview: disabledReply,
+      tool: outcome.tool,
+      replyPreview: terminalReply,
     });
 
     return {
       matched: true,
       intent,
-      reply: disabledReply,
-      spokenReply: disabledReply,
-      toolStatus: 'FAILURE',
-      executionState: 'tool_failure',
-      verified: false,
+      reply: terminalReply,
+      spokenReply: outcome.spokenReply,
+      toolStatus: contractOk ? 'SUCCESS' : outcome.tool.status === 'SUCCESS' ? 'FAILURE' : outcome.tool.status,
+      executionState: contractOk ? 'tool_success' : mapExecutionState(outcome.tool.status),
+      verified: contractOk,
+      requiresCalendarAuth: outcome.requiresCalendarAuth,
+      eventId: outcome.tool.eventId ?? null,
     };
   }
 
