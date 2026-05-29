@@ -1,8 +1,8 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import {
   parseCalendarClockMinutes,
-  parseCalendarTimeShift,
 } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
+import { parseCalendarUpdateSchedule, resolveUpdateTargetMs } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import { logUpdateMatch, logUpdateRequest } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import { logDeleteCandidate, logDeleteNotFoundReason } from '@/src/features/agent/calendar/calendarDeleteDiagnostics';
 import { normalizeCalendarEvents } from '@/src/features/agent/calendarIntelligence/normalizeEvents';
@@ -25,6 +25,87 @@ function tokenize(value: string) {
     .filter((token) => token.length >= 2);
 }
 
+function normalizeTitleToken(token: string) {
+  let normalized = token;
+
+  if (/^[A-Za-zА-Яа-яЁёІіЇїЄє'-]+у$/u.test(normalized) && normalized.length >= 4) {
+    normalized = `${normalized.slice(0, -1)}а`;
+  }
+
+  return normalized;
+}
+
+function titleTokenStem(token: string) {
+  const normalized = normalizeTitleToken(token);
+
+  if (normalized.length >= 6) {
+    return normalized.slice(0, 5);
+  }
+
+  if (normalized.length >= 4) {
+    return normalized.slice(0, 4);
+  }
+
+  return normalized;
+}
+
+function levenshteinDistance(left: string, right: string) {
+  const rows = left.length + 1;
+  const cols = right.length + 1;
+  const matrix = Array.from({ length: rows }, () => Array<number>(cols).fill(0));
+
+  for (let row = 0; row < rows; row += 1) {
+    matrix[row][0] = row;
+  }
+
+  for (let col = 0; col < cols; col += 1) {
+    matrix[0][col] = col;
+  }
+
+  for (let row = 1; row < rows; row += 1) {
+    for (let col = 1; col < cols; col += 1) {
+      const cost = left[row - 1] === right[col - 1] ? 0 : 1;
+      matrix[row][col] = Math.min(
+        matrix[row - 1][col] + 1,
+        matrix[row][col - 1] + 1,
+        matrix[row - 1][col - 1] + cost,
+      );
+    }
+  }
+
+  return matrix[rows - 1][cols - 1];
+}
+
+function tokensRoughlyMatch(queryToken: string, eventToken: string) {
+  const query = normalizeTitleToken(queryToken);
+  const event = normalizeTitleToken(eventToken);
+
+  if (query === event) {
+    return true;
+  }
+
+  if (query.includes(event) || event.includes(query)) {
+    return true;
+  }
+
+  const queryStem = titleTokenStem(query);
+  const eventStem = titleTokenStem(event);
+
+  if (
+    queryStem.length >= 4 &&
+    eventStem.length >= 4 &&
+    (queryStem.startsWith(eventStem) || eventStem.startsWith(queryStem))
+  ) {
+    return true;
+  }
+
+  if (query.length >= 5 && event.length >= 5) {
+    return levenshteinDistance(query, event) <= 2;
+  }
+
+  return false;
+}
+
 function scoreTitleMatch(titleQuery: string, eventTitle: string) {
   const queryNorm = normalizeMatchText(titleQuery);
 
@@ -43,8 +124,10 @@ function scoreTitleMatch(titleQuery: string, eventTitle: string) {
   }
 
   const queryTokens = tokenize(queryNorm);
-  const eventTokens = new Set(tokenize(eventNorm));
-  const overlap = queryTokens.filter((token) => eventTokens.has(token)).length;
+  const eventTokens = tokenize(eventNorm);
+  const overlap = queryTokens.filter((token) =>
+    eventTokens.some((eventToken) => tokensRoughlyMatch(token, eventToken)),
+  ).length;
 
   return overlap > 0 ? Math.round((overlap / queryTokens.length) * 70) : 0;
 }
@@ -177,6 +260,47 @@ export function findCalendarEventAtTimeFromEvents(params: {
   };
 }
 
+function findUpdateMatchByTitle(params: {
+  events: CalendarEvent[];
+  titleQuery: string;
+  timeZone: string;
+  referenceNow: Date;
+}) {
+  const day = resolveTargetDayContext('сегодня', params.referenceNow, params.timeZone);
+  const normalized = normalizeCalendarEvents(params.events, params.timeZone);
+  const dayEvents = getEventsForDay(normalized, day);
+  const ranked = dayEvents
+    .map((event) => ({
+      event,
+      score: scoreTitleMatch(params.titleQuery, event.title),
+    }))
+    .filter((entry) => entry.score >= 50)
+    .sort((left, right) => right.score - left.score);
+
+  if (ranked.length === 0) {
+    return { match: null, candidates: [] as CalendarEvent[] };
+  }
+
+  if (ranked.length > 1 && ranked[0].score - ranked[1].score < 10) {
+    const strong = ranked.filter((entry) => entry.score >= Math.max(50, ranked[0].score - 5));
+
+    if (strong.length > 1) {
+      return {
+        match: null,
+        candidates: strong.map((entry) => params.events.find((event) => event.id === entry.event.id)!).filter(Boolean),
+      };
+    }
+  }
+
+  const selected = ranked[0].event;
+  const match = params.events.find((event) => event.id === selected.id) ?? null;
+
+  return {
+    match,
+    candidates: match ? [match] : [],
+  };
+}
+
 export function findCalendarEventForUpdateFromEvents(params: {
   transcript: string;
   referenceNow: Date;
@@ -190,28 +314,89 @@ export function findCalendarEventForUpdateFromEvents(params: {
   candidates: CalendarEvent[];
   fromMs: number | null;
   toMs: number | null;
-  matchSource: 'pinned_read' | 'starting_at_time' | 'title_rank' | 'none';
+  matchSource: 'pinned_read' | 'starting_at_time' | 'title_only' | 'title_rank' | 'none';
 } {
   const timeZone = params.timeZone ?? resolveTargetDayContext(params.transcript, params.referenceNow).timezone;
-  const shift = parseCalendarTimeShift(params.transcript, params.referenceNow, timeZone);
+  const schedule = parseCalendarUpdateSchedule(params.transcript, params.referenceNow, timeZone);
+  const titleQuery = params.titleQuery.trim();
 
-  if (!shift.ok) {
+  if (!schedule.ok) {
+    if (!titleQuery) {
+      return {
+        match: null,
+        titleQuery,
+        clockMinutes: null,
+        candidates: [],
+        fromMs: null,
+        toMs: null,
+        matchSource: 'none',
+      };
+    }
+
+    const titleOnly = findUpdateMatchByTitle({
+      events: params.events,
+      titleQuery,
+      timeZone,
+      referenceNow: params.referenceNow,
+    });
+
     return {
-      match: null,
-      titleQuery: params.titleQuery,
+      match: titleOnly.match,
+      titleQuery,
       clockMinutes: null,
-      candidates: [],
-      fromMs: null,
+      candidates: titleOnly.candidates,
+      fromMs: titleOnly.match ? Date.parse(titleOnly.match.startsAt) : null,
       toMs: null,
-      matchSource: 'none',
+      matchSource: titleOnly.match ? 'title_only' : 'none',
+    };
+  }
+
+  if (schedule.kind === 'destination' || schedule.kind === 'relative_offset') {
+    const titleMatch = findUpdateMatchByTitle({
+      events: params.events,
+      titleQuery,
+      timeZone,
+      referenceNow: params.referenceNow,
+    });
+
+    const matchedStartMs = titleMatch.match ? Date.parse(titleMatch.match.startsAt) : null;
+    const toMs =
+      matchedStartMs === null || Number.isNaN(matchedStartMs)
+        ? null
+        : resolveUpdateTargetMs({ schedule, matchedEventStartMs: matchedStartMs });
+
+    logUpdateRequest({
+      transcript: params.transcript,
+      titleQuery,
+      fromTime: matchedStartMs ? formatClockLabel(getZonedClockMinutes(matchedStartMs, timeZone)) : 'unknown',
+      toTime: toMs ? formatClockLabel(getZonedClockMinutes(toMs, timeZone)) : 'unknown',
+      pinnedEventId: getLastCalendarReadMatch()?.eventId ?? null,
+    });
+
+    logUpdateMatch({
+      titleQuery,
+      fromTime: matchedStartMs ? formatClockLabel(getZonedClockMinutes(matchedStartMs, timeZone)) : 'unknown',
+      match: titleMatch.match,
+      source: titleMatch.match ? 'title_rank' : 'none',
+      candidateCount: titleMatch.candidates.length,
+    });
+
+    return {
+      match: titleMatch.match,
+      titleQuery,
+      clockMinutes: matchedStartMs ? getZonedClockMinutes(matchedStartMs, timeZone) : null,
+      candidates: titleMatch.candidates,
+      fromMs: matchedStartMs,
+      toMs,
+      matchSource: titleMatch.match ? 'title_only' : 'none',
     };
   }
 
   logUpdateRequest({
     transcript: params.transcript,
-    titleQuery: params.titleQuery,
-    fromTime: formatClockLabel(shift.fromMinutes),
-    toTime: formatClockLabel(shift.toMinutes),
+    titleQuery,
+    fromTime: formatClockLabel(schedule.fromMinutes),
+    toTime: formatClockLabel(schedule.toMinutes),
     pinnedEventId: getLastCalendarReadMatch()?.eventId ?? null,
   });
 
@@ -219,15 +404,15 @@ export function findCalendarEventForUpdateFromEvents(params: {
     events: params.events,
     transcript: params.transcript,
     referenceNow: params.referenceNow,
-    titleQuery: params.titleQuery,
-    clockMinutes: shift.fromMinutes,
+    titleQuery,
+    clockMinutes: schedule.fromMinutes,
     timeZone,
     matchMode: 'starting_at_time',
   });
 
   logUpdateMatch({
-    titleQuery: params.titleQuery,
-    fromTime: formatClockLabel(shift.fromMinutes),
+    titleQuery,
+    fromTime: formatClockLabel(schedule.fromMinutes),
     match: resolved.match,
     source: resolved.matchSource,
     candidateCount: resolved.candidates.length,
@@ -235,9 +420,23 @@ export function findCalendarEventForUpdateFromEvents(params: {
 
   return {
     ...resolved,
-    fromMs: shift.fromMs,
-    toMs: shift.toMs,
+    fromMs: schedule.fromMs,
+    toMs: schedule.toMs,
   };
+}
+
+function getZonedClockMinutes(instantMs: number, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false,
+  }).formatToParts(new Date(instantMs));
+
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? 0);
+
+  return hour * 60 + minute;
 }
 
 export type CalendarDeleteEventMatchResult = {

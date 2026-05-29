@@ -8,7 +8,7 @@ import {
   isTerminalCalendarToolReply,
   isVerifiedCalendarUpdateSuccess,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
-import { parseCalendarUpdateTimeShift, stripCalendarUpdateTimeShiftPhrases } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import { parseCalendarUpdateSchedule, parseCalendarUpdateTimeShift, stripCalendarUpdateTimeShiftPhrases } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import {
   extractCalendarUpdateParameters,
   extractUpdateEventTitle,
@@ -22,6 +22,7 @@ import { verifyUpdatedEventMatchesPayload } from '@/src/features/agent/calendar/
 import { buildCalendarUpdateEventPayload } from '@/src/features/agent/execution/calendarUpdatePayloadBuilder';
 import { createCalendarToolSuccess } from '@/src/features/agent/execution/calendarToolContract';
 import { mergeActionContextFromHistory } from '@/src/features/agent/intent/actionContextMerge';
+import { isOperationalCalendarUpdateRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 
 const transcript = 'Move dinner from 7 PM to 8 PM';
 const referenceNow = new Date('2026-05-28T15:00:00-05:00');
@@ -320,5 +321,107 @@ describe('calendar update integration', () => {
     });
 
     assert.equal(resolved.match?.id, 'evt-tea');
+  });
+
+  it('detects imperfect Ukrainian/Russian update verbs as update_calendar_event', () => {
+    assert.equal(isOperationalCalendarUpdateRequest('переносы прогулянку'), true);
+    assert.equal(detectCalendarCommandIntent('переносы прогулянку'), 'update_calendar_event');
+    assert.equal(detectCalendarCommandIntent('перенеси прогулку на завтра в 15:00'), 'update_calendar_event');
+    assert.equal(detectCalendarCommandIntent('здвинь прогулянку на час позже'), 'update_calendar_event');
+  });
+
+  it('extracts title from imperfect mutation phrases', () => {
+    assert.equal(extractUpdateEventTitle('переносы прогулянку'), 'прогулянка');
+    assert.equal(extractUpdateEventTitle('перенеси прогулку на завтра в 15:00'), 'прогулка');
+    assert.equal(extractUpdateEventTitle('здвинь прогулянку на час позже'), 'прогулянка');
+  });
+
+  it('parses destination and relative update schedules', () => {
+    const destination = parseCalendarUpdateSchedule(
+      'перенеси прогулку на завтра в 15:00',
+      referenceNow,
+    );
+
+    assert.equal(destination.ok, true);
+
+    if (destination.ok) {
+      assert.equal(destination.kind, 'destination');
+    }
+
+    const relative = parseCalendarUpdateSchedule('здвинь прогулянку на час позже', referenceNow);
+
+    assert.equal(relative.ok, true);
+
+    if (relative.ok) {
+      assert.equal(relative.kind, 'relative_offset');
+      assert.equal(relative.offsetMs, 60 * 60_000);
+      assert.equal(relative.direction, 'later');
+    }
+  });
+
+  it('fuzzy-matches misspelled titles against existing events', () => {
+    const walkEvent = {
+      id: 'evt-walk',
+      title: 'Прогулка',
+      startsAt: '2026-05-28T14:00:00-05:00',
+      endsAt: '2026-05-28T15:00:00-05:00',
+      isAllDay: false,
+    } satisfies CalendarEvent;
+
+    const resolved = findCalendarEventForUpdateFromEvents({
+      transcript: 'здвинь прогулянку на час позже',
+      referenceNow,
+      events: [walkEvent],
+      titleQuery: 'прогулянка',
+    });
+
+    assert.equal(resolved.match?.id, 'evt-walk');
+    assert.equal(resolved.toMs, Date.parse('2026-05-28T14:00:00-05:00') + 60 * 60_000);
+  });
+
+  it('asks for time when update title is present without schedule, then resumes pending update', () => {
+    const incomplete = extractCalendarUpdateParameters('перенеси прогулянку', referenceNow);
+
+    assert.equal(incomplete.title, 'прогулянка');
+    assert.equal(incomplete.readyToExecute, false);
+    assert.ok(incomplete.missingFields.includes('fromTime'));
+
+    const pending = {
+      operation: 'update' as const,
+      title: incomplete.title,
+      fromTime: incomplete.fromTime,
+      toTime: incomplete.toTime,
+      sourceTranscript: 'перенеси прогулянку',
+    };
+
+    const merged = tryMergePendingCalendarUpdateReply({
+      pending,
+      reply: 'завтра в 15:00',
+      referenceNow,
+    });
+
+    assert.ok(merged);
+    assert.equal(merged?.readyToExecute, true);
+    assert.equal(merged?.context.toTime, '15:00');
+    assert.match(merged?.transcript ?? '', /прогулянк/i);
+    assert.match(merged?.transcript ?? '', /15:00/);
+
+    const walkEvent = {
+      id: 'evt-walk',
+      title: 'Прогулка',
+      startsAt: '2026-05-28T14:00:00-05:00',
+      endsAt: '2026-05-28T15:00:00-05:00',
+      isAllDay: false,
+    } satisfies CalendarEvent;
+
+    const resolved = findCalendarEventForUpdateFromEvents({
+      transcript: merged?.transcript ?? '',
+      referenceNow,
+      events: [walkEvent],
+      titleQuery: merged?.context.title ?? 'прогулянка',
+    });
+
+    assert.equal(resolved.match?.id, 'evt-walk');
+    assert.equal(resolved.toMs, Date.parse('2026-05-29T15:00:00-05:00'));
   });
 });

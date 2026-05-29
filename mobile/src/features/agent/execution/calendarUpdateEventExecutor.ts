@@ -11,7 +11,7 @@ import {
   logCalendarUpdateIntent,
   logUpdateExecutionStarted,
 } from '@/src/features/agent/calendar/calendarUpdateLogger';
-import { parseCalendarUpdateTimeShift } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import { parseCalendarUpdateSchedule } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import { buildCalendarUpdateEventPayload } from '@/src/features/agent/execution/calendarUpdatePayloadBuilder';
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import {
@@ -50,10 +50,10 @@ export async function executeCalendarUpdateEvent(
     transcriptPreview: params.transcript.slice(0, 120),
   });
 
-  const shift = parseCalendarUpdateTimeShift(params.transcript, params.referenceNow);
+  const schedule = parseCalendarUpdateSchedule(params.transcript, params.referenceNow);
 
-  if (!shift.ok) {
-    const tool = createCalendarToolFailure('CALENDAR_DATE_PARSE_FAILED', shift.detail);
+  if (!schedule.ok) {
+    const tool = createCalendarToolFailure('CALENDAR_DATE_PARSE_FAILED', schedule.detail);
     return {
       ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
         referenceNow: params.referenceNow,
@@ -109,7 +109,7 @@ export async function executeCalendarUpdateEvent(
     const matchResult = await findCalendarEventForUpdate({
       transcript: params.transcript,
       referenceNow: params.referenceNow,
-      fromMs: shift.fromMs,
+      fromMs: schedule.ok && schedule.kind === 'from_to' ? schedule.fromMs : undefined,
     });
 
     if (!matchResult.match) {
@@ -123,8 +123,8 @@ export async function executeCalendarUpdateEvent(
 
       logUpdateNotFound({
         requestedTitle: matchResult.titleQuery,
-        requestedFromTime: formatClock(shift.fromMs),
-        requestedToTime: formatClock(shift.toMs),
+        requestedFromTime: matchResult.targetMs ? formatClock(matchResult.targetMs) : 'unknown',
+        requestedToTime: matchResult.toMs ? formatClock(matchResult.toMs) : 'unknown',
       });
 
       const tool = createCalendarToolFailure(
@@ -167,8 +167,8 @@ export async function executeCalendarUpdateEvent(
     logCalendarUpdateIntent({
       eventId: payloadResult.eventId,
       title: matchResult.match.title,
-      fromMs: shift.fromMs,
-      toMs: shift.toMs,
+      fromMs: matchResult.targetMs ?? undefined,
+      toMs: payloadResult.toMs,
     });
 
     const tool: CalendarToolResponse = await updateGoogleCalendarEvent(

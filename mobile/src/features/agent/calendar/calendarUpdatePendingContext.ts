@@ -7,6 +7,8 @@ import type { PendingCalendarUpdateContext } from '@/src/features/agent/executio
 
 const TIME_ONLY_REPLY = /^(\d{1,2}:\d{2})$/;
 const BARE_HOUR_REPLY = /^(\d{1,2})$/;
+const SCHEDULE_FOLLOWUP_REPLY =
+  /(?:завтра|tomorrow|today|сьогодні|сегодня|післязавтра|послезавтра|\d{1,2}:\d{2}|на\s+\d)/iu;
 
 function usesCyrillicUpdateTemplate(sourceTranscript: string) {
   return /[а-яёіїєґ]/iu.test(sourceTranscript);
@@ -23,6 +25,10 @@ export function buildTranscriptFromPendingContext(context: PendingCalendarUpdate
     }
 
     return `Move ${title} from ${fromTime} to ${toTime}`;
+  }
+
+  if (title && toTime && !fromTime) {
+    return context.sourceTranscript.trim();
   }
 
   const fragments = [context.sourceTranscript.trim()];
@@ -74,9 +80,13 @@ export function tryMergePendingCalendarUpdateReply(params: {
     const improvesContext =
       (previewExtraction.title && !params.pending.title) ||
       (previewExtraction.fromTime && !params.pending.fromTime) ||
-      (previewExtraction.toTime && !params.pending.toTime);
+      (previewExtraction.toTime && !params.pending.toTime) ||
+      (previewExtraction.readyToExecute && !params.pending.toTime);
 
-    if (!improvesContext) {
+    if (
+      !improvesContext &&
+      !(SCHEDULE_FOLLOWUP_REPLY.test(reply) && (params.pending.title || params.pending.sourceTranscript))
+    ) {
       return null;
     }
   }
@@ -110,7 +120,9 @@ export function tryMergePendingCalendarUpdateReply(params: {
       next.toTime = normalized;
     }
   } else {
-    const combined = `${params.pending.sourceTranscript} ${reply}`.replace(/\s+/g, ' ').trim();
+    const combined = params.pending.title
+      ? `Перенеси ${params.pending.title} ${reply}`.replace(/\s+/g, ' ').trim()
+      : `${params.pending.sourceTranscript} ${reply}`.replace(/\s+/g, ' ').trim();
     const extraction = extractCalendarUpdateParameters(combined, params.referenceNow);
 
     next.title = extraction.title ?? next.title;

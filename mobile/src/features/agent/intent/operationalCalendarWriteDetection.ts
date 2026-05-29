@@ -2,6 +2,10 @@
  * Detects calendar create/update vs delete instructions (any supported language).
  */
 
+import {
+  RELATIVE_SHIFT_HINT,
+  UPDATE_WRITE_VERBS,
+} from '@/src/features/agent/calendar/calendarUpdateVerbs';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 
 function isExactTimeReadQuery(transcript: string) {
@@ -10,9 +14,6 @@ function isExactTimeReadQuery(transcript: string) {
 
 const CREATE_WRITE_VERBS =
   /(?:add|put|create|book|set\s*up|insert|schedule|внеси|внести|добав(?:ь|ьте|ить)|создай|создать|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|заплануй)/iu;
-
-const UPDATE_WRITE_VERBS =
-  /(?:update|move|reschedule|shift|перенеси|перенести|перенес(?:ь|ьте)|перенос)/iu;
 
 const DELETE_WRITE_VERBS =
   /(?:delete|remove|cancel|clear|удали|удалить|убери|отмени|отменить|прибери|скасуй|скасувати|видали|видалити)/iu;
@@ -53,6 +54,12 @@ const SCHEDULE_TIME_HINT =
 const WEEKDAY_HINT =
   /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес|понеділок|вівторок|середу|четвер|п'ятниц|субот|неділ)\b/iu;
 
+function hasBareUpdateTitleCandidate(transcript: string) {
+  const withoutVerb = transcript.replace(UPDATE_WRITE_VERBS, ' ').replace(/\s+/g, ' ').trim();
+
+  return withoutVerb.length >= 2;
+}
+
 export function isOperationalCalendarDeleteRequest(transcript: string) {
   const normalized = transcript.trim();
 
@@ -89,11 +96,16 @@ export function isOperationalCalendarUpdateRequest(transcript: string) {
     return false;
   }
 
-  return (
+  if (
     CALENDAR_DOMAIN.test(normalized) ||
     SCHEDULE_TIME_HINT.test(normalized) ||
-    WEEKDAY_HINT.test(normalized)
-  );
+    WEEKDAY_HINT.test(normalized) ||
+    RELATIVE_SHIFT_HINT.test(normalized)
+  ) {
+    return true;
+  }
+
+  return hasBareUpdateTitleCandidate(normalized);
 }
 
 export function isOperationalCalendarCreateRequest(transcript: string) {

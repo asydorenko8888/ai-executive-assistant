@@ -1,7 +1,11 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import { extractCalendarCommand } from '@/src/features/agent/calendar/calendarCommandExtractor';
 import { getBrowserTimezone } from '@/src/features/agent/calendar/calendarTime';
-import { parseCalendarUpdateTimeShift, stripCalendarUpdateTimeShiftPhrases } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import {
+  parseCalendarUpdateSchedule,
+  resolveUpdateTargetMs,
+  stripCalendarUpdateSchedulePhrases,
+} from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import type { CalendarUpdateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -33,19 +37,42 @@ export function buildCalendarUpdateEventPayload(params: {
   referenceNow: Date;
   matchedEvent: CalendarEvent;
 }): CalendarUpdatePayloadBuildResult {
-  const shift = parseCalendarUpdateTimeShift(params.transcript, params.referenceNow);
+  const schedule = parseCalendarUpdateSchedule(params.transcript, params.referenceNow);
 
-  if (!shift.ok) {
-    logCalendarCreate('update parsed payload', { ok: false, reason: shift.detail });
+  if (!schedule.ok) {
+    logCalendarCreate('update parsed payload', { ok: false, reason: schedule.detail });
     return {
       ok: false,
       reason: 'date_parse_failed',
-      detail: shift.detail,
+      detail: schedule.detail,
+    };
+  }
+
+  const matchedStartMs = Date.parse(params.matchedEvent.startsAt);
+
+  if (Number.isNaN(matchedStartMs)) {
+    return {
+      ok: false,
+      reason: 'event_not_found',
+      detail: 'Matched event has invalid start timestamp',
+    };
+  }
+
+  const targetToMs = resolveUpdateTargetMs({
+    schedule,
+    matchedEventStartMs: matchedStartMs,
+  });
+
+  if (targetToMs === null || Number.isNaN(targetToMs)) {
+    return {
+      ok: false,
+      reason: 'date_parse_failed',
+      detail: 'Could not resolve update destination time',
     };
   }
 
   const extraction = extractCalendarCommand({
-    transcript: stripCalendarUpdateTimeShiftPhrases(params.transcript),
+    transcript: stripCalendarUpdateSchedulePhrases(params.transcript),
     referenceNow: params.referenceNow,
   });
 
@@ -59,10 +86,9 @@ export function buildCalendarUpdateEventPayload(params: {
     };
   }
 
-  const matchedStartMs = Date.parse(params.matchedEvent.startsAt);
   const matchedEndMs = Date.parse(params.matchedEvent.endsAt);
 
-  if (Number.isNaN(matchedStartMs) || Number.isNaN(matchedEndMs)) {
+  if (Number.isNaN(matchedEndMs)) {
     return {
       ok: false,
       reason: 'event_not_found',
@@ -71,7 +97,7 @@ export function buildCalendarUpdateEventPayload(params: {
   }
 
   const durationMs = Math.max(matchedEndMs - matchedStartMs, 30 * 60_000);
-  const newStart = new Date(shift.toMs);
+  const newStart = new Date(targetToMs);
   const newEnd = new Date(newStart.getTime() + durationMs);
   const timeZone = getBrowserTimezone();
 
@@ -91,8 +117,8 @@ export function buildCalendarUpdateEventPayload(params: {
     ok: true,
     eventId: params.matchedEvent.id,
     title: payload.summary,
-    fromMs: shift.fromMs,
-    toMs: shift.toMs,
+    fromMs: matchedStartMs,
+    toMs: targetToMs,
     start: payload.start,
     end: payload.end,
     languageCode: params.languageCode,
@@ -103,7 +129,7 @@ export function buildCalendarUpdateEventPayload(params: {
     eventId: params.matchedEvent.id,
     payload,
     matchedEvent: params.matchedEvent,
-    fromMs: shift.fromMs,
-    toMs: shift.toMs,
+    fromMs: matchedStartMs,
+    toMs: targetToMs,
   };
 }

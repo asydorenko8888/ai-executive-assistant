@@ -32,7 +32,7 @@ import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/c
 import { detectCalendarCommandIntent, requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
 import { executeCalendarCommand } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import { assertCalendarReplyMatchesTool } from '@/src/features/agent/calendar/calendarExecutionContract';
-import { getLastCalendarCommandOutcome, setPendingCalendarUpdateContext } from '@/src/features/agent/execution/calendarExecutionSession';
+import { getLastCalendarCommandOutcome, getPendingCalendarUpdateContext, setPendingCalendarUpdateContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import { extractCalendarUpdateParameters } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import {
   logCalendarUpdateClarification,
@@ -354,7 +354,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const suppressCalendarAgendaMemory =
     isCalendarAgendaQuery(userTranscript) || isDeterministicCalendarReadQuery(userTranscript);
 
-  if (isDeterministicCalendarReadQuery(userTranscript) && calendarConnected) {
+  if (isDeterministicCalendarReadQuery(userTranscript) && calendarConnected && !getPendingCalendarUpdateContext()) {
     const deterministicCalendarReply = await tryBuildDeterministicCalendarReply({
       transcript: userTranscript,
       languageCode: params.languageCode,
