@@ -1,5 +1,8 @@
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
-import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
+import {
+  buildFailureTerminalReply,
+  isVerifiedCalendarUpdateSuccess,
+} from '@/src/features/agent/calendar/calendarExecutionContract';
 import { buildNaturalCalendarUpdateSuccessReply } from '@/src/features/agent/execution/calendarUpdateSuccessReply';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -29,7 +32,7 @@ export function buildCalendarUpdateToolReplyBundle(
   languageCode: VoiceLanguageCode,
   options?: { referenceNow?: Date },
 ): CalendarUpdateToolReplyBundle {
-  if (tool.status === 'SUCCESS' && tool.event) {
+  if (tool.status === 'SUCCESS' && isVerifiedCalendarUpdateSuccess(tool) && tool.event) {
     const copy = buildNaturalCalendarUpdateSuccessReply({
       event: tool.event,
       languageCode,

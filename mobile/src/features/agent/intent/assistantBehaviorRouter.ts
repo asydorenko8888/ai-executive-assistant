@@ -127,7 +127,8 @@ export function resolveAssistantBehavior(params: {
     messages: params.messages,
   });
   const actionTranscript = contextMerge.mergedTranscript;
-  const explicitAction = hasExplicitActionVerb(actionTranscript);
+  const explicitAction =
+    hasExplicitActionVerb(actionTranscript) || contextMerge.contextSource === 'clarification_followup';
   const fieldValidation = validateActionFields({
     transcript: actionTranscript,
     referenceNow: params.referenceNow,

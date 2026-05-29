@@ -506,11 +506,135 @@ function toCreateFallbackFromUpdate(payload: UpdateGoogleCalendarEventBody): Cre
   };
 }
 
-function updateEventsRoughlyMatch(fetched: CreatedGoogleCalendarEvent, payload: UpdateGoogleCalendarEventBody) {
-  const startMatches = fetched.startsAt.slice(0, 16) === payload.start.dateTime.slice(0, 16);
-  const endMatches = fetched.endsAt.slice(0, 16) === payload.end.dateTime.slice(0, 16);
+const UPDATE_VERIFY_TOLERANCE_MS = 60_000;
 
-  return startMatches && endMatches;
+type WallClockParts = {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+};
+
+function parseWallClock(dateTime: string): WallClockParts | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(dateTime.trim());
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    year: Number(match[1]),
+    month: Number(match[2]),
+    day: Number(match[3]),
+    hour: Number(match[4]),
+    minute: Number(match[5]),
+    second: Number(match[6]),
+  };
+}
+
+function getZonedParts(instant: Date, timeZone: string): WallClockParts {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(instant);
+
+  return {
+    year: Number(parts.find((part) => part.type === 'year')?.value),
+    month: Number(parts.find((part) => part.type === 'month')?.value),
+    day: Number(parts.find((part) => part.type === 'day')?.value),
+    hour: Number(parts.find((part) => part.type === 'hour')?.value),
+    minute: Number(parts.find((part) => part.type === 'minute')?.value),
+    second: Number(parts.find((part) => part.type === 'second')?.value),
+  };
+}
+
+function wallClockToUtcMs(parts: WallClockParts, timeZone: string): number | null {
+  if (
+    !Number.isFinite(parts.year) ||
+    !Number.isFinite(parts.month) ||
+    !Number.isFinite(parts.day) ||
+    !Number.isFinite(parts.hour)
+  ) {
+    return null;
+  }
+
+  let utcGuess = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const zoned = getZonedParts(new Date(utcGuess), timeZone);
+    const desiredAsUtc = Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      parts.second,
+    );
+    const actualAsUtc = Date.UTC(
+      zoned.year,
+      zoned.month - 1,
+      zoned.day,
+      zoned.hour,
+      zoned.minute,
+      zoned.second,
+    );
+    const delta = desiredAsUtc - actualAsUtc;
+
+    if (delta === 0) {
+      return utcGuess;
+    }
+
+    utcGuess += delta;
+  }
+
+  return utcGuess;
+}
+
+function payloadInstant(dateTime: string, timeZone: string): number | null {
+  const wallClock = parseWallClock(dateTime);
+
+  if (!wallClock) {
+    return null;
+  }
+
+  return wallClockToUtcMs(wallClock, timeZone);
+}
+
+function parseGoogleInstant(isoValue: string): number | null {
+  const trimmed = isoValue.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Date.parse(trimmed);
+
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function instantsMatch(left: number | null, right: number | null) {
+  if (left === null || right === null || Number.isNaN(left) || Number.isNaN(right)) {
+    return false;
+  }
+
+  return Math.abs(left - right) <= UPDATE_VERIFY_TOLERANCE_MS;
+}
+
+function updateEventsRoughlyMatch(fetched: CreatedGoogleCalendarEvent, payload: UpdateGoogleCalendarEventBody) {
+  const expectedStart = payloadInstant(payload.start.dateTime, payload.start.timeZone);
+  const expectedEnd = payloadInstant(payload.end.dateTime, payload.end.timeZone);
+  const actualStart = parseGoogleInstant(fetched.startsAt);
+  const actualEnd = parseGoogleInstant(fetched.endsAt);
+
+  return instantsMatch(expectedStart, actualStart) && instantsMatch(expectedEnd, actualEnd);
 }
 
 export async function updateGoogleCalendarEventForDevice(
@@ -520,7 +644,7 @@ export async function updateGoogleCalendarEventForDevice(
 ) {
   const fallback = toCreateFallbackFromUpdate(payload);
 
-  logCalendarPipeline('patch_request', {
+  console.log('[Calendar Update Patch Request]', {
     deviceId: deviceId.slice(0, 8),
     eventId,
     payload,
@@ -623,17 +747,20 @@ export async function updateGoogleCalendarEventForDevice(
     };
   }
 
-  logCalendarPipeline('patch_success', {
+  console.log('[Calendar Update Patch Response]', {
     eventId: patched.id,
     summary: patched.summary,
     startsAt: patched.startsAt,
+    endsAt: patched.endsAt,
   });
 
   const getResult = await getGoogleCalendarEventById(tokens, eventId, fallback);
 
-  logCalendarPipeline('verification_get', {
+  console.log('[Calendar Update Verify Fetch]', {
     ok: getResult.ok,
     eventId,
+    startsAt: getResult.event?.startsAt ?? null,
+    endsAt: getResult.event?.endsAt ?? null,
   });
 
   if (!getResult.ok) {
@@ -649,6 +776,15 @@ export async function updateGoogleCalendarEventForDevice(
   }
 
   if (!updateEventsRoughlyMatch(getResult.event, payload)) {
+    console.log('[Calendar Update Failed]', {
+      eventId,
+      reason: 'verify_mismatch',
+      expectedStart: payload.start.dateTime,
+      expectedEnd: payload.end.dateTime,
+      actualStart: getResult.event.startsAt,
+      actualEnd: getResult.event.endsAt,
+    });
+
     return {
       ok: false as const,
       executionState: 'failed' as const,
@@ -660,10 +796,11 @@ export async function updateGoogleCalendarEventForDevice(
     };
   }
 
-  logCalendarPipeline('verification_success', {
+  console.log('[Calendar Update Verified]', {
     eventId: getResult.event.id,
     summary: getResult.event.summary,
     startsAt: getResult.event.startsAt,
+    endsAt: getResult.event.endsAt,
   });
 
   return {

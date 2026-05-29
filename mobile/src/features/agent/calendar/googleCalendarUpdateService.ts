@@ -1,5 +1,13 @@
 import { ensureCalendarAuthForTool } from '@/src/features/agent/calendar/calendarAuthCapabilities';
 import { updateGoogleCalendarEventOnBackend } from '@/src/features/agent/calendar/googleCalendarBackendApi';
+import {
+  logCalendarUpdateFailed,
+  logCalendarUpdatePatchRequest,
+  logCalendarUpdatePatchResponse,
+  logCalendarUpdateVerified,
+  logCalendarUpdateVerifyFetch,
+} from '@/src/features/agent/calendar/calendarUpdateLogger';
+import { verifyUpdatedEventMatchesPayload } from '@/src/features/agent/calendar/calendarUpdateVerification';
 import type { CalendarUpdateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import {
   createCalendarToolFailure,
@@ -7,7 +15,6 @@ import {
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
 import { logCalendarGoogleApiResponse } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
-import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import { logExecutionAudit } from '@/src/features/agent/execution/executionAuditLogger';
 import { ApiError } from '@/src/shared/api/api-error';
 
@@ -36,13 +43,28 @@ export async function updateGoogleCalendarEvent(
     summary: payload.summary ?? null,
   });
 
+  logCalendarUpdatePatchRequest({
+    eventId,
+    summary: payload.summary ?? null,
+    start: payload.start,
+    end: payload.end,
+  });
+
   try {
-    logCalendarCreate('update started', { eventId, start: payload.start, end: payload.end });
     const response = await updateGoogleCalendarEventOnBackend(eventId, payload);
-    logCalendarCreate('update result', {
+
+    logCalendarUpdatePatchResponse({
       executionState: response.executionState,
       verified: response.verified,
+      verificationFetched: response.verificationFetched,
       eventId: response.event?.id ?? eventId,
+    });
+
+    logCalendarUpdateVerifyFetch({
+      eventId: response.event?.id ?? eventId,
+      startsAt: response.event?.startsAt ?? null,
+      endsAt: response.event?.endsAt ?? null,
+      verificationFetched: response.verificationFetched,
     });
     logCalendarGoogleApiResponse({
       status: response.executionState,
@@ -64,6 +86,13 @@ export async function updateGoogleCalendarEvent(
       !response.verificationFetched ||
       !response.event?.id
     ) {
+      logCalendarUpdateFailed({
+        eventId,
+        reason: 'backend_did_not_confirm',
+        executionState: response.executionState,
+        verified: response.verified,
+        verificationFetched: response.verificationFetched,
+      });
       logExecutionAudit('verification_response', { verified: false, reason: 'backend_did_not_confirm' });
 
       return createCalendarToolFailure(
@@ -71,6 +100,31 @@ export async function updateGoogleCalendarEvent(
         'Google Calendar did not return a verified updated event.',
       );
     }
+
+    const clientVerification = verifyUpdatedEventMatchesPayload(response.event, payload);
+
+    if (!clientVerification.ok) {
+      logCalendarUpdateFailed({
+        eventId: response.event.id,
+        reason: 'client_verify_mismatch',
+        expectedStart: clientVerification.expectedStart,
+        expectedEnd: clientVerification.expectedEnd,
+        actualStart: clientVerification.actualStart,
+        actualEnd: clientVerification.actualEnd,
+      });
+      logExecutionAudit('verification_response', { verified: false, reason: 'client_verify_mismatch' });
+
+      return createCalendarToolFailure(
+        'VERIFY_FAILED',
+        'Google Calendar event times did not match the requested update after verification fetch.',
+      );
+    }
+
+    logCalendarUpdateVerified({
+      eventId: response.event.id,
+      startsAt: response.event.startsAt,
+      endsAt: response.event.endsAt,
+    });
 
     logExecutionAudit('verification_response', {
       verified: true,
@@ -88,6 +142,14 @@ export async function updateGoogleCalendarEvent(
   } catch (error) {
     const apiError = error instanceof ApiError ? error : null;
     const code = apiError?.code;
+
+    logCalendarUpdateFailed({
+      eventId,
+      reason: 'api_error',
+      status: apiError?.status ?? null,
+      code: code ?? null,
+      message: apiError?.message ?? (error instanceof Error ? error.message : 'unknown error'),
+    });
 
     logExecutionAudit('api_response', {
       ok: false,

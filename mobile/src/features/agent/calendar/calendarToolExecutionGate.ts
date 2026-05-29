@@ -6,6 +6,7 @@ import {
 import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import {
   getLastCalendarCommandOutcome,
+  getPendingCalendarUpdateIntent,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 import {
   isOperationalCalendarWriteRequest,
@@ -17,7 +18,13 @@ import { logCalendarContractEnforced, logCalendarLlmBlocked } from '@/src/featur
  * Conversation-only replies are invalid for these intents.
  */
 export function requiresCalendarToolExecution(transcript: string) {
-  return isOperationalCalendarWriteRequest(transcript.trim());
+  const trimmed = transcript.trim();
+
+  if (isOperationalCalendarWriteRequest(trimmed)) {
+    return true;
+  }
+
+  return Boolean(getPendingCalendarUpdateIntent());
 }
 
 export function blockLlmForCalendarMutation(params: {
@@ -46,12 +53,21 @@ export function enforceCalendarToolReply(params: {
   userTranscript: string;
   candidateReply: string;
 }) {
-  if (!requiresCalendarToolExecution(params.userTranscript)) {
+  const pendingUpdate = getPendingCalendarUpdateIntent();
+  const requiresTool =
+    requiresCalendarToolExecution(params.userTranscript) || Boolean(pendingUpdate);
+
+  if (!requiresTool) {
     return params.candidateReply;
   }
 
   const intent = detectCalendarCommandIntent(params.userTranscript);
-  const resolvedIntent = intent === 'none' ? 'create_calendar_event' : intent;
+  const resolvedIntent =
+    intent === 'none'
+      ? pendingUpdate
+        ? 'update_calendar_event'
+        : 'create_calendar_event'
+      : intent;
   const lastOutcome = getLastCalendarCommandOutcome();
   const terminal =
     getCalendarCommandTerminalReply(params.userTranscript) ??

@@ -2,10 +2,17 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { CalendarEvent } from '@/src/entities/calendar/types';
+import type { ChatMessage } from '@/src/entities/chat/types';
 import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
-import { isTerminalCalendarToolReply } from '@/src/features/agent/calendar/calendarExecutionContract';
+import {
+  isTerminalCalendarToolReply,
+  isVerifiedCalendarUpdateSuccess,
+} from '@/src/features/agent/calendar/calendarExecutionContract';
 import { parseCalendarUpdateTimeShift, stripCalendarUpdateTimeShiftPhrases } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import { verifyUpdatedEventMatchesPayload } from '@/src/features/agent/calendar/calendarUpdateVerification';
 import { buildCalendarUpdateEventPayload } from '@/src/features/agent/execution/calendarUpdatePayloadBuilder';
+import { createCalendarToolSuccess } from '@/src/features/agent/execution/calendarToolContract';
+import { mergeActionContextFromHistory } from '@/src/features/agent/intent/actionContextMerge';
 
 const transcript = 'Move dinner from 7 PM to 8 PM';
 const referenceNow = new Date('2026-05-28T15:00:00');
@@ -84,5 +91,100 @@ describe('calendar update integration', () => {
   it('uses terminal success copy for verified update replies', () => {
     const reply = 'Event updated successfully:\nTitle: Dinner\nNew time: today, 8:00 PM';
     assert.ok(isTerminalCalendarToolReply(reply));
+  });
+
+  it('requires verified flags before treating update tool success as contract-valid', () => {
+    const unverifiedTool = createCalendarToolSuccess({
+      id: 'evt-dinner',
+      summary: 'Dinner',
+      startsAt: dinnerEvent().startsAt,
+      endsAt: dinnerEvent().endsAt,
+    });
+
+    assert.equal(isVerifiedCalendarUpdateSuccess(unverifiedTool), true);
+    assert.equal(
+      isVerifiedCalendarUpdateSuccess({ ...unverifiedTool, verified: false }),
+      false,
+    );
+    assert.equal(
+      isVerifiedCalendarUpdateSuccess({ ...unverifiedTool, verificationFetched: false }),
+      false,
+    );
+  });
+
+  it('verifies updated event instants against requested payload', () => {
+    const matched = dinnerEvent();
+    const payloadResult = buildCalendarUpdateEventPayload({
+      transcript,
+      languageCode: 'en-US',
+      referenceNow,
+      matchedEvent: matched,
+    });
+
+    assert.equal(payloadResult.ok, true);
+
+    if (!payloadResult.ok) {
+      return;
+    }
+
+    const verifiedEvent = {
+      id: 'evt-dinner',
+      summary: 'Dinner',
+      startsAt: payloadResult.payload.start.dateTime,
+      endsAt: payloadResult.payload.end.dateTime,
+    };
+
+    assert.equal(
+      verifyUpdatedEventMatchesPayload(verifiedEvent, payloadResult.payload).ok,
+      true,
+    );
+
+    const staleEvent = {
+      ...verifiedEvent,
+      startsAt: matched.startsAt,
+      endsAt: matched.endsAt,
+    };
+
+    assert.equal(
+      verifyUpdatedEventMatchesPayload(staleEvent, payloadResult.payload).ok,
+      false,
+    );
+  });
+
+  it('merges clarification follow-up into the original update command', () => {
+    const messages: ChatMessage[] = [
+      { id: '1', role: 'user', content: 'Move dinner from 7 PM to 8 PM', createdAt: '2026-05-28T10:00:00.000Z', status: 'sent' },
+      { id: '2', role: 'assistant', content: 'What should I call this event?', createdAt: '2026-05-28T10:00:01.000Z', status: 'sent' },
+      { id: '3', role: 'user', content: 'Team Dinner at 7 PM', createdAt: '2026-05-28T10:00:02.000Z', status: 'sent' },
+    ];
+
+    const merged = mergeActionContextFromHistory({
+      transcript: 'Team Dinner at 7 PM',
+      messages,
+    });
+
+    assert.equal(merged.usedContext, true);
+    assert.equal(merged.contextSource, 'clarification_followup');
+    assert.match(merged.mergedTranscript, /Move dinner from 7 PM to 8 PM/);
+    assert.match(merged.mergedTranscript, /Team Dinner at 7 PM/);
+    assert.equal(detectCalendarCommandIntent(merged.mergedTranscript), 'update_calendar_event');
+  });
+
+  it('detects incomplete update commands missing title after from/to shift parse', () => {
+    const incompleteShift = parseCalendarUpdateTimeShift('Move from 7 PM to 8 PM', referenceNow);
+
+    assert.equal(incompleteShift.ok, true);
+    assert.equal(
+      stripCalendarUpdateTimeShiftPhrases('Move from 7 PM to 8 PM'.replace(/^(?:please\s+)?(?:move|reschedule|update|shift)(?:[\s,:-]+|$)/iu, '')).trim(),
+      '',
+    );
+
+    const completeShift = parseCalendarUpdateTimeShift(transcript, referenceNow);
+    const completeTitleSource = stripCalendarUpdateTimeShiftPhrases(
+      transcript.replace(/^(?:please\s+)?(?:move|reschedule|update|shift)(?:[\s,:-]+|$)/iu, ''),
+    );
+
+    assert.equal(completeShift.ok, true);
+    assert.equal(completeTitleSource, 'dinner');
   });
 });

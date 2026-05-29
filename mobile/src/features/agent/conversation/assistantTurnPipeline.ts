@@ -32,7 +32,8 @@ import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/c
 import { detectCalendarCommandIntent, requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
 import { executeCalendarCommand } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import { assertCalendarReplyMatchesTool } from '@/src/features/agent/calendar/calendarExecutionContract';
-import { getLastCalendarCommandOutcome } from '@/src/features/agent/execution/calendarExecutionSession';
+import { getLastCalendarCommandOutcome, setPendingCalendarUpdateIntent } from '@/src/features/agent/execution/calendarExecutionSession';
+import { logCalendarUpdateClarification } from '@/src/features/agent/calendar/calendarUpdateLogger';
 import {
   buildBehaviorModeSystemPrompt,
   resolveAssistantBehavior,
@@ -349,6 +350,15 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     isCalendarAgendaQuery(userTranscript) || isDeterministicCalendarReadQuery(userTranscript);
 
   if (behavior.mode === 'CLARIFICATION_MODE' && behavior.clarificationReply) {
+    if (behavior.intent === 'update_calendar_event') {
+      setPendingCalendarUpdateIntent({ sourceTranscript: actionTranscript });
+      logCalendarUpdateClarification({
+        missingFields: behavior.missingFields,
+        actionTranscriptPreview: actionTranscript.slice(0, 160),
+        clarificationReplyPreview: behavior.clarificationReply.slice(0, 160),
+      });
+    }
+
     logTurnPipeline('route selected', {
       route: 'clarification_local',
       behaviorMode: behavior.mode,

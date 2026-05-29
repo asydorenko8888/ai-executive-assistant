@@ -4,7 +4,10 @@ import { refreshCalendarAgendaState } from '@/src/features/agent/calendar/calend
 import { updateGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarUpdateService';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
 import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
-import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
+import {
+  logCalendarUpdateFailed,
+  logCalendarUpdateIntent,
+} from '@/src/features/agent/calendar/calendarUpdateLogger';
 import { parseCalendarUpdateTimeShift } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import { buildCalendarUpdateEventPayload } from '@/src/features/agent/execution/calendarUpdatePayloadBuilder';
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
@@ -17,6 +20,7 @@ import {
   type CalendarUpdateToolReplyBundle,
 } from '@/src/features/agent/execution/calendarUpdateToolResponses';
 import {
+  clearPendingCalendarUpdateIntent,
   endCalendarOperation,
   tryBeginCalendarOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
@@ -34,7 +38,7 @@ export type CalendarUpdateExecutionOutcome = CalendarUpdateToolReplyBundle & {
 export async function executeCalendarUpdateEvent(
   params: CalendarUpdateExecutionParams,
 ): Promise<CalendarUpdateExecutionOutcome> {
-  logCalendarCreate('routing', {
+  logCalendarUpdateIntent({
     action: 'executeCalendarUpdateEvent',
     transcriptPreview: params.transcript.slice(0, 120),
   });
@@ -140,7 +144,7 @@ export async function executeCalendarUpdateEvent(
       };
     }
 
-    logCalendarCreate('update match', {
+    logCalendarUpdateIntent({
       eventId: payloadResult.eventId,
       title: matchResult.match.title,
       fromMs: shift.fromMs,
@@ -156,6 +160,7 @@ export async function executeCalendarUpdateEvent(
       await refreshCalendarAgendaState(params.referenceNow).catch((error) => {
         console.log('[Calendar Refresh] post-update refresh failed', error);
       });
+      clearPendingCalendarUpdateIntent();
       endCalendarOperation({ failed: false });
       return {
         ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
@@ -166,6 +171,12 @@ export async function executeCalendarUpdateEvent(
     }
 
     endCalendarOperation({ failed: true });
+    logCalendarUpdateFailed({
+      reason: 'executor_tool_failure',
+      errorCode: tool.errorCode ?? null,
+      error: tool.error ?? null,
+    });
+    clearPendingCalendarUpdateIntent();
     return {
       ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
         referenceNow: params.referenceNow,
@@ -174,10 +185,15 @@ export async function executeCalendarUpdateEvent(
     };
   } catch (error) {
     endCalendarOperation({ failed: true });
+    clearPendingCalendarUpdateIntent();
+    logCalendarUpdateFailed({
+      reason: 'executor_exception',
+      message: error instanceof Error ? error.message : 'Calendar update error',
+    });
     const message = error instanceof Error ? error.message : 'Calendar update error';
-    const tool = createCalendarToolFailure('CALENDAR_OPERATION_ERROR', message);
+    const failureTool = createCalendarToolFailure('CALENDAR_OPERATION_ERROR', message);
     return {
-      ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
+      ...buildCalendarUpdateToolReplyBundle(failureTool, params.languageCode, {
         referenceNow: params.referenceNow,
       }),
       verified: false,

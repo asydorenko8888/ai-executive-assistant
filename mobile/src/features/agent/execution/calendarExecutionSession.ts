@@ -7,6 +7,7 @@ let calendarOperationInProgress = false;
 let calendarRetryCount = 0;
 let lastOperationKey: string | null = null;
 let lastToolResponse: CalendarToolResponse | null = null;
+let pendingCalendarUpdateIntent: { sourceTranscript: string } | null = null;
 let lastCommandOutcome: {
   intent: CalendarCommandKind;
   tool: CalendarToolResponse;
@@ -16,6 +17,20 @@ let lastCommandOutcome: {
 
 export function getLastCalendarCommandOutcome() {
   return lastCommandOutcome;
+}
+
+export function getPendingCalendarUpdateIntent() {
+  return pendingCalendarUpdateIntent;
+}
+
+export function setPendingCalendarUpdateIntent(params: { sourceTranscript: string }) {
+  pendingCalendarUpdateIntent = {
+    sourceTranscript: params.sourceTranscript.trim(),
+  };
+}
+
+export function clearPendingCalendarUpdateIntent() {
+  pendingCalendarUpdateIntent = null;
 }
 
 export function setLastCalendarCommandOutcome(outcome: {
@@ -129,4 +144,5 @@ export function resetCalendarExecutionSession() {
   lastOperationKey = null;
   lastToolResponse = null;
   lastCommandOutcome = null;
+  pendingCalendarUpdateIntent = null;
 }

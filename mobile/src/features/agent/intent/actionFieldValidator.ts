@@ -3,6 +3,11 @@ import {
   getCalendarExtractionConfidenceThreshold,
   isCalendarExtractionExecutable,
 } from '@/src/features/agent/calendar/calendarCommandExtractor';
+import {
+  parseCalendarUpdateTimeShift,
+  stripCalendarUpdateTimeShiftPhrases,
+} from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import { extractCalendarEventTitle } from '@/src/features/agent/calendar/calendarTitleExtractor';
 import { parseOperationalScheduleHint } from '@/src/features/agent/calendar/operationalScheduleParser';
 import {
   isOperationalCalendarCreateRequest,
@@ -21,6 +26,9 @@ export type ActionFieldValidation = {
   readyToExecute: boolean;
   extractionConfidence: number;
 };
+
+const UPDATE_COMMAND_PREFIX =
+  /^(?:please\s+)?(?:move|reschedule|update|shift|перенеси|перенести|перенес(?:ь|ьте)|перенос|измени|зміни)(?:[\s,:-]+|$)/iu;
 
 function detectActionKind(transcript: string): ActionFieldValidation['actionKind'] {
   if (isOperationalCalendarDeleteRequest(transcript)) {
@@ -75,6 +83,32 @@ export function validateActionFields(params: {
       missingFields: [],
       readyToExecute: true,
       extractionConfidence: 1,
+    };
+  }
+
+  if (actionKind === 'update_calendar_event') {
+    const shift = parseCalendarUpdateTimeShift(params.transcript, params.referenceNow);
+    const titleSource = stripCalendarUpdateTimeShiftPhrases(
+      params.transcript.replace(UPDATE_COMMAND_PREFIX, ''),
+    );
+    const titleQuery = extractCalendarEventTitle(titleSource, params.referenceNow);
+    const requiredFields: ActionRequiredField[] = ['title', 'time'];
+    const missingFields: ActionRequiredField[] = [];
+
+    if (!shift.ok) {
+      missingFields.push('time');
+    }
+
+    if (!titleQuery || titleQuery.length < 2) {
+      missingFields.push('title');
+    }
+
+    return {
+      actionKind,
+      requiredFields,
+      missingFields,
+      readyToExecute: shift.ok && Boolean(titleQuery && titleQuery.length >= 2),
+      extractionConfidence: titleQuery ? 1 : 0,
     };
   }
 

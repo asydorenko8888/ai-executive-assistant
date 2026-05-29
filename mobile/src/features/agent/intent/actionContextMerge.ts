@@ -1,10 +1,14 @@
 import type { ChatMessage } from '@/src/entities/chat/types';
+import { isOperationalCalendarUpdateRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 
 const ACTION_CONTINUATION =
   /^(?:please\s+)?(?:так|да|yes|yeah|yep|ok|okay|sure|давай|ага|go ahead|do it|внеси|додай|add it|schedule it)(?:[,.!\s]|$)/iu;
 
 const ACTION_CONTINUATION_WITH_VERB =
   /^(?:please\s+)?(?:так|да|yes|ok|okay|sure|давай|ага)[,.\s!]+(?:внеси|додай|створи|заплануй|add|create|schedule|book|put|insert)/iu;
+
+const CLARIFICATION_ASSISTANT_MARKERS =
+  /(?:Уточни|Please confirm|What should I call|На какое время|How should I call|Как назвать|На какой день|На який|Як назвати)/i;
 
 export function isActionContinuation(transcript: string) {
   const normalized = transcript.trim();
@@ -26,43 +30,57 @@ function getPreviousAssistantMessage(messages: ChatMessage[]) {
   return [...messages].reverse().find((message) => message.role === 'assistant') ?? null;
 }
 
+function isAssistantClarificationReply(content: string) {
+  return CLARIFICATION_ASSISTANT_MARKERS.test(content.trim());
+}
+
 export function mergeActionContextFromHistory(params: {
   transcript: string;
   messages: ChatMessage[];
 }) {
   const normalized = params.transcript.trim();
 
-  if (!isActionContinuation(normalized)) {
-    return {
-      mergedTranscript: normalized,
-      usedContext: false,
-      contextSource: null as 'previous_user' | 'assistant_offer' | null,
-    };
-  }
+  if (isActionContinuation(normalized)) {
+    const previousUser = getPreviousUserMessage(params.messages);
 
-  const previousUser = getPreviousUserMessage(params.messages);
+    if (previousUser?.content.trim()) {
+      return {
+        mergedTranscript: `${previousUser.content.trim()} ${normalized}`,
+        usedContext: true,
+        contextSource: 'previous_user' as const,
+      };
+    }
 
-  if (previousUser?.content.trim()) {
-    return {
-      mergedTranscript: `${previousUser.content.trim()} ${normalized}`,
-      usedContext: true,
-      contextSource: 'previous_user' as const,
-    };
+    const previousAssistant = getPreviousAssistantMessage(params.messages);
+
+    if (previousAssistant?.content.trim()) {
+      return {
+        mergedTranscript: `${normalized} ${previousAssistant.content.trim()}`,
+        usedContext: true,
+        contextSource: 'assistant_offer' as const,
+      };
+    }
   }
 
   const previousAssistant = getPreviousAssistantMessage(params.messages);
+  const previousUser = getPreviousUserMessage(params.messages);
 
-  if (previousAssistant?.content.trim()) {
+  if (
+    previousAssistant?.content.trim() &&
+    isAssistantClarificationReply(previousAssistant.content) &&
+    previousUser?.content.trim() &&
+    isOperationalCalendarUpdateRequest(previousUser.content)
+  ) {
     return {
-      mergedTranscript: `${normalized} ${previousAssistant.content.trim()}`,
+      mergedTranscript: `${previousUser.content.trim()} ${normalized}`,
       usedContext: true,
-      contextSource: 'assistant_offer' as const,
+      contextSource: 'clarification_followup' as const,
     };
   }
 
   return {
     mergedTranscript: normalized,
     usedContext: false,
-    contextSource: null,
+    contextSource: null as 'previous_user' | 'assistant_offer' | 'clarification_followup' | null,
   };
 }
