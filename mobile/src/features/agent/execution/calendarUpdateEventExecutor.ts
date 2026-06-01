@@ -3,6 +3,10 @@ import { findCalendarEventForUpdate } from '@/src/features/agent/calendar/calend
 import {
   pendingContextFromExtraction,
 } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
+import {
+  syncConversationStateForMoveClarification,
+  syncConversationStateForUpdateSelection,
+} from '@/src/features/agent/calendar/calendarConversationSync';
 import { extractCalendarUpdateParameters } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import {
   logCalendarMutationStart,
@@ -152,12 +156,12 @@ export async function executeCalendarUpdateEvent(
     if (matchResult.ambiguous) {
       endCalendarOperation({ failed: true });
       const extracted = extractCalendarUpdateParameters(params.transcript, params.referenceNow);
-      setPendingCalendarUpdateContext(
-        pendingContextFromExtraction({
-          sourceTranscript: params.transcript,
-          extraction: extracted,
-        }),
-      );
+      const pendingUpdate = pendingContextFromExtraction({
+        sourceTranscript: params.transcript,
+        extraction: extracted,
+      });
+      setPendingCalendarUpdateContext(pendingUpdate);
+      syncConversationStateForUpdateSelection(pendingUpdate, params.languageCode);
       const tool = createCalendarToolFailure(
         'CALENDAR_EVENT_AMBIGUOUS',
         'Multiple matching calendar events found.',

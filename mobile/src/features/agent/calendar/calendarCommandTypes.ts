@@ -1,3 +1,5 @@
+import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calendar/calendarConversationState';
+import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import {
   getPendingCalendarConflictContext,
   getPendingCalendarDeleteContext,
@@ -40,6 +42,8 @@ export function detectCalendarCommandIntent(transcript: string): CalendarCommand
 
 export function requiresCalendarCommandExecution(transcript: string) {
   if (
+    isCalendarConversationAwaitingInput() ||
+    isBareCalendarShortReply(transcript) ||
     getPendingCalendarUpdateContext() ||
     getPendingCalendarDeleteContext() ||
     getPendingCalendarConflictContext()

@@ -38,6 +38,7 @@ import {
   logCalendarUpdateClarification,
   logUpdateClarificationStored,
 } from '@/src/features/agent/calendar/calendarUpdateLogger';
+import { syncConversationStateForMoveClarification } from '@/src/features/agent/calendar/calendarConversationSync';
 import { pendingContextFromExtraction } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import {
   buildBehaviorModeSystemPrompt,
@@ -406,6 +407,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
         extraction: extracted,
       });
       setPendingCalendarUpdateContext(pendingContext);
+      syncConversationStateForMoveClarification(pendingContext, params.languageCode);
       logUpdateClarificationStored({
         title: pendingContext.title,
         fromTime: pendingContext.fromTime,

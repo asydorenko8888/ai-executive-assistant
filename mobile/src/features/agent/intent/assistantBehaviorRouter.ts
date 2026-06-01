@@ -10,6 +10,8 @@ import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntel
 import { mergeActionContextFromHistory, isActionContinuation } from '@/src/features/agent/intent/actionContextMerge';
 import type { AssistantIntentAnalysis } from '@/src/features/agent/intent/assistantIntentRouter';
 import { requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
+import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calendar/calendarConversationState';
+import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import { getPendingCalendarConflictContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -157,7 +159,9 @@ export function resolveAssistantBehavior(params: {
     contextMerge.contextSource === 'clarification_followup' ||
     contextMerge.contextSource === 'pending_update_clarification' ||
     contextMerge.contextSource === 'pending_delete_clarification' ||
-    Boolean(getPendingCalendarConflictContext());
+    Boolean(getPendingCalendarConflictContext()) ||
+    isCalendarConversationAwaitingInput() ||
+    isBareCalendarShortReply(params.transcript);
   const fieldValidation = validateActionFields({
     transcript: actionTranscript,
     referenceNow: params.referenceNow,

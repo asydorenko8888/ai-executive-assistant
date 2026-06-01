@@ -16,7 +16,8 @@
     "test:calendar-date-parser": "npx tsx --test src/features/agent/calendarIntelligence/calendarNaturalDateParser.test.ts",
     "test:calendar-mutation-reliability": "npx tsx --test src/features/agent/calendar/calendarMutationReliability.test.ts",
     "test:calendar-reschedule": "npx tsx --test src/features/agent/calendar/calendarReschedule.test.ts",
-    "test:calendar-conflict": "npx tsx --test src/features/agent/calendar/calendarScheduleConflict.test.ts"
+    "test:calendar-conflict": "npx tsx --test src/features/agent/calendar/calendarScheduleConflict.test.ts",
+    "test:calendar-conversation": "npx tsx --test src/features/agent/calendar/calendarConversationState.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",

@@ -7,6 +7,7 @@ import {
   createCalendarToolFailure,
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
+import { syncConversationStateForConflict } from '@/src/features/agent/calendar/calendarConversationSync';
 import { setPendingCalendarConflictContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -65,22 +66,23 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
     proposedEndMs: params.proposedEndMs,
   });
 
-  setPendingCalendarConflictContext(
-    pendingConflictContextFromCheck({
-      operation: params.operation,
-      sourceTranscript: params.sourceTranscript,
-      titleSourceTranscript: params.titleSourceTranscript,
-      languageCode: params.languageCode,
-      proposedTitle: params.proposedTitle,
-      proposedStartMs: params.proposedStartMs,
-      proposedEndMs: params.proposedEndMs,
-      updateEventId: params.updateEventId,
-      conflictingEventId: primary.event.id,
-      conflictingTitle: primary.event.title,
-      conflictingStartsAt: primary.event.startsAt,
-      conflictingEndsAt: primary.event.endsAt,
-    }),
-  );
+  const pendingContext = pendingConflictContextFromCheck({
+    operation: params.operation,
+    sourceTranscript: params.sourceTranscript,
+    titleSourceTranscript: params.titleSourceTranscript,
+    languageCode: params.languageCode,
+    proposedTitle: params.proposedTitle,
+    proposedStartMs: params.proposedStartMs,
+    proposedEndMs: params.proposedEndMs,
+    updateEventId: params.updateEventId,
+    conflictingEventId: primary.event.id,
+    conflictingTitle: primary.event.title,
+    conflictingStartsAt: primary.event.startsAt,
+    conflictingEndsAt: primary.event.endsAt,
+  });
+
+  setPendingCalendarConflictContext(pendingContext);
+  syncConversationStateForConflict(pendingContext);
 
   const tool = createCalendarToolFailure('CALENDAR_SCHEDULE_CONFLICT', reply);
 

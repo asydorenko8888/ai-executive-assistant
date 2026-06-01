@@ -1,4 +1,6 @@
 import type { ChatMessage } from '@/src/entities/chat/types';
+import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calendar/calendarConversationState';
+import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import { tryMergePendingCalendarDeleteReply } from '@/src/features/agent/calendar/calendarDeletePendingContext';
 import { tryMergePendingCalendarUpdateReply } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import { isOperationalCalendarUpdateRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
@@ -48,6 +50,34 @@ export function mergeActionContextFromHistory(params: {
   referenceNow: Date;
 }) {
   const normalized = params.transcript.trim();
+
+  if (isCalendarConversationAwaitingInput() && isBareCalendarShortReply(normalized)) {
+    return {
+      mergedTranscript: normalized,
+      usedContext: false,
+      contextSource: null,
+    };
+  }
+
+  const pendingDelete = getPendingCalendarDeleteContext();
+
+  if (pendingDelete) {
+    const mergedPendingDelete = tryMergePendingCalendarDeleteReply({
+      pending: pendingDelete,
+      reply: normalized,
+    });
+
+    if (mergedPendingDelete) {
+      setPendingCalendarDeleteContext(mergedPendingDelete.context);
+
+      return {
+        mergedTranscript: mergedPendingDelete.transcript,
+        usedContext: true,
+        contextSource: 'pending_delete_clarification' as const,
+      };
+    }
+  }
+
   const pendingUpdate = getPendingCalendarUpdateContext();
 
   if (pendingUpdate) {
@@ -66,6 +96,14 @@ export function mergeActionContextFromHistory(params: {
         contextSource: 'pending_update_clarification' as const,
       };
     }
+  }
+
+  if (isCalendarConversationAwaitingInput()) {
+    return {
+      mergedTranscript: normalized,
+      usedContext: false,
+      contextSource: null,
+    };
   }
 
   if (isActionContinuation(normalized)) {

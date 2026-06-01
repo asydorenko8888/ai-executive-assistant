@@ -3,6 +3,7 @@ import { resolveCalendarDeleteTarget } from '@/src/features/agent/calendar/calen
 import {
   pendingDeleteContextFromResolution,
 } from '@/src/features/agent/calendar/calendarDeletePendingContext';
+import { syncConversationStateForDeleteSelection } from '@/src/features/agent/calendar/calendarConversationSync';
 import {
   logCalendarMutationStart,
   logCalendarMutationVerification,
@@ -136,12 +137,12 @@ export async function executeCalendarDeleteEvent(
 
     if (resolution.status === 'ambiguous') {
       endCalendarOperation({ failed: true });
-      setPendingCalendarDeleteContext(
-        pendingDeleteContextFromResolution({
-          sourceTranscript: params.transcript,
-          titleQuery: resolution.titleQuery,
-        }),
-      );
+      const pendingDelete = pendingDeleteContextFromResolution({
+        sourceTranscript: params.transcript,
+        titleQuery: resolution.titleQuery,
+      });
+      setPendingCalendarDeleteContext(pendingDelete);
+      syncConversationStateForDeleteSelection(pendingDelete, params.languageCode);
       const tool = createCalendarToolFailure(
         'CALENDAR_EVENT_AMBIGUOUS',
         'Multiple matching calendar events found.',
