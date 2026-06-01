@@ -43,6 +43,13 @@ export function buildFactualCalendarToolReplies(
     };
   }
 
+  if (tool.errorCode === 'CALENDAR_SCHEDULE_CONFLICT' && tool.error) {
+    return {
+      reply: tool.error,
+      spokenReply: tool.error,
+    };
+  }
+
   const code = tool.errorCode ?? 'UNKNOWN';
   const detail = tool.error ?? 'unknown error';
   const text = `FAILURE: ${code}: ${detail}`;

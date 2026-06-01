@@ -42,7 +42,9 @@ export function buildCalendarCreateEventPayload(params: {
   referenceNow: Date;
   /** Current user message only — used for CREATE title extraction. */
   titleSourceTranscript?: string;
-}): { ok: true; payload: CalendarCreateEventPayload; scheduleIso: string } | { ok: false; reason: 'date_parse_failed'; detail: string } {
+}):
+  | { ok: true; payload: CalendarCreateEventPayload; scheduleIso: string; startMs: number; endMs: number }
+  | { ok: false; reason: 'date_parse_failed'; detail: string } {
   const extraction = extractCalendarCommand({
     transcript: params.transcript,
     titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
@@ -130,6 +132,8 @@ export function buildCalendarCreateEventPayload(params: {
     ok: true,
     payload,
     scheduleIso: new Date(schedule.startMs).toISOString(),
+    startMs: schedule.startMs,
+    endMs: schedule.endMs,
   };
 }
 

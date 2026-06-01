@@ -10,6 +10,7 @@ import {
 } from '@/src/features/agent/calendar/calendarMutationDiagnostics';
 import { logUpdateSuccess } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import { logUpdateNotFound } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
+import { blockCalendarMutationOnScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflictGuard';
 import { refreshCalendarAgendaState } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { updateGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarUpdateService';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
@@ -31,6 +32,7 @@ import {
   type CalendarUpdateToolReplyBundle,
 } from '@/src/features/agent/execution/calendarUpdateToolResponses';
 import {
+  clearPendingCalendarConflictContext,
   clearPendingCalendarUpdateIntent,
   endCalendarOperation,
   setPendingCalendarUpdateContext,
@@ -41,6 +43,7 @@ export type CalendarUpdateExecutionParams = {
   transcript: string;
   languageCode: VoiceLanguageCode;
   referenceNow: Date;
+  skipScheduleConflictCheck?: boolean;
 };
 
 export type CalendarUpdateExecutionOutcome = CalendarUpdateToolReplyBundle & {
@@ -233,6 +236,36 @@ export async function executeCalendarUpdateEvent(
       };
     }
 
+    const matchedStartMs = Date.parse(matchResult.match.startsAt);
+    const matchedEndMs = Date.parse(matchResult.match.endsAt);
+    const durationMs = Math.max(matchedEndMs - matchedStartMs, 30 * 60_000);
+    const proposedEndMs = payloadResult.toMs + durationMs;
+
+    const conflictBlock = await blockCalendarMutationOnScheduleConflict({
+      operation: 'update',
+      sourceTranscript: params.transcript,
+      languageCode: params.languageCode,
+      proposedTitle: matchResult.match.title,
+      proposedStartMs: payloadResult.toMs,
+      proposedEndMs,
+      referenceNow: params.referenceNow,
+      updateEventId: payloadResult.eventId,
+      skipScheduleConflictCheck: params.skipScheduleConflictCheck,
+    });
+
+    if (conflictBlock) {
+      endCalendarOperation({ failed: true });
+
+      return {
+        ...buildCalendarUpdateToolReplyBundle(conflictBlock.tool, params.languageCode, {
+          referenceNow: params.referenceNow,
+        }),
+        reply: conflictBlock.reply,
+        spokenReply: conflictBlock.spokenReply,
+        verified: false,
+      };
+    }
+
     logCalendarUpdateIntent({
       eventId: payloadResult.eventId,
       title: matchResult.match.title,
@@ -256,6 +289,7 @@ export async function executeCalendarUpdateEvent(
         console.log('[Calendar Refresh] post-update refresh failed', error);
       });
       clearPendingCalendarUpdateIntent();
+      clearPendingCalendarConflictContext();
       endCalendarOperation({ failed: false });
       logCalendarMutationVerification({
         intent: 'update_calendar_event',

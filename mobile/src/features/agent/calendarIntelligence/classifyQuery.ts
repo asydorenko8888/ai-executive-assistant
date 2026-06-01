@@ -1,4 +1,5 @@
 import {
+  getPendingCalendarConflictContext,
   getPendingCalendarDeleteContext,
   getPendingCalendarUpdateContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
@@ -98,7 +99,8 @@ export function isDeterministicCalendarReadQuery(transcript: string) {
     !normalized ||
     isOperationalCalendarWriteRequest(normalized) ||
     getPendingCalendarUpdateContext() ||
-    getPendingCalendarDeleteContext()
+    getPendingCalendarDeleteContext() ||
+    getPendingCalendarConflictContext()
   ) {
     return false;
   }

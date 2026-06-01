@@ -16,7 +16,7 @@ const ACTION_CONTINUATION_WITH_VERB =
   /^(?:please\s+)?(?:так|да|yes|ok|okay|sure|давай|ага)[,.\s!]+(?:внеси|додай|створи|заплануй|add|create|schedule|book|put|insert)/iu;
 
 const CLARIFICATION_ASSISTANT_MARKERS =
-  /(?:Уточни|Please confirm|What should I call|На какое время|How should I call|Как назвать|На какой день|На який|Як назвати|several similar events|похожих событ|схожих подій|Which one should I delete|Какое именно удалить|Яку саме видалити)/i;
+  /(?:Уточни|Please confirm|What should I call|На какое время|How should I call|Как назвать|На какой день|На який|Як назвати|several similar events|похожих событ|схожих подій|Which one should I delete|Какое именно удалить|Яку саме видалити|already have|already an event|У вас уже|На это время уже|Do you still want to move|Do you still want to schedule|Всё равно перенести|Усе одно перенести)/i;
 
 export function isActionContinuation(transcript: string) {
   const normalized = transcript.trim();

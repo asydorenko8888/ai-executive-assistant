@@ -13,6 +13,7 @@ import {
   extractCalendarCommand,
   isCalendarExtractionExecutable,
 } from '@/src/features/agent/calendar/calendarCommandExtractor';
+import { handleCalendarConflictFollowUp } from '@/src/features/agent/calendar/calendarConflictCommandGate';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
 import { executeCalendarUpdateEvent } from '@/src/features/agent/execution/calendarUpdateEventExecutor';
@@ -64,6 +65,18 @@ export async function executeCalendarCommand(params: {
   /** Current user message only — CREATE titles are extracted from this, not merged history. */
   titleSourceTranscript?: string;
 }): Promise<CalendarCommandResult> {
+  const conflictFollowUp = await handleCalendarConflictFollowUp({
+    transcript: params.transcript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+    titleSourceTranscript: params.titleSourceTranscript,
+    calendarConnected: params.calendarConnected,
+  });
+
+  if (conflictFollowUp) {
+    return conflictFollowUp;
+  }
+
   const intent = detectCalendarCommandIntent(params.transcript);
 
   logCalendarIntentDetected({

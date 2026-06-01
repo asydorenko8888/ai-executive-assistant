@@ -1,5 +1,6 @@
 import { MAX_CALENDAR_TOOL_RETRIES, type CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
+import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { logExecutionAudit } from '@/src/features/agent/execution/executionAuditLogger';
 import { recordCalendarExecutionDebug } from '@/src/features/settings/storage/calendarExecutionDebugStore';
 
@@ -22,6 +23,22 @@ export type PendingCalendarDeleteContext = {
   sourceTranscript: string;
 };
 
+export type PendingCalendarConflictContext = {
+  operation: 'create' | 'update';
+  sourceTranscript: string;
+  titleSourceTranscript: string | null;
+  languageCode: VoiceLanguageCode;
+  proposedTitle: string;
+  proposedStartMs: number;
+  proposedEndMs: number;
+  updateEventId: string | null;
+  conflictingEventId: string;
+  conflictingTitle: string;
+  conflictingStartsAt: string;
+  conflictingEndsAt: string;
+  proceedDespiteConflict: boolean;
+};
+
 export type LastCalendarReadMatch = {
   eventId: string;
   title: string;
@@ -32,6 +49,7 @@ export type LastCalendarReadMatch = {
 
 let pendingCalendarUpdateContext: PendingCalendarUpdateContext | null = null;
 let pendingCalendarDeleteContext: PendingCalendarDeleteContext | null = null;
+let pendingCalendarConflictContext: PendingCalendarConflictContext | null = null;
 let lastCalendarReadMatch: LastCalendarReadMatch | null = null;
 let lastCommandOutcome: {
   intent: CalendarCommandKind;
@@ -50,6 +68,18 @@ export function getPendingCalendarUpdateContext() {
 
 export function getPendingCalendarDeleteContext() {
   return pendingCalendarDeleteContext;
+}
+
+export function getPendingCalendarConflictContext() {
+  return pendingCalendarConflictContext;
+}
+
+export function setPendingCalendarConflictContext(context: PendingCalendarConflictContext | null) {
+  pendingCalendarConflictContext = context;
+}
+
+export function clearPendingCalendarConflictContext() {
+  pendingCalendarConflictContext = null;
 }
 
 export function setPendingCalendarDeleteContext(context: PendingCalendarDeleteContext | null) {
@@ -205,5 +235,6 @@ export function resetCalendarExecutionSession() {
   lastCommandOutcome = null;
   pendingCalendarUpdateContext = null;
   pendingCalendarDeleteContext = null;
+  pendingCalendarConflictContext = null;
   lastCalendarReadMatch = null;
 }

@@ -1,4 +1,5 @@
 import {
+  getPendingCalendarConflictContext,
   getPendingCalendarDeleteContext,
   getPendingCalendarUpdateContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
@@ -38,7 +39,11 @@ export function detectCalendarCommandIntent(transcript: string): CalendarCommand
 }
 
 export function requiresCalendarCommandExecution(transcript: string) {
-  if (getPendingCalendarUpdateContext() || getPendingCalendarDeleteContext()) {
+  if (
+    getPendingCalendarUpdateContext() ||
+    getPendingCalendarDeleteContext() ||
+    getPendingCalendarConflictContext()
+  ) {
     return true;
   }
 

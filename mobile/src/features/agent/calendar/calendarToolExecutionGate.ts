@@ -6,6 +6,7 @@ import {
 import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import {
   getLastCalendarCommandOutcome,
+  getPendingCalendarConflictContext,
   getPendingCalendarDeleteContext,
   getPendingCalendarUpdateContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
@@ -25,7 +26,11 @@ export function requiresCalendarToolExecution(transcript: string) {
     return true;
   }
 
-  return Boolean(getPendingCalendarUpdateContext());
+  return Boolean(
+    getPendingCalendarUpdateContext() ||
+      getPendingCalendarDeleteContext() ||
+      getPendingCalendarConflictContext(),
+  );
 }
 
 export function blockLlmForCalendarMutation(params: {
@@ -56,9 +61,10 @@ export function enforceCalendarToolReply(params: {
 }) {
   const pendingUpdate = getPendingCalendarUpdateContext();
   const pendingDelete = getPendingCalendarDeleteContext();
+  const pendingConflict = getPendingCalendarConflictContext();
   const requiresTool =
     requiresCalendarToolExecution(params.userTranscript) ||
-    Boolean(pendingUpdate || pendingDelete);
+    Boolean(pendingUpdate || pendingDelete || pendingConflict);
 
   if (!requiresTool) {
     return params.candidateReply;
@@ -71,7 +77,11 @@ export function enforceCalendarToolReply(params: {
         ? 'update_calendar_event'
         : pendingDelete
           ? 'delete_calendar_event'
-          : 'create_calendar_event'
+          : pendingConflict
+            ? pendingConflict.operation === 'update'
+              ? 'update_calendar_event'
+              : 'create_calendar_event'
+            : 'create_calendar_event'
       : intent;
   const lastOutcome = getLastCalendarCommandOutcome();
   const terminal =

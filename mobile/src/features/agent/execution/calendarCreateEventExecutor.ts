@@ -11,11 +11,13 @@ import {
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
 import {
+  clearPendingCalendarConflictContext,
   endCalendarOperation,
   setLastCalendarToolResponse,
   shouldBlockCalendarRecreate,
   tryBeginCalendarOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
+import { blockCalendarMutationOnScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflictGuard';
 import { refreshCalendarStateAfterCreate } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
 import { markCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
@@ -40,6 +42,7 @@ export type CalendarCreateExecutionParams = {
   referenceNow: Date;
   /** Current user message only — never merged history. */
   titleSourceTranscript?: string;
+  skipScheduleConflictCheck?: boolean;
 };
 
 export type CalendarCreateExecutionOutcome = CalendarToolReplyBundle & {
@@ -155,6 +158,34 @@ export async function executeCalendarCreateEvent(
     end: payloadResult.payload.end,
     scheduleIso: payloadResult.scheduleIso ?? null,
   });
+
+  const conflictBlock = await blockCalendarMutationOnScheduleConflict({
+    operation: 'create',
+    sourceTranscript: params.transcript,
+    titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
+    languageCode: params.languageCode,
+    proposedTitle: payloadResult.payload.summary,
+    proposedStartMs: payloadResult.startMs,
+    proposedEndMs: payloadResult.endMs,
+    referenceNow: params.referenceNow,
+    skipScheduleConflictCheck: params.skipScheduleConflictCheck,
+  });
+
+  if (conflictBlock) {
+    endCalendarOperation({ failed: true });
+
+    return {
+      ...buildCalendarToolReplyBundle(conflictBlock.tool, params.languageCode, {
+        referenceNow: params.referenceNow,
+      }),
+      result: mapToolToActionResult(conflictBlock.tool),
+      scheduleIso: payloadResult.scheduleIso,
+      verified: false,
+      reply: conflictBlock.reply,
+      spokenReply: conflictBlock.spokenReply,
+      executionState: 'failed',
+    };
+  }
 
   const access = await resolveCalendarWriteAccessState();
 
@@ -283,6 +314,7 @@ export async function executeCalendarCreateEvent(
       detail: tool.eventId,
     });
 
+    clearPendingCalendarConflictContext();
     endCalendarOperation({ failed: false });
 
     logCalendarMutationVerification({
