@@ -1,6 +1,9 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import { extractCalendarCommand } from '@/src/features/agent/calendar/calendarCommandExtractor';
-import { getBrowserTimezone } from '@/src/features/agent/calendar/calendarTime';
+import {
+  formatGoogleDateTimeFromUtcMs,
+  getExecutiveCalendarTimezone,
+} from '@/src/features/agent/calendar/calendarTimezone';
 import {
   parseCalendarUpdateSchedule,
   resolveUpdateTargetMs,
@@ -9,12 +12,6 @@ import {
 import type { CalendarUpdateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
-
-function toGoogleDateTimeLocal(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, '0');
-
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
 
 export type CalendarUpdatePayloadBuildResult =
   | {
@@ -37,7 +34,8 @@ export function buildCalendarUpdateEventPayload(params: {
   referenceNow: Date;
   matchedEvent: CalendarEvent;
 }): CalendarUpdatePayloadBuildResult {
-  const schedule = parseCalendarUpdateSchedule(params.transcript, params.referenceNow);
+  const timeZone = getExecutiveCalendarTimezone();
+  const schedule = parseCalendarUpdateSchedule(params.transcript, params.referenceNow, timeZone);
 
   if (!schedule.ok) {
     logCalendarCreate('update parsed payload', { ok: false, reason: schedule.detail });
@@ -61,6 +59,8 @@ export function buildCalendarUpdateEventPayload(params: {
   const targetToMs = resolveUpdateTargetMs({
     schedule,
     matchedEventStartMs: matchedStartMs,
+    referenceNow: params.referenceNow,
+    timeZone,
   });
 
   if (targetToMs === null || Number.isNaN(targetToMs)) {
@@ -97,18 +97,16 @@ export function buildCalendarUpdateEventPayload(params: {
   }
 
   const durationMs = Math.max(matchedEndMs - matchedStartMs, 30 * 60_000);
-  const newStart = new Date(targetToMs);
-  const newEnd = new Date(newStart.getTime() + durationMs);
-  const timeZone = getBrowserTimezone();
+  const newEndMs = targetToMs + durationMs;
 
   const payload: CalendarUpdateEventPayload = {
     summary: resolvedTitle,
     start: {
-      dateTime: toGoogleDateTimeLocal(newStart),
+      dateTime: formatGoogleDateTimeFromUtcMs(targetToMs, timeZone),
       timeZone,
     },
     end: {
-      dateTime: toGoogleDateTimeLocal(newEnd),
+      dateTime: formatGoogleDateTimeFromUtcMs(newEndMs, timeZone),
       timeZone,
     },
   };
@@ -122,6 +120,7 @@ export function buildCalendarUpdateEventPayload(params: {
     start: payload.start,
     end: payload.end,
     languageCode: params.languageCode,
+    timeZone,
   });
 
   return {

@@ -363,7 +363,13 @@ export function findCalendarEventForUpdateFromEvents(params: {
     };
   }
 
-  if (schedule.kind === 'destination' || schedule.kind === 'relative_offset') {
+  if (
+    schedule.kind === 'destination' ||
+    schedule.kind === 'relative_offset' ||
+    schedule.kind === 'day_preserve_time' ||
+    schedule.kind === 'event_day_shift' ||
+    schedule.kind === 'day_period'
+  ) {
     const titleMatch = findUpdateMatchByTitle({
       events: params.events,
       titleQuery,
@@ -375,7 +381,12 @@ export function findCalendarEventForUpdateFromEvents(params: {
     const toMs =
       matchedStartMs === null || Number.isNaN(matchedStartMs)
         ? null
-        : resolveUpdateTargetMs({ schedule, matchedEventStartMs: matchedStartMs });
+        : resolveUpdateTargetMs({
+            schedule,
+            matchedEventStartMs: matchedStartMs,
+            referenceNow: params.referenceNow,
+            timeZone,
+          });
 
     logUpdateRequest({
       transcript: params.transcript,

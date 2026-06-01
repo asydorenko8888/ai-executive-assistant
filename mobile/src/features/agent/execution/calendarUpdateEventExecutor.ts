@@ -266,6 +266,7 @@ export async function executeCalendarUpdateEvent(
       return {
         ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
           referenceNow: params.referenceNow,
+          previousStartsAt: matchResult.match.startsAt,
         }),
         verified: true,
       };

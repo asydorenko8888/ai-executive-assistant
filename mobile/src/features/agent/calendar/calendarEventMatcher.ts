@@ -95,10 +95,14 @@ export async function findCalendarEventForUpdate(params: {
   const schedule = parseCalendarUpdateSchedule(params.transcript, params.referenceNow);
   const timeZone = getExecutiveCalendarTimezone();
   const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
-  const searchDayOffset =
-    schedule.ok && (schedule.kind === 'destination' || schedule.kind === 'relative_offset')
-      ? 0
-      : day.dayOffset;
+  const titleOnlySearchKinds =
+    schedule.ok &&
+    (schedule.kind === 'destination' ||
+      schedule.kind === 'relative_offset' ||
+      schedule.kind === 'day_preserve_time' ||
+      schedule.kind === 'event_day_shift' ||
+      schedule.kind === 'day_period');
+  const searchDayOffset = titleOnlySearchKinds ? 0 : day.dayOffset;
   const { events, range, fetchOk } = await fetchCalendarEventsForZonedDay(
     params.referenceNow,
     searchDayOffset,
@@ -120,7 +124,7 @@ export async function findCalendarEventForUpdate(params: {
         ? schedule.fromMs
         : params.fromMs ?? 0,
     toMs:
-      schedule.ok && schedule.kind !== 'relative_offset'
+      schedule.ok && (schedule.kind === 'from_to' || schedule.kind === 'destination')
         ? schedule.toMs
         : 0,
     fromTimeLabel:

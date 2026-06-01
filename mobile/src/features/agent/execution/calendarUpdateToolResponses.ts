@@ -52,13 +52,14 @@ function mapToolStatusToExecutionState(tool: CalendarToolResponse): CalendarExec
 export function buildCalendarUpdateToolReplyBundle(
   tool: CalendarToolResponse,
   languageCode: VoiceLanguageCode,
-  options?: { referenceNow?: Date },
+  options?: { referenceNow?: Date; previousStartsAt?: string },
 ): CalendarUpdateToolReplyBundle {
   if (tool.status === 'SUCCESS' && isVerifiedCalendarUpdateSuccess(tool) && tool.event) {
     const copy = buildNaturalCalendarUpdateSuccessReply({
       event: tool.event,
       languageCode,
       referenceNow: options?.referenceNow,
+      previousStartsAt: options?.previousStartsAt,
     });
 
     return {
