@@ -115,6 +115,40 @@ export function buildCalendarConflictFreeSlotsReply(params: {
   return `Nearest free slots:\n${top.join('\n')}\nSay "yes" to keep the requested time anyway, or pick another time.`;
 }
 
+export function buildCalendarCreateConflictReplyWithAlternatives(params: {
+  locale: CalendarConflictLocale;
+  proposedTitle: string;
+  conflict: CalendarScheduleConflict;
+  proposedStartMs: number;
+  proposedEndMs: number;
+  slotLabels: string[];
+  tomorrowLabel: string | null;
+}) {
+  const timeZone = getExecutiveCalendarTimezone();
+  const conflictTitle = params.conflict.event.title.trim() || 'Untitled';
+  const conflictRange = formatConflictRange(
+    params.conflict.startsAtMs,
+    params.conflict.endsAtMs,
+    timeZone,
+  );
+
+  const alternatives = params.slotLabels.slice(0, 2).map((label, index) => `${index + 1}. ${label}`);
+
+  if (params.tomorrowLabel) {
+    alternatives.push(`${alternatives.length + 1}. ${params.tomorrowLabel}`);
+  }
+
+  if (params.locale === 'uk') {
+    return `На цей час уже є подія: ${conflictTitle}, ${conflictRange}.\nМожу запропонувати:\n${alternatives.join('\n')}\nЩо обрати?`;
+  }
+
+  if (params.locale === 'ru') {
+    return `На это время уже есть событие: ${conflictTitle}, ${conflictRange}.\nМогу предложить:\n${alternatives.join('\n')}\nЧто выбрать?`;
+  }
+
+  return `There is already an event at this time: ${conflictTitle}, ${conflictRange}.\nI can suggest:\n${alternatives.join('\n')}\nWhich one should I use?`;
+}
+
 export function resolveConflictDayOffset(proposedStartMs: number, referenceNow: Date) {
   const timeZone = getExecutiveCalendarTimezone();
   const ref = getZonedTimeParts(referenceNow, timeZone);

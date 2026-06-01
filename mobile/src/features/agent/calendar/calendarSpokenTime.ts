@@ -1,0 +1,179 @@
+/**
+ * Russian/Ukrainian/English spoken clock times: "четыре вечера", "4 вечера", "в семь вечера".
+ */
+
+const SPOKEN_NUMBER_TO_HOUR: Record<string, number> = {
+  один: 1,
+  одну: 1,
+  одного: 1,
+  one: 1,
+  два: 2,
+  две: 2,
+  two: 2,
+  три: 3,
+  three: 3,
+  четыре: 4,
+  четверо: 4,
+  чотири: 4,
+  four: 4,
+  пять: 5,
+  "п'ять": 5,
+  five: 5,
+  шесть: 6,
+  six: 6,
+  семь: 7,
+  сім: 7,
+  seven: 7,
+  восемь: 8,
+  вісім: 8,
+  eight: 8,
+  девять: 9,
+  "дев'ять": 9,
+  nine: 9,
+  десять: 10,
+  ten: 10,
+  одиннадцать: 11,
+  eleven: 11,
+  двенадцать: 12,
+  twelve: 12,
+};
+
+const SPOKEN_TIME_PATTERN =
+  /(?:^|[\s,.;:!?—-]+)(?:в|на|о|at)?\s*(\d{1,2}|один|одну|одного|два|две|три|четыре|четверо|чотири|пять|п[\u2019']ять|шесть|семь|сім|восемь|вісім|девять|дев[\u2019']ять|десять|одиннадцать|двенадцать|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:вечера|вечером|вечора|увечері|утра|утром|ранку|дня|днём|днем|ночи|ночью|ночі)(?:[,.!\s]|$)/iu;
+
+const ENGLISH_EVENING_PATTERN =
+  /(?:^|[\s,.;:!?—-]+)(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+in\s+the\s+evening(?:[,.!\s]|$)/iu;
+
+const STRIP_SPOKEN_TIME_PATTERN =
+  /(?:^|[\s,.;:!?—-]+)(?:в|на|о|at)?\s*(?:\d{1,2}|один|одну|одного|два|две|три|четыре|четверо|чотири|пять|п[\u2019']ять|шесть|семь|сім|восемь|вісім|девять|дев[\u2019']ять|десять|одиннадцать|двенадцать|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:вечера|вечером|вечора|увечері|утра|утром|ранку|дня|днём|днем|ночи|ночью|ночі)/giu;
+
+function resolveSpokenHourToken(token: string) {
+  const normalized = token.toLowerCase().trim();
+  const numeric = Number(normalized);
+
+  if (!Number.isNaN(numeric) && numeric >= 0 && numeric <= 23) {
+    return numeric;
+  }
+
+  return SPOKEN_NUMBER_TO_HOUR[normalized] ?? null;
+}
+
+function applySpokenMeridiem(hour: number, meridiemFragment: string) {
+  const meridiem = meridiemFragment.toLowerCase();
+
+  if (/вечер|увечер/i.test(meridiem)) {
+    if (hour >= 1 && hour <= 11) {
+      return hour + 12;
+    }
+
+    return hour;
+  }
+
+  if (/утр|ранку/i.test(meridiem)) {
+    if (hour === 12) {
+      return 0;
+    }
+
+    return hour;
+  }
+
+  if (/(?:дня|днём|днем)/i.test(meridiem)) {
+    if (hour >= 1 && hour <= 11) {
+      return hour + 12;
+    }
+
+    return hour;
+  }
+
+  if (/ноч/i.test(meridiem)) {
+    if (hour >= 1 && hour <= 11) {
+      return hour + 12;
+    }
+
+    return hour;
+  }
+
+  return hour;
+}
+
+export function logParsedSpokenTime(payload: {
+  transcript: string;
+  token: string;
+  meridiem: string;
+  hour24: number;
+  fragment: string;
+}) {
+  console.log('[PARSED SPOKEN_TIME]');
+  console.log(
+    JSON.stringify({
+      transcriptPreview: payload.transcript.slice(0, 120),
+      token: payload.token,
+      meridiem: payload.meridiem,
+      hour24: payload.hour24,
+      fragment: payload.fragment,
+    }),
+  );
+}
+
+export function parseSpokenTimeFragment(transcript: string) {
+  const normalized = transcript.trim();
+  const match =
+    normalized.match(SPOKEN_TIME_PATTERN) ?? normalized.match(ENGLISH_EVENING_PATTERN);
+
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const hourToken = match[1];
+  const hourBase = resolveSpokenHourToken(hourToken);
+
+  if (hourBase === null) {
+    return null;
+  }
+
+  const meridiem = match[0];
+  const hour24 = applySpokenMeridiem(hourBase, meridiem);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const fragment = `${pad(hour24)}:00`;
+
+  logParsedSpokenTime({
+    transcript: normalized,
+    token: hourToken,
+    meridiem,
+    hour24,
+    fragment,
+  });
+
+  return fragment;
+}
+
+/** @deprecated Use parseSpokenTimeFragment */
+export function extractSpokenEveningClockFragment(transcript: string) {
+  const fragment = parseSpokenTimeFragment(transcript);
+
+  if (!fragment) {
+    return null;
+  }
+
+  return `${fragment} вечера`;
+}
+
+export function hasSpokenTimeHint(transcript: string) {
+  const normalized = transcript.trim();
+
+  return (
+    SPOKEN_TIME_PATTERN.test(normalized) ||
+    ENGLISH_EVENING_PATTERN.test(normalized) ||
+    parseSpokenTimeFragment(normalized) !== null
+  );
+}
+
+export function stripSpokenTimePhrases(transcript: string) {
+  return transcript.replace(STRIP_SPOKEN_TIME_PATTERN, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export function isExplicitDurationPhrase(transcript: string) {
+  return /(?:^|[\s,.;:!?—-]+)(?:на|for)\s+\d+(?:[.,]\d+)?\s*(?:час(?:а|ов|у)?|годин(?:и|у|ы)?|hours?|hrs?)(?:[,.!\s]|$)/iu.test(
+    transcript.trim(),
+  );
+}

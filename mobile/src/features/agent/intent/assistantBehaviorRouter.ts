@@ -14,6 +14,7 @@ import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calend
 import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import { getPendingCalendarConflictContext } from '@/src/features/agent/execution/calendarExecutionSession';
+import { isCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -163,7 +164,8 @@ export function resolveAssistantBehavior(params: {
     Boolean(getPendingCalendarConflictContext()) ||
     isCalendarConversationAwaitingInput() ||
     isBareCalendarShortReply(params.transcript) ||
-    isNewCalendarCommandMessage(params.transcript);
+    isNewCalendarCommandMessage(params.transcript) ||
+    isCalendarCreateByTitleTimePattern(actionTranscript);
   const fieldValidation = validateActionFields({
     transcript: actionTranscript,
     referenceNow: params.referenceNow,

@@ -1,3 +1,4 @@
+import { detectCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
 import {
   asksAboutEventsAtClock,
   extractCalendarClockFragment,
@@ -118,7 +119,11 @@ export function classifyCalendarReadTimeKind(transcript: string): CalendarReadTi
 export function isCalendarReadBlockedByWriteIntent(transcript: string) {
   const normalized = normalizeCalendarReadSemantics(transcript);
 
-  return EXPLICIT_WRITE_VERB_AT_START.test(normalized) || UPDATE_SHIFT_WITH_VERB.test(normalized);
+  return (
+    EXPLICIT_WRITE_VERB_AT_START.test(normalized) ||
+    UPDATE_SHIFT_WITH_VERB.test(normalized) ||
+    detectCalendarCreateByTitleTimePattern(normalized) !== null
+  );
 }
 
 export function isCalendarClockReadQuery(transcript: string) {

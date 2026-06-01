@@ -1,7 +1,7 @@
 import {
-  extractSpokenEveningClockFragment,
   isExplicitDurationPhrase,
-} from '@/src/features/agent/calendar/calendarEveningClock';
+  parseSpokenTimeFragment,
+} from '@/src/features/agent/calendar/calendarSpokenTime';
 import { resolveDayOffset } from '@/src/features/agent/calendar/operationalScheduleParser';
 import { getZonedTimeParts, zonedLocalToUtcMs } from '@/src/features/agent/calendar/calendarTimezone';
 import {
@@ -179,12 +179,12 @@ export function parseClockFragmentToMinutes(fragment: string, contextText = '') 
 }
 
 export function extractCalendarClockFragment(transcript: string): CalendarClockMatch | null {
-  const spokenEvening = extractSpokenEveningClockFragment(transcript);
+  const spokenTime = parseSpokenTimeFragment(transcript);
 
-  if (spokenEvening) {
+  if (spokenTime) {
     return {
-      fragment: spokenEvening,
-      patternId: 'spoken_evening',
+      fragment: spokenTime,
+      patternId: 'spoken_time',
       preposition: null,
     };
   }

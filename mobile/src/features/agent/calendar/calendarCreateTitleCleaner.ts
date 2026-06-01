@@ -1,3 +1,4 @@
+import { stripSpokenTimePhrases } from '@/src/features/agent/calendar/calendarSpokenTime';
 import { stripCalendarClockPhrases } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import { stripNaturalDatePhrases } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
 import {
@@ -188,6 +189,7 @@ function stripLeadingArticles(text: string) {
 
 export function cleanCreateEventTitleText(text: string) {
   let cleaned = text.trim();
+  cleaned = stripSpokenTimePhrases(cleaned);
   cleaned = stripCalendarClockPhrases(cleaned);
   cleaned = stripNaturalDatePhrases(cleaned);
   cleaned = cleaned.replace(ENGLISH_RELATIVE_TIME, ' ');

@@ -1,6 +1,6 @@
-import {
-  buildCalendarScheduleConflictReply,
-} from '@/src/features/agent/calendar/calendarConflictReplies';
+import { buildCreateConflictAlternativesBundle } from '@/src/features/agent/calendar/calendarCreateConflictAlternatives';
+import { buildCalendarScheduleConflictReply } from '@/src/features/agent/calendar/calendarConflictReplies';
+import { syncConversationStateForConflictAlternatives } from '@/src/features/agent/calendar/calendarConversationSync';
 import { pendingConflictContextFromCheck } from '@/src/features/agent/calendar/calendarConflictPendingContext';
 import { checkCalendarScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflict';
 import {
@@ -57,14 +57,6 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
 
   const primary = check.conflicts[0];
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
-  const reply = buildCalendarScheduleConflictReply({
-    locale,
-    operation: params.operation,
-    proposedTitle: params.proposedTitle,
-    conflict: primary,
-    proposedStartMs: params.proposedStartMs,
-    proposedEndMs: params.proposedEndMs,
-  });
 
   const pendingContext = pendingConflictContextFromCheck({
     operation: params.operation,
@@ -81,8 +73,33 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
     conflictingEndsAt: primary.event.endsAt,
   });
 
-  setPendingCalendarConflictContext(pendingContext);
-  syncConversationStateForConflict(pendingContext, 'WAITING_CONFLICT_CONFIRMATION', check.conflicts);
+  let reply: string;
+
+  if (params.operation === 'create') {
+    const alternativesBundle = await buildCreateConflictAlternativesBundle({
+      locale,
+      proposedTitle: params.proposedTitle,
+      conflict: primary,
+      proposedStartMs: params.proposedStartMs,
+      proposedEndMs: params.proposedEndMs,
+      referenceNow: params.referenceNow,
+    });
+
+    reply = alternativesBundle.reply;
+    setPendingCalendarConflictContext(pendingContext);
+    syncConversationStateForConflictAlternatives(pendingContext, alternativesBundle.alternativeStartMs);
+  } else {
+    reply = buildCalendarScheduleConflictReply({
+      locale,
+      operation: params.operation,
+      proposedTitle: params.proposedTitle,
+      conflict: primary,
+      proposedStartMs: params.proposedStartMs,
+      proposedEndMs: params.proposedEndMs,
+    });
+    setPendingCalendarConflictContext(pendingContext);
+    syncConversationStateForConflict(pendingContext, 'WAITING_CONFLICT_CONFIRMATION', check.conflicts);
+  }
 
   const tool = createCalendarToolFailure('CALENDAR_SCHEDULE_CONFLICT', reply);
 

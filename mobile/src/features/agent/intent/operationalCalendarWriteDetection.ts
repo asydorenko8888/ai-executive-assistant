@@ -6,6 +6,8 @@ import {
   RELATIVE_SHIFT_HINT,
   UPDATE_WRITE_VERBS,
 } from '@/src/features/agent/calendar/calendarUpdateVerbs';
+import { isCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
+import { hasSpokenTimeHint } from '@/src/features/agent/calendar/calendarSpokenTime';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 
 function isExactTimeReadQuery(transcript: string) {
@@ -49,7 +51,11 @@ const DELETE_VERB_AT_START =
   /^(?:please\s+)?(?:удали|удалить|убери|отмени|отменить|прибери|скасуй|скасувати|видали|видалити|delete|remove|cancel)(?:[\s,:-]|$)/iu;
 
 const SCHEDULE_TIME_HINT =
-  /\b(?:today|tomorrow|завтра|сегодня|сьогодні|післязавтра|послезавтра|утра|утром|вечера|вечером|дня|днём|днем|ночи|ночью|am|pm|a\.m\.|p\.m\.|\d{1,2}(?::\d{2})?)\b/iu;
+  /\b(?:today|tomorrow|завтра|сегодня|сьогодні|післязавтра|послезавтра|утра|утром|вечера|вечером|вечора|увечері|дня|днём|днем|ночи|ночью|am|pm|a\.m\.|p\.m\.|\d{1,2}(?::\d{2})?)\b/iu;
+
+function hasScheduleTimeHint(transcript: string) {
+  return SCHEDULE_TIME_HINT.test(transcript) || hasSpokenTimeHint(transcript);
+}
 
 const WEEKDAY_HINT =
   /\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес|понеділок|вівторок|середу|четвер|п'ятниц|субот|неділ)\b/iu;
@@ -98,7 +104,7 @@ export function isOperationalCalendarUpdateRequest(transcript: string) {
 
   if (
     CALENDAR_DOMAIN.test(normalized) ||
-    SCHEDULE_TIME_HINT.test(normalized) ||
+    hasScheduleTimeHint(normalized) ||
     WEEKDAY_HINT.test(normalized) ||
     RELATIVE_SHIFT_HINT.test(normalized)
   ) {
@@ -129,14 +135,18 @@ export function isOperationalCalendarCreateRequest(transcript: string) {
     return true;
   }
 
-  if (WRITE_VERB_AT_START.test(normalized) && (SCHEDULE_TIME_HINT.test(normalized) || WEEKDAY_HINT.test(normalized))) {
+  if (WRITE_VERB_AT_START.test(normalized) && (hasScheduleTimeHint(normalized) || WEEKDAY_HINT.test(normalized))) {
     return true;
   }
 
   if (
     IMPLICIT_SCHEDULE_AT_START.test(normalized) &&
-    (SCHEDULE_TIME_HINT.test(normalized) || WEEKDAY_HINT.test(normalized))
+    (hasScheduleTimeHint(normalized) || WEEKDAY_HINT.test(normalized))
   ) {
+    return true;
+  }
+
+  if (isCalendarCreateByTitleTimePattern(normalized)) {
     return true;
   }
 

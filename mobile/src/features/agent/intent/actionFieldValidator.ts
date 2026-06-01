@@ -14,6 +14,7 @@ import {
   isOperationalCalendarDeleteRequest,
   isOperationalCalendarUpdateRequest,
 } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { detectCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
@@ -144,12 +145,33 @@ export function validateActionFields(params: {
     missingFields.push('confidence');
   }
 
+  const titleTimePattern = detectCalendarCreateByTitleTimePattern(params.transcript);
+  const readyFromExtraction = isCalendarExtractionExecutable(extraction);
+  const readyFromTitleTime =
+    Boolean(titleTimePattern) &&
+    schedule.ok &&
+    Boolean(extraction.title) &&
+    extraction.title.length >= 2;
+
+  if (readyFromTitleTime && !readyFromExtraction) {
+    console.log('[ACTION MODE FALLBACK CREATE]');
+    console.log(
+      JSON.stringify({
+        patternId: titleTimePattern?.patternId,
+        title: extraction.title,
+        scheduleStart: new Date(schedule.startMs).toISOString(),
+      }),
+    );
+  }
+
   return {
     actionKind,
     requiredFields,
-    missingFields,
-    readyToExecute: isCalendarExtractionExecutable(extraction),
-    extractionConfidence: extraction.confidence,
+    missingFields: readyFromTitleTime ? [] : missingFields,
+    readyToExecute: readyFromExtraction || readyFromTitleTime,
+    extractionConfidence: readyFromTitleTime
+      ? Math.max(extraction.confidence, threshold)
+      : extraction.confidence,
   };
 }
 
