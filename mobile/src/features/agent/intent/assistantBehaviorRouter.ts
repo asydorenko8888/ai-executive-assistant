@@ -11,6 +11,7 @@ import { mergeActionContextFromHistory, isActionContinuation } from '@/src/featu
 import type { AssistantIntentAnalysis } from '@/src/features/agent/intent/assistantIntentRouter';
 import { requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
 import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calendar/calendarConversationState';
+import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import { getPendingCalendarConflictContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
@@ -161,7 +162,8 @@ export function resolveAssistantBehavior(params: {
     contextMerge.contextSource === 'pending_delete_clarification' ||
     Boolean(getPendingCalendarConflictContext()) ||
     isCalendarConversationAwaitingInput() ||
-    isBareCalendarShortReply(params.transcript);
+    isBareCalendarShortReply(params.transcript) ||
+    isNewCalendarCommandMessage(params.transcript);
   const fieldValidation = validateActionFields({
     transcript: actionTranscript,
     referenceNow: params.referenceNow,

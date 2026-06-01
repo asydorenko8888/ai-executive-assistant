@@ -1,4 +1,5 @@
 import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calendar/calendarConversationState';
+import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import {
   getPendingCalendarConflictContext,
@@ -44,6 +45,7 @@ export function requiresCalendarCommandExecution(transcript: string) {
   if (
     isCalendarConversationAwaitingInput() ||
     isBareCalendarShortReply(transcript) ||
+    isNewCalendarCommandMessage(transcript) ||
     getPendingCalendarUpdateContext() ||
     getPendingCalendarDeleteContext() ||
     getPendingCalendarConflictContext()

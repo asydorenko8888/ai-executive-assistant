@@ -1,4 +1,8 @@
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import {
+  createPendingActionId,
+  logPendingStateCreated,
+} from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 
 export type CalendarConversationState =
   | 'IDLE'
@@ -10,7 +14,24 @@ export type CalendarConversationState =
 
 export type CalendarPendingActionType = 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT';
 
+export type CalendarPendingActionKind = 'create' | 'update' | 'delete';
+
+export type CalendarPendingConflictEvent = {
+  eventId: string;
+  title: string;
+  startsAt: string;
+  endsAt: string;
+};
+
 export type CalendarPendingAction = {
+  pendingActionId: string;
+  actionType: CalendarPendingActionKind;
+  originalIntent: string;
+  candidateEventId: string | null;
+  proposedStartMs: number;
+  proposedEndMs: number;
+  conflictEvents: CalendarPendingConflictEvent[];
+  createdAtMs: number;
   action: CalendarPendingActionType;
   eventTitle: string;
   sourceTranscript: string;
@@ -75,12 +96,15 @@ export function logCalendarConversationEvent(payload: {
   }
 
   if (payload.pendingAction) {
-    console.log(`pendingAction=${JSON.stringify({
-      action: payload.pendingAction.action,
-      eventTitle: payload.pendingAction.eventTitle,
-      requestedTimeIso: payload.pendingAction.requestedTimeIso,
-      sourceTranscriptPreview: payload.pendingAction.sourceTranscript.slice(0, 120),
-    })}`);
+    console.log(
+      `pendingAction=${JSON.stringify({
+        pendingActionId: payload.pendingAction.pendingActionId,
+        actionType: payload.pendingAction.actionType,
+        eventTitle: payload.pendingAction.eventTitle,
+        requestedTimeIso: payload.pendingAction.requestedTimeIso,
+        sourceTranscriptPreview: payload.pendingAction.sourceTranscript.slice(0, 120),
+      })}`,
+    );
   } else if (payload.event === 'transition' || payload.event === 'reset') {
     console.log('pendingAction=null');
   }
@@ -88,6 +112,86 @@ export function logCalendarConversationEvent(payload: {
   if (payload.detail) {
     console.log(`detail=${payload.detail}`);
   }
+}
+
+export function mapOperationToPendingActionKind(operation: 'create' | 'update' | 'delete'): CalendarPendingActionKind {
+  if (operation === 'update') {
+    return 'update';
+  }
+
+  if (operation === 'delete') {
+    return 'delete';
+  }
+
+  return 'create';
+}
+
+export function mapPendingActionKindToLegacyType(kind: CalendarPendingActionKind): CalendarPendingActionType {
+  if (kind === 'update') {
+    return 'UPDATE_EVENT';
+  }
+
+  if (kind === 'delete') {
+    return 'DELETE_EVENT';
+  }
+
+  return 'CREATE_EVENT';
+}
+
+export function buildCalendarPendingAction(params: {
+  actionType: CalendarPendingActionKind;
+  originalIntent: string;
+  eventTitle: string;
+  sourceTranscript: string;
+  titleSourceTranscript?: string | null;
+  languageCode: VoiceLanguageCode;
+  proposedStartMs: number;
+  proposedEndMs: number;
+  candidateEventId?: string | null;
+  conflictEvents?: CalendarPendingConflictEvent[];
+  updateEventId?: string | null;
+  conflictingEventId?: string | null;
+  conflictingTitle?: string | null;
+  conflictingStartsAt?: string | null;
+  conflictingEndsAt?: string | null;
+  alternativeStartMs?: number[];
+  deleteTitleQuery?: string | null;
+  updateFromTime?: string | null;
+  updateToTime?: string | null;
+  proceedDespiteConflict?: boolean;
+  pendingActionId?: string;
+  createdAtMs?: number;
+}): CalendarPendingAction {
+  const action = mapPendingActionKindToLegacyType(params.actionType);
+
+  return {
+    pendingActionId: params.pendingActionId ?? createPendingActionId(),
+    actionType: params.actionType,
+    originalIntent: params.originalIntent.trim(),
+    candidateEventId: params.candidateEventId ?? params.updateEventId ?? null,
+    proposedStartMs: params.proposedStartMs,
+    proposedEndMs: params.proposedEndMs,
+    conflictEvents: params.conflictEvents ?? [],
+    createdAtMs: params.createdAtMs ?? Date.now(),
+    action,
+    eventTitle: params.eventTitle,
+    sourceTranscript: params.sourceTranscript.trim(),
+    titleSourceTranscript: params.titleSourceTranscript?.trim() || null,
+    languageCode: params.languageCode,
+    requestedStartMs: params.proposedStartMs,
+    requestedEndMs: params.proposedEndMs,
+    requestedTimeIso: pendingActionToIso(params.proposedStartMs),
+    updateEventId: params.updateEventId ?? null,
+    conflictingEventId: params.conflictingEventId ?? null,
+    conflictingTitle: params.conflictingTitle ?? null,
+    conflictingStartsAt: params.conflictingStartsAt ?? null,
+    conflictingEndsAt: params.conflictingEndsAt ?? null,
+    alternativeStartMs: params.alternativeStartMs,
+    deleteTitleQuery: params.deleteTitleQuery ?? null,
+    updateFromTime: params.updateFromTime ?? null,
+    updateToTime: params.updateToTime ?? null,
+    proceedDespiteConflict: params.proceedDespiteConflict ?? false,
+  };
 }
 
 export function transitionCalendarConversationState(params: {
@@ -102,6 +206,10 @@ export function transitionCalendarConversationState(params: {
     state: params.toState,
     pendingAction: params.pendingAction,
   };
+
+  if (params.pendingAction && fromState === 'IDLE') {
+    logPendingStateCreated(params.pendingAction);
+  }
 
   logCalendarConversationEvent({
     event: 'transition',
@@ -134,15 +242,7 @@ export function pendingActionToIso(startMs: number) {
 export function mapOperationToPendingActionType(
   operation: 'create' | 'update' | 'delete',
 ): CalendarPendingActionType {
-  if (operation === 'update') {
-    return 'UPDATE_EVENT';
-  }
-
-  if (operation === 'delete') {
-    return 'DELETE_EVENT';
-  }
-
-  return 'CREATE_EVENT';
+  return mapPendingActionKindToLegacyType(mapOperationToPendingActionKind(operation));
 }
 
 export function mapPendingActionTypeToCommandIntent(

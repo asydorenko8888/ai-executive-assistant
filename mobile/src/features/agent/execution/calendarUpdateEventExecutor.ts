@@ -14,6 +14,7 @@ import {
 } from '@/src/features/agent/calendar/calendarMutationDiagnostics';
 import { logUpdateSuccess } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import { logUpdateNotFound } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
+import { recordVerifiedCalendarEventContext } from '@/src/features/agent/calendar/calendarMutationEventContext';
 import { blockCalendarMutationOnScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflictGuard';
 import { refreshCalendarAgendaState } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { updateGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarUpdateService';
@@ -295,6 +296,16 @@ export async function executeCalendarUpdateEvent(
       clearPendingCalendarUpdateIntent();
       clearPendingCalendarConflictContext();
       endCalendarOperation({ failed: false });
+      if (tool.eventId && tool.event) {
+        recordVerifiedCalendarEventContext({
+          eventId: tool.eventId,
+          title: tool.event.summary ?? matchResult.match.title,
+          startISO: tool.event.startsAt,
+          endISO: tool.event.endsAt,
+          actionType: 'update',
+          clearPendingReason: 'update_completed',
+        });
+      }
       logCalendarMutationVerification({
         intent: 'update_calendar_event',
         verified: true,

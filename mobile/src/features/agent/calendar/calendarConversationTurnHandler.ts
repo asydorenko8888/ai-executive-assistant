@@ -13,12 +13,16 @@ import {
   buildTranscriptFromPendingContext,
   tryMergePendingCalendarUpdateReply,
 } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
+import {
+  classifyPendingCalendarReply,
+  logPendingReplyClassified,
+} from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
+import { clearPendingCalendarState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import {
   getCalendarConversationSnapshot,
   logCalendarConversationEvent,
   mapPendingActionTypeToCommandIntent,
-  resetCalendarConversationState,
   transitionCalendarConversationState,
   type CalendarConversationState,
   type CalendarPendingAction,
@@ -248,7 +252,7 @@ async function executePendingMutation(params: {
       referenceNow: params.referenceNow,
     });
 
-    resetCalendarConversationState('delete_completed', transcript);
+    clearPendingCalendarState('delete_completed', transcript);
 
     return mapOutcome({
       intent,
@@ -269,7 +273,7 @@ async function executePendingMutation(params: {
       skipScheduleConflictCheck: params.skipScheduleConflictCheck,
     });
 
-    resetCalendarConversationState('update_completed', transcript);
+    clearPendingCalendarState('update_completed', transcript);
 
     return mapOutcome({
       intent,
@@ -291,7 +295,7 @@ async function executePendingMutation(params: {
     skipScheduleConflictCheck: params.skipScheduleConflictCheck,
   });
 
-  resetCalendarConversationState('create_completed', transcript);
+  clearPendingCalendarState('create_completed', transcript);
 
   return mapOutcome({
     intent,
@@ -398,6 +402,7 @@ async function handleDeleteOrSelectionState(params: {
   pending: CalendarPendingAction;
   transcript: string;
   referenceNow: Date;
+  classification: ReturnType<typeof classifyPendingCalendarReply>;
 }) {
   const short = classifyCalendarShortReply(params.transcript);
 
@@ -434,13 +439,31 @@ async function handleDeleteOrSelectionState(params: {
     });
   }
 
-  const combined = `${params.pending.sourceTranscript} ${params.transcript}`.replace(/\s+/g, ' ').trim();
+  if (params.classification === 'unrelated') {
+    const combined = `${params.pending.sourceTranscript} ${params.transcript}`.replace(/\s+/g, ' ').trim();
 
-  return executePendingMutation({
-    pending: { ...params.pending, sourceTranscript: combined },
-    referenceNow: params.referenceNow,
-    calendarConnected: true,
-    transcriptOverride: combined,
+    return executePendingMutation({
+      pending: { ...params.pending, sourceTranscript: combined },
+      referenceNow: params.referenceNow,
+      calendarConnected: true,
+      transcriptOverride: combined,
+    });
+  }
+
+  const intent = mapPendingActionTypeToCommandIntent(params.pending.action);
+  const reminder =
+    getChatLocaleFromVoiceLanguage(params.pending.languageCode) === 'uk'
+      ? 'Уточніть, яке саме подію обрати.'
+      : getChatLocaleFromVoiceLanguage(params.pending.languageCode) === 'ru'
+        ? 'Уточните, какое именно событие выбрать.'
+        : 'Please clarify which event you mean.';
+
+  return mapOutcome({
+    intent,
+    tool: createCalendarToolFailure('CALENDAR_EVENT_AMBIGUOUS', 'Awaiting event selection'),
+    reply: reminder,
+    spokenReply: reminder,
+    verified: false,
   });
 }
 
@@ -449,6 +472,7 @@ async function handleMoveConfirmation(params: {
   transcript: string;
   referenceNow: Date;
   calendarConnected: boolean;
+  classification: ReturnType<typeof classifyPendingCalendarReply>;
 }) {
   const short = classifyCalendarShortReply(params.transcript);
 
@@ -486,13 +510,23 @@ async function handleMoveConfirmation(params: {
     });
   }
 
-  const combined = `${params.pending.sourceTranscript} ${params.transcript}`.replace(/\s+/g, ' ').trim();
+  if (params.classification === 'unrelated') {
+    const combined = `${params.pending.sourceTranscript} ${params.transcript}`.replace(/\s+/g, ' ').trim();
 
-  return executePendingMutation({
-    pending: { ...params.pending, sourceTranscript: combined },
+    return executePendingMutation({
+      pending: { ...params.pending, sourceTranscript: combined },
+      referenceNow: params.referenceNow,
+      calendarConnected: params.calendarConnected,
+      transcriptOverride: combined,
+    });
+  }
+
+  return handleConflictOrNewTimeState({
+    state: 'WAITING_MOVE_CONFIRMATION',
+    pending: params.pending,
+    transcript: params.transcript,
     referenceNow: params.referenceNow,
     calendarConnected: params.calendarConnected,
-    transcriptOverride: combined,
   });
 }
 
@@ -510,12 +544,24 @@ export async function handleCalendarConversationTurn(params: {
   }
 
   const pending = snapshot.pendingAction;
+  const classification = classifyPendingCalendarReply(params.transcript);
+
+  logPendingReplyClassified({
+    transcript: params.transcript,
+    classification,
+    pendingActionId: pending.pendingActionId,
+  });
+
+  if (classification === 'new_calendar_command') {
+    return null;
+  }
 
   logCalendarConversationEvent({
     event: 'incoming',
     incomingMessage: params.transcript,
     toState: snapshot.state,
     pendingAction: pending,
+    detail: classification,
   });
 
   let result: CalendarConversationTurnResult;
@@ -537,6 +583,7 @@ export async function handleCalendarConversationTurn(params: {
         pending,
         transcript: params.transcript,
         referenceNow: params.referenceNow,
+        classification,
       });
       break;
     case 'WAITING_MOVE_CONFIRMATION':
@@ -545,6 +592,7 @@ export async function handleCalendarConversationTurn(params: {
         transcript: params.transcript,
         referenceNow: params.referenceNow,
         calendarConnected: params.calendarConnected,
+        classification,
       });
       break;
     default:

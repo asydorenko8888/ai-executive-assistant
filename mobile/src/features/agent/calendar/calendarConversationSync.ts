@@ -1,6 +1,6 @@
 import {
-  mapOperationToPendingActionType,
-  pendingActionToIso,
+  buildCalendarPendingAction,
+  mapOperationToPendingActionKind,
   transitionCalendarConversationState,
   type CalendarConversationState,
   type CalendarPendingAction,
@@ -13,67 +13,90 @@ import type {
 
 function conflictContextToPendingAction(
   context: PendingCalendarConflictContext,
+  conflicts?: Array<{
+    event: { id: string; title: string; startsAt: string; endsAt: string };
+  }>,
 ): CalendarPendingAction {
-  return {
-    action: mapOperationToPendingActionType(context.operation),
+  const conflictEvents =
+    conflicts?.map((entry) => ({
+      eventId: entry.event.id,
+      title: entry.event.title,
+      startsAt: entry.event.startsAt,
+      endsAt: entry.event.endsAt,
+    })) ?? [
+      {
+        eventId: context.conflictingEventId,
+        title: context.conflictingTitle,
+        startsAt: context.conflictingStartsAt,
+        endsAt: context.conflictingEndsAt,
+      },
+    ];
+
+  return buildCalendarPendingAction({
+    actionType: mapOperationToPendingActionKind(context.operation),
+    originalIntent: context.sourceTranscript,
     eventTitle: context.proposedTitle,
     sourceTranscript: context.sourceTranscript,
     titleSourceTranscript: context.titleSourceTranscript,
     languageCode: context.languageCode,
-    requestedStartMs: context.proposedStartMs,
-    requestedEndMs: context.proposedEndMs,
-    requestedTimeIso: pendingActionToIso(context.proposedStartMs),
+    proposedStartMs: context.proposedStartMs,
+    proposedEndMs: context.proposedEndMs,
+    candidateEventId: context.updateEventId,
     updateEventId: context.updateEventId,
+    conflictEvents,
     conflictingEventId: context.conflictingEventId,
     conflictingTitle: context.conflictingTitle,
     conflictingStartsAt: context.conflictingStartsAt,
     conflictingEndsAt: context.conflictingEndsAt,
     proceedDespiteConflict: context.proceedDespiteConflict,
-  };
+  });
 }
 
 function deleteContextToPendingAction(
   context: PendingCalendarDeleteContext,
   languageCode: CalendarPendingAction['languageCode'],
 ): CalendarPendingAction {
-  return {
-    action: 'DELETE_EVENT',
+  return buildCalendarPendingAction({
+    actionType: 'delete',
+    originalIntent: context.sourceTranscript,
     eventTitle: context.title?.trim() || 'event',
     sourceTranscript: context.sourceTranscript,
-    titleSourceTranscript: null,
     languageCode,
-    requestedStartMs: 0,
-    requestedEndMs: 0,
-    requestedTimeIso: pendingActionToIso(0),
+    proposedStartMs: 0,
+    proposedEndMs: 0,
     deleteTitleQuery: context.title,
-  };
+  });
 }
 
 function updateContextToPendingAction(
   context: PendingCalendarUpdateContext,
   languageCode: CalendarPendingAction['languageCode'],
 ): CalendarPendingAction {
-  return {
-    action: 'UPDATE_EVENT',
+  return buildCalendarPendingAction({
+    actionType: 'update',
+    originalIntent: context.sourceTranscript,
     eventTitle: context.title?.trim() || 'event',
     sourceTranscript: context.sourceTranscript,
-    titleSourceTranscript: null,
     languageCode,
-    requestedStartMs: 0,
-    requestedEndMs: 0,
-    requestedTimeIso: pendingActionToIso(0),
+    proposedStartMs: 0,
+    proposedEndMs: 0,
     updateFromTime: context.fromTime,
     updateToTime: context.toTime,
-  };
+  });
 }
 
 export function syncConversationStateForConflict(
   context: PendingCalendarConflictContext,
   toState: CalendarConversationState = 'WAITING_CONFLICT_CONFIRMATION',
+  conflicts?: Array<{
+    event: { id: string; title: string; startsAt: string; endsAt: string };
+    startsAtMs: number;
+    endsAtMs: number;
+  }>,
 ) {
   transitionCalendarConversationState({
     toState,
-    pendingAction: conflictContextToPendingAction(context),
+    pendingAction: conflictContextToPendingAction(context, conflicts),
     reason: 'schedule_conflict_detected',
   });
 }

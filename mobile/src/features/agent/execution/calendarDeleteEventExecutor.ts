@@ -8,6 +8,7 @@ import {
   logCalendarMutationStart,
   logCalendarMutationVerification,
 } from '@/src/features/agent/calendar/calendarMutationDiagnostics';
+import { recordVerifiedCalendarEventContext } from '@/src/features/agent/calendar/calendarMutationEventContext';
 import { refreshCalendarAgendaState } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { deleteGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarDeleteService';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
@@ -204,6 +205,14 @@ export async function executeCalendarDeleteEvent(
       });
       clearPendingCalendarDeleteIntent();
       endCalendarOperation({ failed: false });
+      recordVerifiedCalendarEventContext({
+        eventId: resolution.event.id,
+        title: resolution.event.title,
+        startISO: resolution.event.startsAt,
+        endISO: resolution.event.endsAt,
+        actionType: 'delete',
+        clearPendingReason: 'delete_completed',
+      });
       logCalendarMutationVerification({
         intent: 'delete_calendar_event',
         verified: true,

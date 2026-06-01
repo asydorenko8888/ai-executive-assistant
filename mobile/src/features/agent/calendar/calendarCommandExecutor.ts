@@ -14,6 +14,20 @@ import {
   isCalendarExtractionExecutable,
 } from '@/src/features/agent/calendar/calendarCommandExtractor';
 import { handleCalendarConversationTurn } from '@/src/features/agent/calendar/calendarConversationTurnHandler';
+import {
+  classifyPendingCalendarReply,
+  logPendingReplyClassified,
+} from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
+import {
+  clearPendingCalendarState,
+  expirePendingCalendarStateIfStale,
+  logNewCommandOverridesPending,
+} from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
+import {
+  getCalendarConversationSnapshot,
+  isCalendarConversationAwaitingInput,
+} from '@/src/features/agent/calendar/calendarConversationState';
+import { enrichCalendarCommandTranscript } from '@/src/features/agent/calendar/calendarTranscriptEnrichment';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
 import { executeCalendarUpdateEvent } from '@/src/features/agent/execution/calendarUpdateEventExecutor';
@@ -65,19 +79,45 @@ export async function executeCalendarCommand(params: {
   /** Current user message only — CREATE titles are extracted from this, not merged history. */
   titleSourceTranscript?: string;
 }): Promise<CalendarCommandResult> {
-  const conversationTurn = await handleCalendarConversationTurn({
+  expirePendingCalendarStateIfStale(params.referenceNow);
+
+  const enrichedTranscript = enrichCalendarCommandTranscript({
     transcript: params.transcript,
-    languageCode: params.languageCode,
     referenceNow: params.referenceNow,
-    titleSourceTranscript: params.titleSourceTranscript,
-    calendarConnected: params.calendarConnected,
   });
 
-  if (conversationTurn) {
-    return conversationTurn;
+  if (isCalendarConversationAwaitingInput()) {
+    const pending = getCalendarConversationSnapshot().pendingAction;
+    const classification = classifyPendingCalendarReply(enrichedTranscript);
+
+    logPendingReplyClassified({
+      transcript: enrichedTranscript,
+      classification,
+      pendingActionId: pending?.pendingActionId ?? null,
+    });
+
+    if (classification === 'new_calendar_command' && pending) {
+      logNewCommandOverridesPending({
+        pendingActionId: pending.pendingActionId,
+        transcript: enrichedTranscript,
+      });
+      clearPendingCalendarState('new_command_override', enrichedTranscript);
+    } else {
+      const conversationTurn = await handleCalendarConversationTurn({
+        transcript: enrichedTranscript,
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+        titleSourceTranscript: params.titleSourceTranscript,
+        calendarConnected: params.calendarConnected,
+      });
+
+      if (conversationTurn) {
+        return conversationTurn;
+      }
+    }
   }
 
-  const intent = detectCalendarCommandIntent(params.transcript);
+  const intent = detectCalendarCommandIntent(enrichedTranscript);
 
   logCalendarIntentDetected({
     transcript: params.transcript,
@@ -101,7 +141,7 @@ export async function executeCalendarCommand(params: {
     logCalendarToolSelected({ intent, tool: 'google_calendar_delete_event' });
 
     const outcome = await executeCalendarDeleteEvent({
-      transcript: params.transcript,
+      transcript: enrichedTranscript,
       languageCode: params.languageCode,
       referenceNow: params.referenceNow,
     });
@@ -191,14 +231,14 @@ export async function executeCalendarCommand(params: {
   }
 
   const extraction = extractCalendarCommand({
-    transcript: params.transcript,
+    transcript: enrichedTranscript,
     titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
     referenceNow: params.referenceNow,
   });
 
   if (!isCalendarExtractionExecutable(extraction)) {
     const validation = validateActionFields({
-      transcript: params.transcript,
+      transcript: enrichedTranscript,
       referenceNow: params.referenceNow,
     });
     const failureReply = buildClarificationQuestion({
@@ -231,7 +271,7 @@ export async function executeCalendarCommand(params: {
   }
 
   const outcome = await executeCalendarCreateEvent({
-    transcript: params.transcript,
+    transcript: enrichedTranscript,
     titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
     languageCode: params.languageCode,
     calendarConnected: params.calendarConnected,

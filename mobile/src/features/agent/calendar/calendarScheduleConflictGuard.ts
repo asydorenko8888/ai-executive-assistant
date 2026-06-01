@@ -82,7 +82,7 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
   });
 
   setPendingCalendarConflictContext(pendingContext);
-  syncConversationStateForConflict(pendingContext);
+  syncConversationStateForConflict(pendingContext, 'WAITING_CONFLICT_CONFIRMATION', check.conflicts);
 
   const tool = createCalendarToolFailure('CALENDAR_SCHEDULE_CONFLICT', reply);
 

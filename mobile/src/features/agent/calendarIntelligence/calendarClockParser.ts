@@ -1,3 +1,7 @@
+import {
+  extractSpokenEveningClockFragment,
+  isExplicitDurationPhrase,
+} from '@/src/features/agent/calendar/calendarEveningClock';
 import { resolveDayOffset } from '@/src/features/agent/calendar/operationalScheduleParser';
 import { getZonedTimeParts, zonedLocalToUtcMs } from '@/src/features/agent/calendar/calendarTimezone';
 import {
@@ -100,7 +104,12 @@ function applyRussianMeridiemHint(hours: number, normalizedFragment: string) {
     return 0;
   }
 
-  if (/(?:дня|днём|днем)/ui.test(normalizedFragment) && hours >= 1 && hours <= 11) {
+  if (
+    /(?:^|\s)(?:дня|днём|днем)(?:\s|$)/ui.test(normalizedFragment) &&
+    !/вечер/ui.test(normalizedFragment) &&
+    hours >= 1 &&
+    hours <= 11
+  ) {
     return hours + 12;
   }
 
@@ -170,6 +179,16 @@ export function parseClockFragmentToMinutes(fragment: string, contextText = '') 
 }
 
 export function extractCalendarClockFragment(transcript: string): CalendarClockMatch | null {
+  const spokenEvening = extractSpokenEveningClockFragment(transcript);
+
+  if (spokenEvening) {
+    return {
+      fragment: spokenEvening,
+      patternId: 'spoken_evening',
+      preposition: null,
+    };
+  }
+
   for (const entry of CLOCK_FRAGMENT_PATTERNS) {
     const match = transcript.match(entry.pattern);
 
@@ -300,6 +319,14 @@ export function parseCalendarPointSchedule(
   referenceNow: Date,
   timeZone = DEFAULT_CALENDAR_INTELLIGENCE_TIMEZONE,
 ): CalendarPointSchedule {
+  if (isExplicitDurationPhrase(transcript)) {
+    return {
+      ok: false,
+      reason: 'date_parse_failed',
+      detail: 'Duration phrase is not a clock time',
+    };
+  }
+
   const day = resolveTargetDayContext(transcript, referenceNow, timeZone);
   const relative = parseRelativeTimeOffset(transcript);
   const startMinutes = parseCalendarClockMinutes(transcript, day);

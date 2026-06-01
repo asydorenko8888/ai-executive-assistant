@@ -6,6 +6,7 @@ import {
   classifyCalendarShortReply,
 } from '@/src/features/agent/calendar/calendarShortReply';
 import {
+  buildCalendarPendingAction,
   getCalendarConversationSnapshot,
   resetCalendarConversationState,
   transitionCalendarConversationState,
@@ -26,16 +27,16 @@ describe('calendar conversation state', () => {
   it('transitions into conflict confirmation with pending action payload', () => {
     transitionCalendarConversationState({
       toState: 'WAITING_CONFLICT_CONFIRMATION',
-      pendingAction: {
-        action: 'CREATE_EVENT',
+      pendingAction: buildCalendarPendingAction({
+        actionType: 'create',
+        originalIntent: 'Add walk at 8 PM',
         eventTitle: 'Walk',
         sourceTranscript: 'Add walk at 8 PM',
         titleSourceTranscript: 'Add walk at 8 PM',
         languageCode: 'en-US',
-        requestedStartMs: Date.parse('2026-06-01T20:00:00-05:00'),
-        requestedEndMs: Date.parse('2026-06-01T21:00:00-05:00'),
-        requestedTimeIso: new Date(Date.parse('2026-06-01T20:00:00-05:00')).toISOString(),
-      },
+        proposedStartMs: Date.parse('2026-06-01T20:00:00-05:00'),
+        proposedEndMs: Date.parse('2026-06-01T21:00:00-05:00'),
+      }),
       reason: 'schedule_conflict_detected',
     });
 
@@ -49,16 +50,16 @@ describe('calendar conversation state', () => {
   it('clears pending action and returns IDLE on cancel reset', () => {
     transitionCalendarConversationState({
       toState: 'WAITING_CONFLICT_CONFIRMATION',
-      pendingAction: {
-        action: 'CREATE_EVENT',
+      pendingAction: buildCalendarPendingAction({
+        actionType: 'create',
+        originalIntent: 'Add walk at 8 PM',
         eventTitle: 'Walk',
         sourceTranscript: 'Add walk at 8 PM',
         titleSourceTranscript: 'Add walk at 8 PM',
         languageCode: 'en-US',
-        requestedStartMs: Date.parse('2026-06-01T20:00:00-05:00'),
-        requestedEndMs: Date.parse('2026-06-01T21:00:00-05:00'),
-        requestedTimeIso: new Date(Date.parse('2026-06-01T20:00:00-05:00')).toISOString(),
-      },
+        proposedStartMs: Date.parse('2026-06-01T20:00:00-05:00'),
+        proposedEndMs: Date.parse('2026-06-01T21:00:00-05:00'),
+      }),
       reason: 'test_setup',
     });
 
@@ -77,17 +78,17 @@ describe('calendar conversation state', () => {
 
     transitionCalendarConversationState({
       toState: 'WAITING_NEW_TIME',
-      pendingAction: {
-        action: 'CREATE_EVENT',
+      pendingAction: buildCalendarPendingAction({
+        actionType: 'create',
+        originalIntent: 'Add walk at 8 PM',
         eventTitle: 'Walk',
         sourceTranscript: 'Add walk at 8 PM',
         titleSourceTranscript: 'Add walk at 8 PM',
         languageCode: 'en-US',
-        requestedStartMs: Date.parse('2026-06-01T20:00:00-05:00'),
-        requestedEndMs: Date.parse('2026-06-01T21:00:00-05:00'),
-        requestedTimeIso: new Date(Date.parse('2026-06-01T20:00:00-05:00')).toISOString(),
+        proposedStartMs: Date.parse('2026-06-01T20:00:00-05:00'),
+        proposedEndMs: Date.parse('2026-06-01T21:00:00-05:00'),
         alternativeStartMs: alternatives,
-      },
+      }),
       reason: 'conflict_alternatives_offered',
     });
 

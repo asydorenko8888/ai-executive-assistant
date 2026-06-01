@@ -17,7 +17,11 @@ import {
   shouldBlockCalendarRecreate,
   tryBeginCalendarOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
+import { resolveAfterEventCreateSchedule } from '@/src/features/agent/calendar/calendarAfterEventSchedule';
+import { recordVerifiedCalendarEventContext } from '@/src/features/agent/calendar/calendarMutationEventContext';
 import { blockCalendarMutationOnScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflictGuard';
+import { computeDayOffsetFromInstant } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import { refreshCalendarStateAfterCreate } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
 import { markCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
@@ -136,11 +140,43 @@ export async function executeCalendarCreateEvent(
     tool: 'google_calendar_create_event',
   });
 
+  const afterEventSchedule = await resolveAfterEventCreateSchedule({
+    transcript: params.transcript,
+    referenceNow: params.referenceNow,
+  });
+
+  if (afterEventSchedule.ok === false && afterEventSchedule.reason === 'ambiguous') {
+    const tool = createCalendarToolFailure(
+      'CALENDAR_EVENT_AMBIGUOUS',
+      'Multiple events match the anchor event. Please specify which one.',
+    );
+    endCalendarOperation({ failed: true });
+    return finalizeOutcome(
+      buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
+      null,
+    );
+  }
+
+  const timeZone = getExecutiveCalendarTimezone();
+  const scheduleOverride =
+    afterEventSchedule.ok === true
+      ? {
+          startMs: afterEventSchedule.startMs,
+          endMs: afterEventSchedule.endMs,
+          explicitDayOffset: computeDayOffsetFromInstant(
+            params.referenceNow,
+            afterEventSchedule.startMs,
+            timeZone,
+          ),
+        }
+      : undefined;
+
   const payloadResult = buildCalendarCreateEventPayload({
     transcript: params.transcript,
     titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
     languageCode: params.languageCode,
     referenceNow: params.referenceNow,
+    scheduleOverride,
   });
 
   if (!payloadResult.ok) {
@@ -358,6 +394,17 @@ export async function executeCalendarCreateEvent(
             htmlLink: tool.event.htmlLink,
           },
         };
+      }
+
+      if (tool.verified && tool.event && tool.eventId) {
+        recordVerifiedCalendarEventContext({
+          eventId: tool.eventId,
+          title: tool.event.summary ?? payloadResult.payload.summary,
+          startISO: tool.event.startsAt,
+          endISO: tool.event.endsAt,
+          actionType: 'create',
+          clearPendingReason: 'create_completed',
+        });
       }
     }
 

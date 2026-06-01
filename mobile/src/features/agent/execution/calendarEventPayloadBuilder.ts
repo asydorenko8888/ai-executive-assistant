@@ -42,6 +42,11 @@ export function buildCalendarCreateEventPayload(params: {
   referenceNow: Date;
   /** Current user message only — used for CREATE title extraction. */
   titleSourceTranscript?: string;
+  scheduleOverride?: {
+    startMs: number;
+    endMs: number;
+    explicitDayOffset?: number;
+  };
 }):
   | { ok: true; payload: CalendarCreateEventPayload; scheduleIso: string; startMs: number; endMs: number }
   | { ok: false; reason: 'date_parse_failed'; detail: string } {
@@ -76,7 +81,15 @@ export function buildCalendarCreateEventPayload(params: {
     };
   }
 
-  const schedule = parseCalendarCreateSchedule(params.transcript, params.referenceNow);
+  const schedule = params.scheduleOverride
+    ? {
+        ok: true as const,
+        startMs: params.scheduleOverride.startMs,
+        endMs: params.scheduleOverride.endMs,
+        hasExplicitTime: true as const,
+        explicitDayOffset: params.scheduleOverride.explicitDayOffset ?? 0,
+      }
+    : parseCalendarCreateSchedule(params.transcript, params.referenceNow);
 
   if (!schedule.ok) {
     return schedule;

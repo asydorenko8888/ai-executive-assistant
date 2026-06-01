@@ -1,4 +1,5 @@
-import { resetCalendarConversationState } from '@/src/features/agent/calendar/calendarConversationState';
+import { clearLastCalendarEventContext } from '@/src/features/agent/calendar/calendarLastEventContext';
+import { clearPendingCalendarState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 import { MAX_CALENDAR_TOOL_RETRIES, type CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -238,5 +239,6 @@ export function resetCalendarExecutionSession() {
   pendingCalendarDeleteContext = null;
   pendingCalendarConflictContext = null;
   lastCalendarReadMatch = null;
-  resetCalendarConversationState('session_reset');
+  clearPendingCalendarState('session_reset');
+  clearLastCalendarEventContext();
 }

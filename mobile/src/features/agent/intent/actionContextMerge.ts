@@ -1,5 +1,6 @@
 import type { ChatMessage } from '@/src/entities/chat/types';
 import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calendar/calendarConversationState';
+import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import { tryMergePendingCalendarDeleteReply } from '@/src/features/agent/calendar/calendarDeletePendingContext';
 import { tryMergePendingCalendarUpdateReply } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
@@ -51,7 +52,15 @@ export function mergeActionContextFromHistory(params: {
 }) {
   const normalized = params.transcript.trim();
 
-  if (isCalendarConversationAwaitingInput() && isBareCalendarShortReply(normalized)) {
+  if (isCalendarConversationAwaitingInput()) {
+    if (isBareCalendarShortReply(normalized) || isNewCalendarCommandMessage(normalized)) {
+      return {
+        mergedTranscript: normalized,
+        usedContext: false,
+        contextSource: null,
+      };
+    }
+
     return {
       mergedTranscript: normalized,
       usedContext: false,
@@ -96,14 +105,6 @@ export function mergeActionContextFromHistory(params: {
         contextSource: 'pending_update_clarification' as const,
       };
     }
-  }
-
-  if (isCalendarConversationAwaitingInput()) {
-    return {
-      mergedTranscript: normalized,
-      usedContext: false,
-      contextSource: null,
-    };
   }
 
   if (isActionContinuation(normalized)) {
