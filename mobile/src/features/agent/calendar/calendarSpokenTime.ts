@@ -38,14 +38,32 @@ const SPOKEN_NUMBER_TO_HOUR: Record<string, number> = {
   twelve: 12,
 };
 
-const SPOKEN_TIME_PATTERN =
-  /(?:^|[\s,.;:!?—-]+)(?:в|на|о|at)?\s*(\d{1,2}|один|одну|одного|два|две|три|четыре|четверо|чотири|пять|п[\u2019']ять|шесть|семь|сім|восемь|вісім|девять|дев[\u2019']ять|десять|одиннадцать|двенадцать|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:вечера|вечером|вечора|увечері|утра|утром|ранку|дня|днём|днем|ночи|ночью|ночі)(?:[,.!\s]|$)/iu;
+/** Word edge for spoken time — exclude ":" so ":00 вечера" is not parsed as hour 00. */
+const SPOKEN_TIME_EDGE = '(?:^|[\\s,.;!?—-]+)';
+
+const SPOKEN_MERIDIEM =
+  '(?:вечера|вечером|вечора|увечері|утра|утром|ранку|дня|днём|днем|ночи|ночью|ночі)';
+
+const SPOKEN_HOUR_TOKEN =
+  '(\\d{1,2}|один|одну|одного|два|две|три|четыре|четверо|чотири|пять|п[\\u2019\']ять|шесть|семь|сім|восемь|вісім|девять|дев[\\u2019\']ять|десять|одиннадцать|двенадцать|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
+
+const SPOKEN_COLON_MERIDIEM_PATTERN = new RegExp(
+  `${SPOKEN_TIME_EDGE}(?:в|на|о|at)?\\s*(\\d{1,2}):(\\d{2})\\s+${SPOKEN_MERIDIEM}(?:[,.!\\s]|$)`,
+  'iu',
+);
+
+const SPOKEN_TIME_PATTERN = new RegExp(
+  `${SPOKEN_TIME_EDGE}(?:в|на|о|at)?\\s*${SPOKEN_HOUR_TOKEN}\\s+${SPOKEN_MERIDIEM}(?:[,.!\\s]|$)`,
+  'iu',
+);
 
 const ENGLISH_EVENING_PATTERN =
   /(?:^|[\s,.;:!?—-]+)(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+in\s+the\s+evening(?:[,.!\s]|$)/iu;
 
-const STRIP_SPOKEN_TIME_PATTERN =
-  /(?:^|[\s,.;:!?—-]+)(?:в|на|о|at)?\s*(?:\d{1,2}|один|одну|одного|два|две|три|четыре|четверо|чотири|пять|п[\u2019']ять|шесть|семь|сім|восемь|вісім|девять|дев[\u2019']ять|десять|одиннадцать|двенадцать|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(?:вечера|вечером|вечора|увечері|утра|утром|ранку|дня|днём|днем|ночи|ночью|ночі)/giu;
+const STRIP_SPOKEN_TIME_PATTERN = new RegExp(
+  `${SPOKEN_TIME_EDGE}(?:в|на|о|at)?\\s*(?:\\d{1,2}:\\d{2}|${SPOKEN_HOUR_TOKEN.slice(1, -1)})\\s+${SPOKEN_MERIDIEM}`,
+  'giu',
+);
 
 function resolveSpokenHourToken(token: string) {
   const normalized = token.toLowerCase().trim();
@@ -115,8 +133,41 @@ export function logParsedSpokenTime(payload: {
   );
 }
 
+function formatSpokenClockFragment(hour24: number, minute = 0) {
+  const pad = (value: number) => String(value).padStart(2, '0');
+
+  return `${pad(hour24)}:${pad(minute)}`;
+}
+
 export function parseSpokenTimeFragment(transcript: string) {
   const normalized = transcript.trim();
+  const colonMatch = normalized.match(SPOKEN_COLON_MERIDIEM_PATTERN);
+
+  if (colonMatch?.[1] && colonMatch[2]) {
+    const hourToken = colonMatch[1];
+    const minuteToken = colonMatch[2];
+    let hourBase = Number(hourToken);
+    const minutes = Number(minuteToken);
+
+    if (Number.isNaN(hourBase) || Number.isNaN(minutes) || minutes < 0 || minutes > 59) {
+      return null;
+    }
+
+    const meridiem = colonMatch[0];
+    const hour24 = applySpokenMeridiem(hourBase, meridiem);
+    const fragment = formatSpokenClockFragment(hour24, minutes);
+
+    logParsedSpokenTime({
+      transcript: normalized,
+      token: `${hourToken}:${minuteToken}`,
+      meridiem,
+      hour24,
+      fragment,
+    });
+
+    return fragment;
+  }
+
   const match =
     normalized.match(SPOKEN_TIME_PATTERN) ?? normalized.match(ENGLISH_EVENING_PATTERN);
 
@@ -133,8 +184,7 @@ export function parseSpokenTimeFragment(transcript: string) {
 
   const meridiem = match[0];
   const hour24 = applySpokenMeridiem(hourBase, meridiem);
-  const pad = (value: number) => String(value).padStart(2, '0');
-  const fragment = `${pad(hour24)}:00`;
+  const fragment = formatSpokenClockFragment(hour24, 0);
 
   logParsedSpokenTime({
     transcript: normalized,
@@ -162,6 +212,7 @@ export function hasSpokenTimeHint(transcript: string) {
   const normalized = transcript.trim();
 
   return (
+    SPOKEN_COLON_MERIDIEM_PATTERN.test(normalized) ||
     SPOKEN_TIME_PATTERN.test(normalized) ||
     ENGLISH_EVENING_PATTERN.test(normalized) ||
     parseSpokenTimeFragment(normalized) !== null

@@ -178,7 +178,38 @@ export function parseClockFragmentToMinutes(fragment: string, contextText = '') 
   return null;
 }
 
+const CLOCK_FRAGMENT_PRIORITY = [
+  'prep_colon_meridiem',
+  'meridiem_clock',
+  'colon_24h',
+  'english_meridiem',
+  'prep_split_minutes',
+  'prep_hour_minutes',
+] as const;
+
 export function extractCalendarClockFragment(transcript: string): CalendarClockMatch | null {
+  const patternsById = new Map(CLOCK_FRAGMENT_PATTERNS.map((entry) => [entry.id, entry]));
+
+  for (const id of CLOCK_FRAGMENT_PRIORITY) {
+    const entry = patternsById.get(id);
+
+    if (!entry) {
+      continue;
+    }
+
+    const match = transcript.match(entry.pattern);
+
+    if (!match) {
+      continue;
+    }
+
+    const clockMatch = buildCalendarClockMatchFromPattern(entry.id, match);
+
+    if (clockMatch) {
+      return clockMatch;
+    }
+  }
+
   const spokenTime = parseSpokenTimeFragment(transcript);
 
   if (spokenTime) {
@@ -190,46 +221,60 @@ export function extractCalendarClockFragment(transcript: string): CalendarClockM
   }
 
   for (const entry of CLOCK_FRAGMENT_PATTERNS) {
+    if (CLOCK_FRAGMENT_PRIORITY.includes(entry.id as (typeof CLOCK_FRAGMENT_PRIORITY)[number])) {
+      continue;
+    }
     const match = transcript.match(entry.pattern);
 
     if (!match) {
       continue;
     }
 
-    if (entry.id === 'prep_split_minutes') {
-      return {
-        fragment: `${match[2]}:${match[3]}`,
-        patternId: entry.id,
-        preposition: match[1] ?? null,
-      };
+    const clockMatch = buildCalendarClockMatchFromPattern(entry.id, match);
+
+    if (clockMatch) {
+      return clockMatch;
     }
-
-    if (entry.id === 'prep_hour_minutes') {
-      const minutes = match[3] ? `:${match[3]}` : ':00';
-
-      return {
-        fragment: `${match[2]}${minutes}`,
-        patternId: entry.id,
-        preposition: match[1] ?? null,
-      };
-    }
-
-    if (entry.id === 'prep_colon_meridiem') {
-      return {
-        fragment: (match[2] ?? match[0]).trim(),
-        patternId: entry.id,
-        preposition: match[1] ?? null,
-      };
-    }
-
-    return {
-      fragment: (match[1] ?? match[0]).trim(),
-      patternId: entry.id,
-      preposition: null,
-    };
   }
 
   return null;
+}
+
+function buildCalendarClockMatchFromPattern(
+  patternId: string,
+  match: RegExpMatchArray,
+): CalendarClockMatch | null {
+  if (patternId === 'prep_split_minutes') {
+    return {
+      fragment: `${match[2]}:${match[3]}`,
+      patternId,
+      preposition: match[1] ?? null,
+    };
+  }
+
+  if (patternId === 'prep_hour_minutes') {
+    const minutes = match[3] ? `:${match[3]}` : ':00';
+
+    return {
+      fragment: `${match[2]}${minutes}`,
+      patternId,
+      preposition: match[1] ?? null,
+    };
+  }
+
+  if (patternId === 'prep_colon_meridiem') {
+    return {
+      fragment: (match[2] ?? match[0]).trim(),
+      patternId,
+      preposition: match[1] ?? null,
+    };
+  }
+
+  return {
+    fragment: (match[1] ?? match[0]).trim(),
+    patternId,
+    preposition: null,
+  };
 }
 
 export function parseCalendarClockMinutes(

@@ -41,6 +41,15 @@ describe('evening clock parsing', () => {
     assert.equal(minutes, 16 * 60);
   });
 
+  it('parses full create phrase with 4:00 вечера as 16:00', () => {
+    const minutes = parseClockFragmentToMinutes(
+      '4:00 вечера',
+      'Добавь переговоры на 4:00 вечера',
+    );
+
+    assert.equal(minutes, 16 * 60);
+  });
+
   it('parses spoken "четыре вечера" as 16:00', () => {
     const fragment = extractSpokenEveningClockFragment('Добавь бассейн на четыре вечера');
     const minutes = fragment ? parseClockFragmentToMinutes(fragment, 'на четыре вечера') : null;

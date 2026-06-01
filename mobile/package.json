@@ -18,7 +18,8 @@
     "test:calendar-reschedule": "npx tsx --test src/features/agent/calendar/calendarReschedule.test.ts",
     "test:calendar-conflict": "npx tsx --test src/features/agent/calendar/calendarScheduleConflict.test.ts",
     "test:calendar-conversation": "npx tsx --test src/features/agent/calendar/calendarConversationState.test.ts src/features/agent/calendar/calendarPendingReplyClassifier.test.ts",
-    "test:calendar-create-intent": "npx tsx --test src/features/agent/calendar/calendarCreateByTitleTime.test.ts"
+    "test:calendar-create-intent": "npx tsx --test src/features/agent/calendar/calendarCreateByTitleTime.test.ts",
+    "test:calendar-spoken-time": "npx tsx --test src/features/agent/calendar/calendarSpokenTime.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",

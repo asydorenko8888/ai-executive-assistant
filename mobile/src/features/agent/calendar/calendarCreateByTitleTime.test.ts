@@ -38,6 +38,8 @@ describe('calendar create by title and time', () => {
 
   it('parses 4 вечера and о четыре вечера as evening hours', () => {
     assert.equal(parseSpokenTimeFragment('на 4 вечера'), '16:00');
+    assert.equal(parseSpokenTimeFragment('на 4:00 вечера'), '16:00');
+    assert.equal(parseSpokenTimeFragment('Добавь переговоры на 4:00 вечера'), '16:00');
     assert.equal(parseSpokenTimeFragment('о четыре вечера'), '16:00');
     assert.equal(parseSpokenTimeFragment('на семь вечера'), '19:00');
     assert.equal(parseSpokenTimeFragment('на восемь вечера'), '20:00');
