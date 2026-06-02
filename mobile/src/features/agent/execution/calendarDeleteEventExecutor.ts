@@ -9,7 +9,6 @@ import {
   logCalendarMutationVerification,
 } from '@/src/features/agent/calendar/calendarMutationDiagnostics';
 import { recordVerifiedCalendarEventContext } from '@/src/features/agent/calendar/calendarMutationEventContext';
-import { refreshCalendarAgendaState } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
 import { deleteGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarDeleteService';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
 import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
@@ -200,9 +199,6 @@ export async function executeCalendarDeleteEvent(
     const tool: CalendarToolResponse = await deleteGoogleCalendarEvent(resolution.event.id);
 
     if (tool.status === 'SUCCESS' && tool.verified) {
-      await refreshCalendarAgendaState(params.referenceNow).catch((error) => {
-        console.log('[Calendar Refresh] post-delete refresh failed', error);
-      });
       clearPendingCalendarDeleteIntent();
       endCalendarOperation({ failed: false });
       recordVerifiedCalendarEventContext({
@@ -212,6 +208,8 @@ export async function executeCalendarDeleteEvent(
         endISO: resolution.event.endsAt,
         actionType: 'delete',
         clearPendingReason: 'delete_completed',
+        referenceNow: params.referenceNow,
+        languageCode: params.languageCode,
       });
       logCalendarMutationVerification({
         intent: 'delete_calendar_event',

@@ -36,6 +36,8 @@ export type PendingCalendarConflictContext = {
   proposedStartMs: number;
   proposedEndMs: number;
   updateEventId: string | null;
+  targetOriginalStartsAt: string | null;
+  targetOriginalEndsAt: string | null;
   conflictingEventId: string;
   conflictingTitle: string;
   conflictingStartsAt: string;

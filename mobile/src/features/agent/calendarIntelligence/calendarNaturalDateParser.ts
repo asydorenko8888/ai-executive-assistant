@@ -106,7 +106,7 @@ export function parseRelativeTimeOffset(transcript: string): NaturalRelativeOffs
 
   const minuteMatch = text.match(
     new RegExp(
-      `(?:^|[\\s,.;:!?—-]+)(?:через|through)\\s+(\\d+)\\s*(?:минут(?:ы)?|хвилин(?:и|у)?|хв(?:илин)?|мин(?:ут)?|minutes?|min)${NATURAL_PHRASE_END}`,
+      `(?:^|[\\s,.;:!?—-]+)(?:через|through|in)\\s+(\\d+)\\s*(?:минут(?:ы)?|хвилин(?:и|у)?|хв(?:илин)?|мин(?:ут)?|minutes?|min)${NATURAL_PHRASE_END}`,
       'iu',
     ),
   );
@@ -118,7 +118,7 @@ export function parseRelativeTimeOffset(transcript: string): NaturalRelativeOffs
 
   const hourMatch = text.match(
     new RegExp(
-      `(?:^|[\\s,.;:!?—-]+)(?:через|through)\\s+(\\d+)\\s*(?:годин(?:и|у|ы)?|час(?:а|ов|у)?|hours?|hrs?)${NATURAL_PHRASE_END}`,
+      `(?:^|[\\s,.;:!?—-]+)(?:через|through|in)\\s+(\\d+)\\s*(?:годин(?:и|у|ы)?|час(?:а|ов|у)?|hours?|hrs?)${NATURAL_PHRASE_END}`,
       'iu',
     ),
   );
@@ -130,7 +130,7 @@ export function parseRelativeTimeOffset(transcript: string): NaturalRelativeOffs
 
   const singleHourMatch = text.match(
     new RegExp(
-      `(?:^|[\\s,.;:!?—-]+)(?:через|through)\\s+(?:годину|год|година|an?\\s+hour|one\\s+hour)${NATURAL_PHRASE_END}`,
+      `(?:^|[\\s,.;:!?—-]+)(?:через|through|in)\\s+(?:годину|год|година|an?\\s+hour|one\\s+hour)${NATURAL_PHRASE_END}`,
       'iu',
     ),
   );

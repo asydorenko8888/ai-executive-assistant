@@ -66,6 +66,31 @@ function buildWalkPending() {
   });
 }
 
+function buildWalkUpdatePending() {
+  return buildCalendarPendingAction({
+    actionType: 'update',
+    originalIntent: 'Перенеси прогулку на 19:00',
+    eventTitle: 'Прогулка',
+    sourceTranscript: 'Перенеси прогулку на 19:00',
+    titleSourceTranscript: 'Перенеси прогулку на 19:00',
+    languageCode: 'ru-RU',
+    proposedStartMs: walkStartMs,
+    proposedEndMs: walkEndMs,
+    alternativeStartMs: [
+      Date.parse('2026-05-28T10:00:00-05:00'),
+      Date.parse('2026-05-28T13:00:00-05:00'),
+    ],
+    conflictEvents: [
+      {
+        eventId: 'meditation',
+        title: 'Медитация',
+        startsAt: '2026-05-28T11:00:00-05:00',
+        endsAt: '2026-05-28T12:00:00-05:00',
+      },
+    ],
+  });
+}
+
 function buildTomorrowDayContext() {
   const timeZone = getExecutiveCalendarTimezone();
   const dayOffset = resolveConflictDayOffset(walkStartMs, referenceNow);
@@ -177,16 +202,29 @@ describe('calendar conflict alternative slots', () => {
     assert.notEqual(resolution.kind, 'execute_with_schedule');
   });
 
-  it('creates over conflict only on да', () => {
+  it('creates over conflict on explicit override', () => {
     const pending = buildWalkPending();
     const resolution = resolvePendingConflictResolution({
       pending,
-      transcript: 'да',
-      classification: classifyPendingCalendarReply('да'),
+      transcript: 'все равно создай',
+      classification: classifyPendingCalendarReply('все равно создай'),
       referenceNow,
     });
 
     assert.equal(resolution.kind, 'execute_original');
+  });
+
+  it('does not re-run full update command as conflict time follow-up', () => {
+    const pending = buildWalkUpdatePending();
+    const resolution = resolvePendingConflictResolution({
+      pending,
+      transcript: 'перенеси на 7 вечера',
+      classification: classifyPendingCalendarReply('перенеси на 7 вечера'),
+      referenceNow,
+    });
+
+    assert.notEqual(resolution.kind, 'execute_with_time');
+    assert.notEqual(resolution.kind, 'execute_original');
   });
 
   it('builds rejection reply without huge ranges', () => {
@@ -196,7 +234,7 @@ describe('calendar conflict alternative slots', () => {
       optionLabels: labels,
     });
 
-    assert.match(reply, /не создаю поверх конфликта/i);
+    assert.match(reply, /не создавал|did not create/i);
     assert.doesNotMatch(reply, /12:00 AM–11:00 AM/i);
     assert.doesNotMatch(reply, /12:00 PM–08:00 PM/i);
     assert.doesNotMatch(reply, /11:00 AM–12:00 PM/);

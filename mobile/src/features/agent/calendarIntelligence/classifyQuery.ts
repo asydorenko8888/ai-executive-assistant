@@ -95,18 +95,20 @@ const OVERLAP_PATTERNS = [
 export function isDeterministicCalendarReadQuery(transcript: string) {
   const normalized = transcript.trim();
 
-  if (
-    !normalized ||
-    isOperationalCalendarWriteRequest(normalized) ||
-    getPendingCalendarUpdateContext() ||
-    getPendingCalendarDeleteContext() ||
-    getPendingCalendarConflictContext()
-  ) {
+  if (!normalized || isOperationalCalendarWriteRequest(normalized)) {
     return false;
   }
 
   if (isCalendarExactTimeReadQuery(normalized)) {
     return true;
+  }
+
+  if (
+    getPendingCalendarUpdateContext() ||
+    getPendingCalendarDeleteContext() ||
+    getPendingCalendarConflictContext()
+  ) {
+    return false;
   }
 
   return classifyCalendarQueryIntent(normalized) !== null;

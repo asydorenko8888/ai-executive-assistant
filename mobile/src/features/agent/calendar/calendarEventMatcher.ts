@@ -1,13 +1,20 @@
 import { fetchCalendarEventsForZonedDay } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import { logUpdateParsedRequest } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
-import { resolveMoveEventReference } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import {
+  augmentEventsWithConversationContext,
+  resolveMoveEventReference,
+} from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import {
   getActiveCalendarEvent,
   resolveMutationSearchDayOffset,
 } from '@/src/features/agent/calendar/calendarActiveEventContext';
 import { resolveEventTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { extractUpdateEventTitle } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
+import {
+  resolveCalendarUpdateIntent,
+  type CalendarUpdateResolvedIntent,
+} from '@/src/features/agent/calendar/calendarUpdateEventResolution';
 import {
   parseCalendarUpdateSchedule,
   stripCalendarUpdateSchedulePhrases,
@@ -19,11 +26,7 @@ import {
   logCalendarMutationFreshRead,
   logCalendarMutationSelection,
 } from '@/src/features/agent/calendar/calendarMutationDiagnostics';
-import {
-  findCalendarEventForDeleteFromEvents,
-  findCalendarEventForUpdateFromEvents,
-} from '@/src/features/agent/calendarIntelligence/eventAtTimeMatch';
-import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
+import { findCalendarEventForDeleteFromEvents } from '@/src/features/agent/calendarIntelligence/eventAtTimeMatch';
 
 export async function findCalendarEventForDelete(params: {
   transcript: string;
@@ -102,11 +105,34 @@ export async function findCalendarEventForDelete(params: {
   };
 }
 
+export type CalendarUpdateMatchResult = {
+  match: import('@/src/entities/calendar/types').CalendarEvent | null;
+  candidates: import('@/src/entities/calendar/types').CalendarEvent[];
+  titleQuery: string;
+  requestedEventName: string | null;
+  targetMs: number | null;
+  toMs: number | null;
+  fetchOk: boolean;
+  ambiguous: boolean;
+  resolutionFailureReason:
+    | 'no_event_name'
+    | 'not_found'
+    | 'ambiguous'
+    | 'time_parse_failed'
+    | 'no_time_change'
+    | null;
+  resolutionDetail: string | null;
+  resolvedIntent: Extract<CalendarUpdateResolvedIntent, { ok: true }> | null;
+};
+
+/**
+ * Resolves calendar update targets: event by name first, then requested time.
+ * Never substitutes the target with another event at the destination clock time.
+ */
 export async function findCalendarEventForUpdate(params: {
   transcript: string;
   referenceNow: Date;
-  fromMs?: number;
-}) {
+}): Promise<CalendarUpdateMatchResult> {
   const extractedTitle = extractUpdateEventTitle(params.transcript);
   const memoryRef = getActiveCalendarEvent(params.referenceNow) ?? resolveMoveEventReference(params.referenceNow);
   const titleQuery = resolveEventTitleQueryForMemory({
@@ -127,33 +153,16 @@ export async function findCalendarEventForUpdate(params: {
     searchDayOffset,
   );
 
-  const formatClock = (minutes: number) => {
-    const pad = (value: number) => String(value).padStart(2, '0');
-    return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
-  };
-
   logUpdateParsedRequest({
     transcript: params.transcript,
     titleSource: stripCalendarUpdateSchedulePhrases(
       params.transcript.replace(UPDATE_COMMAND_PREFIX, ''),
     ),
     titleQuery,
-    fromMs:
-      schedule.ok && schedule.kind === 'from_to'
-        ? schedule.fromMs
-        : params.fromMs ?? 0,
-    toMs:
-      schedule.ok && (schedule.kind === 'from_to' || schedule.kind === 'destination')
-        ? schedule.toMs
-        : 0,
-    fromTimeLabel:
-      schedule.ok && schedule.kind === 'from_to' ? formatClock(schedule.fromMinutes) : 'unknown',
-    toTimeLabel:
-      schedule.ok && schedule.kind === 'from_to'
-        ? formatClock(schedule.toMinutes)
-        : schedule.ok && schedule.kind === 'destination'
-          ? formatClock(schedule.toMinutes)
-          : 'unknown',
+    fromMs: 0,
+    toMs: 0,
+    fromTimeLabel: 'n/a',
+    toTimeLabel: 'n/a',
   });
 
   logCalendarMutationFreshRead({
@@ -169,24 +178,29 @@ export async function findCalendarEventForUpdate(params: {
       match: null,
       candidates: [],
       titleQuery,
-      targetMs: params.fromMs ?? null,
+      requestedEventName: titleQuery || null,
+      targetMs: null,
       toMs: null,
       fetchOk: false,
       ambiguous: false,
+      resolutionFailureReason: null,
+      resolutionDetail: null,
+      resolvedIntent: null,
     };
   }
 
-  const resolved = findCalendarEventForUpdateFromEvents({
+  const eventsForResolution = augmentEventsWithConversationContext(events);
+
+  const resolved = resolveCalendarUpdateIntent({
     transcript: params.transcript,
     referenceNow: params.referenceNow,
-    events,
-    titleQuery,
+    events: eventsForResolution,
     timeZone,
   });
 
   logCalendarMutationCandidates({
-    count: resolved.candidates.length,
-    candidates: resolved.candidates.map((event) => ({
+    count: resolved.ok ? 1 : resolved.candidates.length,
+    candidates: (resolved.ok ? [resolved.target] : resolved.candidates).map((event) => ({
       id: event.id,
       title: event.title,
       startsAt: event.startsAt,
@@ -194,33 +208,49 @@ export async function findCalendarEventForUpdate(params: {
     })),
   });
 
-  logCalendarMutationSelection({
-    eventId: resolved.match?.id ?? null,
-    title: resolved.match?.title ?? (titleQuery || null),
-    startsAt: resolved.match?.startsAt ?? null,
-    endsAt: resolved.match?.endsAt ?? null,
-    selectionSource: resolved.match ? 'google_calendar_list' : 'none',
-  });
+  if (!resolved.ok) {
+    logCalendarMutationSelection({
+      eventId: resolved.target?.id ?? null,
+      title: resolved.target?.title ?? resolved.requestedEventName,
+      startsAt: resolved.target?.startsAt ?? null,
+      endsAt: resolved.target?.endsAt ?? null,
+      selectionSource: 'none',
+    });
 
-  if (resolved.match) {
     return {
-      match: resolved.match,
+      match: resolved.target ?? null,
       candidates: resolved.candidates,
       titleQuery,
-      targetMs: resolved.fromMs ?? params.fromMs ?? null,
-      toMs: resolved.toMs,
+      requestedEventName: resolved.requestedEventName,
+      targetMs: resolved.target ? Date.parse(resolved.target.startsAt) : null,
+      toMs: null,
       fetchOk: true,
-      ambiguous: false,
+      ambiguous: resolved.reason === 'ambiguous',
+      resolutionFailureReason: resolved.reason,
+      resolutionDetail: resolved.detail,
+      resolvedIntent: null,
     };
   }
 
+  logCalendarMutationSelection({
+    eventId: resolved.target.id,
+    title: resolved.target.title,
+    startsAt: resolved.target.startsAt,
+    endsAt: resolved.target.endsAt,
+    selectionSource: 'google_calendar_list',
+  });
+
   return {
-    match: null,
+    match: resolved.target,
     candidates: resolved.candidates,
     titleQuery,
-    targetMs: resolved.fromMs ?? params.fromMs ?? null,
-    toMs: resolved.toMs,
+    requestedEventName: resolved.requestedEventName,
+    targetMs: resolved.originalStartMs,
+    toMs: resolved.requestedStartMs,
     fetchOk: true,
-    ambiguous: resolved.ambiguous,
+    ambiguous: false,
+    resolutionFailureReason: null,
+    resolutionDetail: null,
+    resolvedIntent: resolved,
   };
 }

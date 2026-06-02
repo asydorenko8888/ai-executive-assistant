@@ -6,6 +6,7 @@ import {
 } from '@/src/features/agent/calendar/calendarConversationState';
 import { extractCreateEventTitle } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
 import { CREATE_COMMAND_PREFIX } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
+import { isPendingConflictScheduleUpdateReply } from '@/src/features/agent/calendar/calendarPendingConflictScheduleUpdate';
 import { EVENT_PRONOUN_REFERENCE } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { isTemporalOnlyTitle } from '@/src/features/agent/calendar/calendarTemporalWords';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
@@ -136,6 +137,10 @@ export function isExplicitDifferentCalendarCommand(
   const normalized = transcript.trim();
 
   if (!normalized) {
+    return false;
+  }
+
+  if (isPendingConflictScheduleUpdateReply(normalized)) {
     return false;
   }
 

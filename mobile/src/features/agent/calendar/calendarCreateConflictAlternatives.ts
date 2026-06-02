@@ -1,5 +1,6 @@
 import {
   buildCalendarConflictAlternativesOnlyReply,
+  buildCalendarUpdateConflictAlternativesOnlyReply,
   formatConflictSlotLabelWithDay,
   resolveConflictDayOffset,
 } from '@/src/features/agent/calendar/calendarConflictReplies';
@@ -26,6 +27,7 @@ export async function buildCreateConflictAlternativesBundle(params: {
   proposedEndMs: number;
   referenceNow: Date;
   preferredRange?: PreferredTimeRange;
+  operation?: 'create' | 'update';
 }) {
   const timeZone = getExecutiveCalendarTimezone();
   const dayOffset = resolveConflictDayOffset(params.proposedStartMs, params.referenceNow);
@@ -78,13 +80,22 @@ export async function buildCreateConflictAlternativesBundle(params: {
       .filter((value) => value > 0);
   }
 
-  const reply = buildCalendarConflictAlternativesOnlyReply({
-    locale: params.locale,
-    optionLabels,
-  });
+  const reply =
+    params.operation === 'update'
+      ? buildCalendarUpdateConflictAlternativesOnlyReply({
+          locale: params.locale,
+          proposedTitle: params.proposedTitle,
+          optionLabels,
+        })
+      : buildCalendarConflictAlternativesOnlyReply({
+          locale: params.locale,
+          proposedTitle: params.proposedTitle,
+          optionLabels,
+        });
 
   return {
     reply,
     alternativeStartMs,
+    optionLabels,
   };
 }

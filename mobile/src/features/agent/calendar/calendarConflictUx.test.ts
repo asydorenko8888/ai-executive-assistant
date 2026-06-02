@@ -32,31 +32,31 @@ describe('calendar conflict UX replies', () => {
       locale: 'en',
       proposedTitle: 'Walk',
       conflict,
+      proposedStartMs: conflict.startsAtMs,
+      proposedEndMs: conflict.endsAtMs,
     });
 
-    assert.match(reply, /already an event/i);
-    assert.match(reply, /Спортзал/i);
-    assert.match(reply, /Create Walk anyway/i);
-    assert.doesNotMatch(reply, /suggest/i);
-    assert.doesNotMatch(reply, /\n/);
+    assert.match(reply, /At .* you already have: Спортзал/i);
+    assert.match(reply, /Create Walk at .* anyway/i);
+    assert.doesNotMatch(reply, /won't/i);
+    assert.doesNotMatch(reply, /I can suggest/i);
   });
 
   it('offers alternatives after NO without repeating conflict warning', () => {
     const reply = buildCalendarConflictAlternativesOnlyReply({
       locale: 'en',
+      proposedTitle: 'Walk',
       optionLabels: ['Today 5:00 PM–6:00 PM', 'Tomorrow 4:00 PM–5:00 PM'],
     });
 
-    assert.match(reply, /won't create over the conflict/i);
-    assert.match(reply, /I can suggest:/i);
+    assert.match(reply, /did not create Walk/i);
+    assert.match(reply, /I can suggest another time/i);
     assert.match(reply, /1\. Today 5:00 PM–6:00 PM/);
-    assert.match(reply, /Or name your own time/i);
     assert.doesNotMatch(reply, /already/i);
-    assert.doesNotMatch(reply, /occupied/i);
-    assert.doesNotMatch(reply, /Спортзал/i);
+    assert.doesNotMatch(reply, /won't/i);
   });
 
-  it('resolves нет as suggest_alternatives for state transition', () => {
+  it('resolves нет as cancel for state transition', () => {
     resetCalendarConversationState('test');
     transitionCalendarConversationState({
       toState: 'WAITING_CONFLICT_DECISION',
@@ -79,6 +79,6 @@ describe('calendar conflict UX replies', () => {
       referenceNow: new Date('2026-06-01T10:00:00-05:00'),
     });
 
-    assert.equal(resolution.kind, 'suggest_alternatives');
+    assert.equal(resolution.kind, 'cancel');
   });
 });

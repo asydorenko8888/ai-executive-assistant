@@ -86,7 +86,12 @@ const RELATIVE_EARLIER = new RegExp(
 );
 
 const RELATIVE_MINUTES_LATER = new RegExp(
-  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:(\\d+)\\s+)?(?:минут(?:ы)?|хвилин(?:и|у)?|minutes?)\\s+(?:позже|пізніше|later)${PHRASE_END}`,
+  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:(\\d+)\\s+)?(?:минут(?:ы|у)?|хвилин(?:и|у)?|minutes?)\\s+(?:позже|пізніше|later)${PHRASE_END}`,
+  'iu',
+);
+
+const RELATIVE_MINUTES_EARLIER = new RegExp(
+  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:(\\d+)\\s+)?(?:минут(?:ы|у)?|хвилин(?:и|у)?|minutes?)\\s+(?:раньше|раніше|earlier)${PHRASE_END}`,
   'iu',
 );
 
@@ -324,6 +329,7 @@ function parseRelativeOffset(transcript: string): CalendarUpdateSchedule | null 
   const laterHours = transcript.match(RELATIVE_LATER);
   const earlierHours = transcript.match(RELATIVE_EARLIER);
   const laterMinutes = transcript.match(RELATIVE_MINUTES_LATER);
+  const earlierMinutes = transcript.match(RELATIVE_MINUTES_EARLIER);
 
   if (clockLater) {
     const hours = Number(clockLater[1]);
@@ -379,6 +385,17 @@ function parseRelativeOffset(transcript: string): CalendarUpdateSchedule | null 
       kind: 'relative_offset',
       offsetMs: amount * 60_000,
       direction: 'later',
+    };
+  }
+
+  if (earlierMinutes) {
+    const amount = earlierMinutes[1] ? Number(earlierMinutes[1]) : 15;
+
+    return {
+      ok: true,
+      kind: 'relative_offset',
+      offsetMs: amount * 60_000,
+      direction: 'earlier',
     };
   }
 
@@ -523,6 +540,7 @@ export function stripCalendarUpdateSchedulePhrases(transcript: string) {
   cleaned = cleaned.replace(RELATIVE_LATER, ' ');
   cleaned = cleaned.replace(RELATIVE_EARLIER, ' ');
   cleaned = cleaned.replace(RELATIVE_MINUTES_LATER, ' ');
+  cleaned = cleaned.replace(RELATIVE_MINUTES_EARLIER, ' ');
   cleaned = cleaned.replace(EN_MINUTES_LATER, ' ');
   cleaned = cleaned.replace(EN_HOURS_LATER, ' ');
   cleaned = cleaned.replace(EN_AN_HOUR_LATER, ' ');
@@ -538,6 +556,10 @@ export function stripCalendarUpdateSchedulePhrases(transcript: string) {
     ' ',
   );
   cleaned = cleaned.replace(MOVE_TO_PREFIX, ' ');
+  cleaned = cleaned.replace(
+    /\b(?:вечера|вечером|утра|утром|дня|днём|dнем|ночи|ночью|вечора|ранку|утра|am|pm|a\.m\.|p\.m\.)\b/giu,
+    ' ',
+  );
 
   return cleaned.replace(/\s+/g, ' ').trim();
 }

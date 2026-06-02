@@ -123,6 +123,31 @@ describe('calendar reliability acceptance', () => {
     }
   });
 
+  it('E2: explicit override still force-creates over conflict', () => {
+    const pending = buildCalendarPendingAction({
+      actionType: 'create',
+      originalIntent: 'Добавь стоматолога на 8 вечера',
+      eventTitle: 'Стоматолог',
+      sourceTranscript: 'Добавь стоматолога на 8 вечера',
+      languageCode: 'ru-RU',
+      proposedStartMs: Date.parse('2026-06-01T20:00:00-05:00'),
+      proposedEndMs: Date.parse('2026-06-01T21:00:00-05:00'),
+    });
+
+    const resolution = resolvePendingConflictResolution({
+      pending,
+      transcript: 'все равно создай',
+      classification: classifyPendingCalendarReply('все равно создай'),
+      referenceNow: afternoon,
+    });
+
+    assert.equal(resolution.kind, 'execute_original');
+
+    if (resolution.kind === 'execute_original') {
+      assert.equal(resolution.skipScheduleConflictCheck, true);
+    }
+  });
+
   it('F: conflict "нет" suggests alternatives without repeating conflict', () => {
     const resolution = resolvePendingConflictResolution({
       pending: buildCalendarPendingAction({
@@ -146,7 +171,7 @@ describe('calendar reliability acceptance', () => {
       optionLabels: ['Today 5:00 PM–6:00 PM', 'Today 6:00 PM–7:00 PM'],
     });
 
-    assert.match(reply, /^Okay\. I can suggest:/);
+    assert.match(reply, /^Ok, I did not create Стоматолог\. I can suggest another time:/);
     assert.doesNotMatch(reply, /already/i);
     assert.doesNotMatch(reply, /Спортзал/i);
   });

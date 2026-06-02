@@ -18,7 +18,7 @@ function persistPendingEventAsActiveContext(pending: CalendarPendingAction) {
   setPendingIntentFromAction(pending);
 }
 
-function conflictContextToPendingAction(
+export function conflictContextToPendingAction(
   context: PendingCalendarConflictContext,
   conflicts?: Array<{
     event: { id: string; title: string; startsAt: string; endsAt: string };
@@ -50,9 +50,22 @@ function conflictContextToPendingAction(
     proposedEndMs: context.proposedEndMs,
     candidateEventId: context.updateEventId,
     updateEventId: context.updateEventId,
+    targetEventId: context.updateEventId,
+    targetEventTitle: context.proposedTitle,
+    originalStart: context.targetOriginalStartsAt,
+    originalEnd: context.targetOriginalEndsAt,
+    updateFromStartISO: context.targetOriginalStartsAt,
+    updateFromEndISO: context.targetOriginalEndsAt,
+    updateToStartISO:
+      context.proposedStartMs > 0 ? new Date(context.proposedStartMs).toISOString() : null,
+    requestedNewStart:
+      context.proposedStartMs > 0 ? new Date(context.proposedStartMs).toISOString() : null,
+    requestedNewEnd:
+      context.proposedEndMs > 0 ? new Date(context.proposedEndMs).toISOString() : null,
     conflictEvents,
     conflictingEventId: context.conflictingEventId,
     conflictingTitle: context.conflictingTitle,
+    conflictingEventTitle: context.conflictingTitle,
     conflictingStartsAt: context.conflictingStartsAt,
     conflictingEndsAt: context.conflictingEndsAt,
     proceedDespiteConflict: context.proceedDespiteConflict,

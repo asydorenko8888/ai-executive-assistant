@@ -1,5 +1,6 @@
 import {
   isExplicitDurationPhrase,
+  isRelativeScheduleShiftPhrase,
   parseSpokenTimeFragment,
 } from '@/src/features/agent/calendar/calendarSpokenTime';
 import { resolveDayOffset } from '@/src/features/agent/calendar/operationalScheduleParser';
@@ -188,6 +189,10 @@ const CLOCK_FRAGMENT_PRIORITY = [
 ] as const;
 
 export function extractCalendarClockFragment(transcript: string): CalendarClockMatch | null {
+  if (isExplicitDurationPhrase(transcript) || isRelativeScheduleShiftPhrase(transcript)) {
+    return null;
+  }
+
   const patternsById = new Map(CLOCK_FRAGMENT_PATTERNS.map((entry) => [entry.id, entry]));
 
   for (const id of CLOCK_FRAGMENT_PRIORITY) {

@@ -60,6 +60,10 @@ describe('calendarExactTimeReadDetection', () => {
   it('classifies active-at-time reads separately from starting-at', () => {
     assert.equal(classifyCalendarQueryIntent('Что у меня сегодня на 18:30'), 'events_at_time');
     assert.equal(classifyCalendarQueryIntent('Что у меня в 18:30'), 'events_at_time');
+    assert.equal(classifyCalendarQueryIntent('что у меня сегодня на 5 вечера'), 'events_at_time');
+    assert.equal(isCalendarExactTimeReadQuery('что у меня сегодня на 5 вечера'), true);
+    assert.equal(isDeterministicCalendarReadQuery('что у меня сегодня на 5 вечера'), true);
+    assert.equal(isOperationalCalendarWriteRequest('что у меня сегодня на 5 вечера'), false);
   });
 
   it('still routes create and update commands to write intents', () => {

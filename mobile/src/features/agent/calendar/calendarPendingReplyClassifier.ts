@@ -4,6 +4,7 @@ import {
   referencesPendingEventTitle,
 } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
 import { isConflictSlotSelectionReply } from '@/src/features/agent/calendar/calendarConflictSlotReply';
+import { isPendingConflictScheduleUpdateReply } from '@/src/features/agent/calendar/calendarPendingConflictScheduleUpdate';
 import { isPendingConflictTimeFollowUp } from '@/src/features/agent/calendar/calendarTemporalWords';
 import {
   getCalendarConversationSnapshot,
@@ -32,7 +33,7 @@ const DURATION_PHRASE =
   /(?:^|[\s,.;:!?—-]+)(?:на|for)\s+\d+(?:[.,]\d+)?\s*(?:час(?:а|ов|у)?|годин(?:и|у|ы)?|hours?|hrs?|минут(?:ы)?|minutes?|мин(?:ут)?)(?:[,.!\s]|$)/iu;
 
 const RELATIVE_TIME_REPLY =
-  /(?:^|[\s,.;:!?—-]+)(?:через|in)\s+\d+\s*(?:минут|minutes|мин|хвилин|час|hours|годин)/iu;
+  /(?:^|[\s,.;:!?—-]+)(?:через|in)\s+(?:\d+|one|a|an)\s*(?:минут|minutes|мин|хвилин|час|hours|годин)|(?:^|[\s,.;:!?—-]+)(?:\d+|one|a|an)\s*(?:час(?:а|ов|у)?|hours?|hrs?|минут(?:ы|у)?|minutes?)\s+(?:позже|пізніше|later|раньше|раніше|earlier)|(?:^|[\s,.;:!?—-]+)(?:after|после)\s+/iu;
 
 const CALENDAR_WRITE_VERB_START =
   /^(?:please\s+)?(?:добав(?:ь|ьте|ить)|додай|створи|создай|запланируй|внеси|add|create|schedule|book|перенеси|перенести|move|reschedule|удали|удалить|видали|видалити|delete|remove|cancel)/iu;
@@ -83,6 +84,14 @@ function looksLikeAlternateTimeReply(transcript: string) {
   const normalized = transcript.trim();
 
   if (!normalized || isNewCalendarCommandMessage(normalized)) {
+    return false;
+  }
+
+  if (isPendingConflictScheduleUpdateReply(normalized)) {
+    return true;
+  }
+
+  if (CALENDAR_WRITE_VERB_START.test(normalized)) {
     return false;
   }
 
@@ -148,6 +157,7 @@ export function classifyPendingCalendarReply(transcript: string): PendingReplyCl
     isCalendarConflictDecisionState(snapshot.state) &&
     snapshot.pendingAction &&
     (looksLikeAlternateTimeReply(normalized) ||
+      isPendingConflictScheduleUpdateReply(normalized) ||
       isConflictTimeFollowUp(normalized) ||
       isConflictSlotSelectionReply(normalized) ||
       referencesPendingEventTitle(normalized, snapshot.pendingAction.eventTitle))

@@ -1,11 +1,18 @@
 import {
   isBareConflictProceedReply,
+  isConflictBareScheduleReply,
   isConflictSlotAcceptanceOnly,
   isConflictSlotSelectionReply,
+  isExplicitConflictOverrideReply,
   resolveConflictSlotOrdinalIndex,
   stripConflictSlotReplyNoise,
 } from '@/src/features/agent/calendar/calendarConflictSlotReply';
 import { parseCalendarCreateSchedule } from '@/src/features/agent/calendar/calendarCreateScheduleParser';
+import {
+  isPendingConflictScheduleUpdateReply,
+  resolvePendingConflictScheduleUpdate,
+  stripPendingConflictScheduleNoise,
+} from '@/src/features/agent/calendar/calendarPendingConflictScheduleUpdate';
 import type { CalendarPendingAction } from '@/src/features/agent/calendar/calendarConversationState';
 import type { PendingReplyClassification } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
@@ -206,6 +213,16 @@ export function buildRetriedTranscriptFromStartMs(pending: CalendarPendingAction
   return `${pending.sourceTranscript} ${timePhrase}`.replace(/\s+/g, ' ').trim();
 }
 
+function scheduleMatchesPendingConflictTarget(params: {
+  pending: CalendarPendingAction;
+  startMs: number;
+  toleranceMs?: number;
+}) {
+  const tolerance = params.toleranceMs ?? 5 * 60_000;
+
+  return Math.abs(params.startMs - params.pending.requestedStartMs) <= tolerance;
+}
+
 export function resolvePendingConflictResolution(params: {
   pending: CalendarPendingAction;
   transcript: string;
@@ -223,7 +240,7 @@ export function resolvePendingConflictResolution(params: {
   }
 
   if (params.classification === 'decline_proceed' || short === 'decline_proceed') {
-    return { kind: 'suggest_alternatives' };
+    return { kind: 'cancel' };
   }
 
   if (
@@ -239,41 +256,106 @@ export function resolvePendingConflictResolution(params: {
     (params.classification === 'confirmation' || short === 'proceed') &&
     isBareConflictProceedReply(normalized);
 
-  if (bareProceed) {
+  if (bareProceed || isExplicitConflictOverrideReply(normalized)) {
     return { kind: 'execute_original', skipScheduleConflictCheck: true };
   }
 
+  const pendingScheduleUpdate = isPendingConflictScheduleUpdateReply(normalized);
+
   if (
     params.classification === 'alternate_time' ||
+    pendingScheduleUpdate ||
     hasSchedulableTimeReply(scheduleFragment) ||
     isConflictSlotSelectionReply(normalized)
   ) {
-    const transcript = buildConflictFollowUpTranscript(params.pending, scheduleFragment);
-    const schedule = parseFollowUpSchedule(transcript, params.referenceNow);
+    if (pendingScheduleUpdate || params.classification === 'alternate_time') {
+      const scheduleUpdate = resolvePendingConflictScheduleUpdate({
+        pending: params.pending,
+        reply: normalized,
+        referenceNow: params.referenceNow,
+      });
 
-    if (schedule.ok) {
-      if (hasSuggestedSlots) {
-        const matchedSlot = resolvePickedAlternativeStartMs(
-          scheduleFragment,
-          alternatives,
-          params.referenceNow,
-        );
-
-        if (matchedSlot !== null) {
-          return { kind: 'pick_alternative', startMs: matchedSlot };
+      if (scheduleUpdate.ok) {
+        if (
+          scheduleMatchesPendingConflictTarget({
+            pending: params.pending,
+            startMs: scheduleUpdate.startMs,
+          })
+        ) {
+          return { kind: 'execute_original', skipScheduleConflictCheck: true };
         }
-      }
 
-      if (params.pending.action === 'CREATE_EVENT') {
+        if (hasSuggestedSlots) {
+          const matchedSlot = resolvePickedAlternativeStartMs(
+            stripPendingConflictScheduleNoise(normalized) || scheduleFragment,
+            alternatives,
+            params.referenceNow,
+          );
+
+          if (matchedSlot !== null) {
+            return { kind: 'pick_alternative', startMs: matchedSlot };
+          }
+        }
+
+        if (params.pending.action === 'CREATE_EVENT') {
+          return {
+            kind: 'execute_with_schedule',
+            startMs: scheduleUpdate.startMs,
+            endMs: scheduleUpdate.endMs,
+            explicitDayOffset: scheduleUpdate.explicitDayOffset,
+          };
+        }
+
         return {
           kind: 'execute_with_schedule',
-          startMs: schedule.startMs,
-          endMs: schedule.endMs,
-          explicitDayOffset: schedule.explicitDayOffset,
+          startMs: scheduleUpdate.startMs,
+          endMs: scheduleUpdate.endMs,
+          explicitDayOffset: scheduleUpdate.explicitDayOffset,
         };
       }
+    }
 
-      return { kind: 'execute_with_time', transcript };
+    if (
+      isConflictBareScheduleReply(normalized) ||
+      pendingScheduleUpdate ||
+      params.classification === 'alternate_time'
+    ) {
+      const transcript = buildConflictFollowUpTranscript(params.pending, scheduleFragment);
+      const schedule = parseFollowUpSchedule(transcript, params.referenceNow);
+
+      if (schedule.ok) {
+        if (
+          scheduleMatchesPendingConflictTarget({
+            pending: params.pending,
+            startMs: schedule.startMs,
+          })
+        ) {
+          return { kind: 'execute_original', skipScheduleConflictCheck: true };
+        }
+
+        if (hasSuggestedSlots) {
+          const matchedSlot = resolvePickedAlternativeStartMs(
+            scheduleFragment,
+            alternatives,
+            params.referenceNow,
+          );
+
+          if (matchedSlot !== null) {
+            return { kind: 'pick_alternative', startMs: matchedSlot };
+          }
+        }
+
+        if (params.pending.action === 'CREATE_EVENT') {
+          return {
+            kind: 'execute_with_schedule',
+            startMs: schedule.startMs,
+            endMs: schedule.endMs,
+            explicitDayOffset: schedule.explicitDayOffset,
+          };
+        }
+
+        return { kind: 'execute_with_time', transcript };
+      }
     }
   }
 

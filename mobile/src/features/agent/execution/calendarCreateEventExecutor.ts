@@ -416,6 +416,8 @@ export async function executeCalendarCreateEvent(
           actionType: 'create',
           recurrenceRrule: payloadResult.payload.recurrence?.[0] ?? null,
           clearPendingReason: 'create_completed',
+          referenceNow: params.referenceNow,
+          languageCode: params.languageCode,
         });
       }
     }

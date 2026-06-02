@@ -25,126 +25,14 @@ import {
 } from '@/src/features/agent/calendar/calendarActiveEventContext';
 import { resolveEventTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { calendarConversationTitlesMatch } from '@/src/features/agent/calendar/calendarConversationTitleMatch';
+import {
+  scoreTitleMatch,
+  scoreTitleMatchForMutation,
+  selectBestEventByTitlePriority,
+} from '@/src/features/agent/calendar/calendarTitleMatchPriority';
 import { validateMoveTargetAgainstConversationMemory } from '@/src/features/agent/calendar/calendarConversationMemorySchedule';
 import { isIgnorableTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { getLastCalendarReadMatch } from '@/src/features/agent/execution/calendarExecutionSession';
-
-function normalizeMatchText(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function tokenize(value: string) {
-  return normalizeMatchText(value)
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((token) => token.length >= 2);
-}
-
-function normalizeTitleToken(token: string) {
-  let normalized = token;
-
-  if (/^[A-Za-zА-Яа-яЁёІіЇїЄє'-]+у$/u.test(normalized) && normalized.length >= 4) {
-    normalized = `${normalized.slice(0, -1)}а`;
-  }
-
-  return normalized;
-}
-
-function titleTokenStem(token: string) {
-  const normalized = normalizeTitleToken(token);
-
-  if (normalized.length >= 6) {
-    return normalized.slice(0, 5);
-  }
-
-  if (normalized.length >= 4) {
-    return normalized.slice(0, 4);
-  }
-
-  return normalized;
-}
-
-function levenshteinDistance(left: string, right: string) {
-  const rows = left.length + 1;
-  const cols = right.length + 1;
-  const matrix = Array.from({ length: rows }, () => Array<number>(cols).fill(0));
-
-  for (let row = 0; row < rows; row += 1) {
-    matrix[row][0] = row;
-  }
-
-  for (let col = 0; col < cols; col += 1) {
-    matrix[0][col] = col;
-  }
-
-  for (let row = 1; row < rows; row += 1) {
-    for (let col = 1; col < cols; col += 1) {
-      const cost = left[row - 1] === right[col - 1] ? 0 : 1;
-      matrix[row][col] = Math.min(
-        matrix[row - 1][col] + 1,
-        matrix[row][col - 1] + 1,
-        matrix[row - 1][col - 1] + cost,
-      );
-    }
-  }
-
-  return matrix[rows - 1][cols - 1];
-}
-
-function tokensRoughlyMatch(queryToken: string, eventToken: string) {
-  const query = normalizeTitleToken(queryToken);
-  const event = normalizeTitleToken(eventToken);
-
-  if (query === event) {
-    return true;
-  }
-
-  if (query.includes(event) || event.includes(query)) {
-    return true;
-  }
-
-  const queryStem = titleTokenStem(query);
-  const eventStem = titleTokenStem(event);
-
-  if (
-    queryStem.length >= 4 &&
-    eventStem.length >= 4 &&
-    (queryStem.startsWith(eventStem) || eventStem.startsWith(queryStem))
-  ) {
-    return true;
-  }
-
-  if (query.length >= 5 && event.length >= 5) {
-    return levenshteinDistance(query, event) <= 2;
-  }
-
-  return false;
-}
-
-function scoreTitleMatch(titleQuery: string, eventTitle: string) {
-  const queryNorm = normalizeMatchText(titleQuery);
-
-  if (!queryNorm) {
-    return 0;
-  }
-
-  const eventNorm = normalizeMatchText(eventTitle);
-
-  if (eventNorm === queryNorm) {
-    return 100;
-  }
-
-  if (eventNorm.includes(queryNorm) || queryNorm.includes(eventNorm)) {
-    return 80;
-  }
-
-  const queryTokens = tokenize(queryNorm);
-  const eventTokens = tokenize(eventNorm);
-  const overlap = queryTokens.filter((token) =>
-    eventTokens.some((eventToken) => tokensRoughlyMatch(token, eventToken)),
-  ).length;
-
-  return overlap > 0 ? Math.round((overlap / queryTokens.length) * 70) : 0;
-}
 
 function pickBestNormalizedMatch(
   candidates: NormalizedCalendarEvent[],
@@ -154,21 +42,27 @@ function pickBestNormalizedMatch(
     return null;
   }
 
-  const queryNorm = normalizeMatchText(titleQuery);
+  const queryNorm = titleQuery.trim();
 
   if (!queryNorm) {
     return candidates.length === 1 ? candidates[0] : null;
   }
 
-  const ranked = candidates
-    .map((event) => ({
-      event,
-      score: scoreTitleMatch(titleQuery, event.title),
-    }))
-    .filter((entry) => entry.score > 0)
-    .sort((left, right) => right.score - left.score);
+  const selection = selectBestEventByTitlePriority(candidates, queryNorm);
 
-  return ranked[0]?.event ?? null;
+  if (selection.ambiguous || !selection.match) {
+    const exactOnly = candidates.filter(
+      (event) => scoreTitleMatchForMutation(queryNorm, event.title).tier === 'exact',
+    );
+
+    if (exactOnly.length === 1) {
+      return exactOnly[0];
+    }
+
+    return null;
+  }
+
+  return selection.match;
 }
 
 function formatClockLabel(minutes: number) {
@@ -195,6 +89,24 @@ function tryPinnedConversationMemory(params: {
     referenceNow: params.referenceNow,
     titleQuery: effectiveTitleQuery,
   });
+
+  if (!pinned && effectiveTitleQuery) {
+    const fallback =
+      findMoveConversationEventInList({
+        events: params.events,
+        referenceNow: params.referenceNow,
+        titleQuery: '',
+      }) ??
+      resolveActiveEventForMutation({
+        events: params.events,
+        referenceNow: params.referenceNow,
+        titleQuery: '',
+      });
+
+    if (fallback) {
+      return { match: fallback, source: 'conversation_memory' as const };
+    }
+  }
 
   if (!pinned) {
     return null;
@@ -257,7 +169,7 @@ function tryPinnedReadMatch(params: {
     return null;
   }
 
-  if (params.titleQuery && scoreTitleMatch(params.titleQuery, pinned.title) <= 0) {
+  if (params.titleQuery && scoreTitleMatchForMutation(params.titleQuery, pinned.title).tier === 'none') {
     return null;
   }
 
@@ -331,7 +243,9 @@ export function findCalendarEventAtTimeFromEvents(params: {
 
   const candidateIds = new Set(
     (titleQuery
-      ? atTimeNormalized.filter((event) => scoreTitleMatch(titleQuery, event.title) > 0)
+      ? atTimeNormalized.filter(
+          (event) => scoreTitleMatchForMutation(titleQuery, event.title).tier !== 'none',
+        )
       : atTimeNormalized
     ).map((event) => event.id),
   );
@@ -403,35 +317,25 @@ function findUpdateMatchByTitle(params: {
   const day = resolveTargetDayContext(params.transcript ?? '', params.referenceNow, params.timeZone);
   const normalized = normalizeCalendarEvents(params.events, params.timeZone);
   const dayEvents = getEventsForDay(normalized, day);
-  const ranked = dayEvents
-    .map((event) => ({
-      event,
-      score: scoreTitleMatch(params.titleQuery, event.title),
-    }))
-    .filter((entry) => entry.score >= 50)
-    .sort((left, right) => right.score - left.score);
+  const dayCalendarEvents = dayEvents
+    .map((event) => params.events.find((entry) => entry.id === event.id))
+    .filter((event): event is CalendarEvent => Boolean(event));
+  const selection = selectBestEventByTitlePriority(dayCalendarEvents, params.titleQuery);
 
-  if (ranked.length === 0) {
+  if (selection.ambiguous) {
+    return {
+      match: null,
+      candidates: selection.candidates,
+      ambiguous: true,
+    };
+  }
+
+  if (!selection.match) {
     return { match: null, candidates: [] as CalendarEvent[], ambiguous: false };
   }
 
-  if (ranked.length > 1 && ranked[0].score - ranked[1].score < 10) {
-    const strong = ranked.filter((entry) => entry.score >= Math.max(50, ranked[0].score - 5));
-
-    if (strong.length > 1) {
-      return {
-        match: null,
-        candidates: strong
-          .map((entry) => params.events.find((event) => event.id === entry.event.id)!)
-          .filter(Boolean),
-        ambiguous: true,
-      };
-    }
-  }
-
-  const selected = ranked[0].event;
   const match = applyMoveMemoryScheduleGuard({
-    match: params.events.find((event) => event.id === selected.id) ?? null,
+    match: selection.match,
     referenceNow: params.referenceNow,
     matchSource: 'title_only',
     titleQuery: params.titleQuery,

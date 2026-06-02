@@ -355,7 +355,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const suppressCalendarAgendaMemory =
     isCalendarAgendaQuery(userTranscript) || isDeterministicCalendarReadQuery(userTranscript);
 
-  if (isDeterministicCalendarReadQuery(userTranscript) && calendarConnected && !getPendingCalendarUpdateContext()) {
+  if (isDeterministicCalendarReadQuery(userTranscript) && calendarConnected) {
     const deterministicCalendarReply = await tryBuildDeterministicCalendarReply({
       transcript: userTranscript,
       languageCode: params.languageCode,

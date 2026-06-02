@@ -115,22 +115,37 @@ function instantsMatch(left: number | null, right: number | null) {
 export function verifyUpdatedEventMatchesPayload(
   event: VerifiedCalendarEvent,
   payload: CalendarUpdateEventPayload,
+  options?: { requestedEventId?: string; originalStartsAt?: string },
 ) {
   const expectedStart = payloadInstant(payload.start.dateTime, payload.start.timeZone);
   const expectedEnd = payloadInstant(payload.end.dateTime, payload.end.timeZone);
   const actualStart = parseGoogleCalendarInstant(event.startsAt);
   const actualEnd = parseGoogleCalendarInstant(event.endsAt);
+  const originalStart = options?.originalStartsAt
+    ? parseGoogleCalendarInstant(options.originalStartsAt)
+    : null;
 
   const startMatches = instantsMatch(expectedStart, actualStart);
   const endMatches = instantsMatch(expectedEnd, actualEnd);
+  const eventIdMatches = options?.requestedEventId
+    ? event.id === options.requestedEventId
+    : true;
+  const startChanged =
+    originalStart === null || actualStart === null
+      ? true
+      : !instantsMatch(originalStart, actualStart);
+
+  const ok = startMatches && endMatches && eventIdMatches && startChanged;
 
   return {
-    ok: startMatches && endMatches,
+    ok,
     expectedStart,
     expectedEnd,
     actualStart,
     actualEnd,
     startMatches,
     endMatches,
+    eventIdMatches,
+    startChanged,
   };
 }

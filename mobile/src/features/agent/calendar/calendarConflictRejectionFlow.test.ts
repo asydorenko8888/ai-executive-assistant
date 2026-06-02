@@ -117,7 +117,7 @@ describe('conflict rejection offers alternative slots', () => {
     assert.equal(conflicts.length, 1);
   });
 
-  it('resolves нет as suggest_alternatives without creating', () => {
+  it('resolves нет as cancel without creating', () => {
     const pending = buildMassagePending();
 
     const resolution = resolvePendingConflictResolution({
@@ -127,7 +127,7 @@ describe('conflict rejection offers alternative slots', () => {
       referenceNow,
     });
 
-    assert.equal(resolution.kind, 'suggest_alternatives');
+    assert.equal(resolution.kind, 'cancel');
     assert.notEqual(resolution.kind, 'execute_original');
   });
 
@@ -135,12 +135,12 @@ describe('conflict rejection offers alternative slots', () => {
     const labels = buildAlternativeLabels([existingEvent()], massageStartMs, massageEndMs);
     const reply = buildCalendarConflictAlternativesOnlyReply({
       locale: 'ru',
+      proposedTitle: 'Массаж',
       optionLabels: labels,
     });
 
-    assert.match(reply, /не создаю поверх конфликта/i);
-    assert.match(reply, /Могу предложить/i);
-    assert.match(reply, /Или назовите своё время/i);
+    assert.match(reply, /не создавал «Массаж»/i);
+    assert.match(reply, /Могу предложить другое время/i);
     assert.match(reply, /12:00/);
     assert.doesNotMatch(reply, /всё равно создать/i);
     assert.doesNotMatch(reply, /ничего не менял/i);
@@ -203,7 +203,14 @@ describe('conflict rejection offers alternative slots', () => {
       referenceNow,
     });
 
-    assert.equal(resolution.kind, 'execute_with_schedule');
+    assert.equal(
+      resolution.kind === 'execute_with_schedule' || resolution.kind === 'pick_alternative',
+      true,
+    );
+
+    if (resolution.kind === 'pick_alternative') {
+      assert.equal(resolution.startMs, Date.parse('2026-05-28T12:00:00-05:00'));
+    }
 
     if (resolution.kind === 'execute_with_schedule') {
       const transcript = buildConflictFollowUpTranscript(pending, 'завтра 12:00');

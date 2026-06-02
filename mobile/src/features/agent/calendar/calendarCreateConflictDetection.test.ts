@@ -201,7 +201,7 @@ describe('calendar create conflict detection', () => {
     }
   });
 
-  it('creates once after да/так/yes confirmation', () => {
+  it('suggests alternatives after bare да/так/yes and creates on explicit confirmation', () => {
     const { startMs, endMs } = tomorrowAt(14, 0, 60);
     let createCalls = 0;
     const create = () => {
@@ -228,6 +228,10 @@ describe('calendar create conflict detection', () => {
 
     assert.equal(simulateConflictFollowUp({ reply: 'да', create }), 'create_once');
     assert.equal(createCalls, 1);
+
+    assert.equal(resolveCalendarConflictFollowUp('все равно создай')?.kind, 'proceed');
+    assert.equal(simulateConflictFollowUp({ reply: 'все равно создай', create }), 'create_once');
+    assert.equal(createCalls, 2);
   });
 
   it('calls create once after user confirms with skipScheduleConflictCheck path', () => {

@@ -12,6 +12,35 @@ export function buildCalendarUpdateAmbiguousReply(locale: CalendarUpdateLocale) 
   return 'I found several similar events. Which one should I update?';
 }
 
+export function buildCalendarUpdateNoTimeChangeReply(
+  locale: CalendarUpdateLocale,
+  eventTitle: string,
+) {
+  const title = eventTitle.trim() || 'that event';
+
+  if (locale === 'uk') {
+    return `Подія «${title}» уже запланована на цей час.`;
+  }
+
+  if (locale === 'ru') {
+    return `Событие «${title}» уже запланировано на это время.`;
+  }
+
+  return `${title} is already scheduled for that time.`;
+}
+
+export function buildCalendarUpdateTimeParseFailedReply(locale: CalendarUpdateLocale) {
+  if (locale === 'uk') {
+    return 'Я не зрозумів, на який час перенести подію. Спробуйте ще раз, наприклад: «на 20:00» або «на годину пізніше».';
+  }
+
+  if (locale === 'ru') {
+    return 'Я не понял, на какое время перенести событие. Попробуйте ещё раз, например: «на 20:00» или «на час позже».';
+  }
+
+  return 'I could not tell what time you want. Try again, for example: "to 8 PM" or "one hour later".';
+}
+
 export function buildCalendarUpdateNotFoundReply(locale: CalendarUpdateLocale) {
   if (locale === 'uk') {
     return 'Я не знайшов таку подію в календарі.';

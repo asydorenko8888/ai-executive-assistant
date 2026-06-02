@@ -6,7 +6,7 @@ import {
 } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
 import { extractCreateEventTitle } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
 import { extractUpdateEventTitle } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
-import { EVENT_PRONOUN_REFERENCE } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import { EVENT_PRONOUN_REFERENCE, isIgnorableTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import {
   getActiveCalendarEventRecord,
   resolveRecurringSeriesReference,
@@ -48,8 +48,19 @@ function extractNamedTargetTitle(transcript: string) {
 function hasExplicitNamedTarget(transcript: string) {
   const title = (extractNamedTargetTitle(transcript) ?? '').trim();
 
-  if (title.length >= 3 && !PRONOUN_REFERENCE.test(title)) {
+  if (
+    title.length >= 3 &&
+    !PRONOUN_REFERENCE.test(title) &&
+    !isIgnorableTitleQueryForMemory(title)
+  ) {
     return true;
+  }
+
+  if (
+    IMPLICIT_REFERENCE_UPDATE.test(transcript) ||
+    isOperationalCalendarUpdateRequest(transcript)
+  ) {
+    return false;
   }
 
   const withoutVerbs = transcript

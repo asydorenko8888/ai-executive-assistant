@@ -2,6 +2,10 @@ import { isCalendarQueryOrFindIntent } from '@/src/features/agent/calendar/calen
 import { isTemporalOnlyTitle } from '@/src/features/agent/calendar/calendarTemporalWords';
 import { hasSpokenTimeHint, parseSpokenTimeFragment } from '@/src/features/agent/calendar/calendarSpokenTime';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
+import {
+  CALENDAR_WORD_EDGE,
+  CALENDAR_WORD_END,
+} from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
 const BLOCKED_DELETE_START =
   /^(?:please\s+)?(?:удали|удалить|видали|видалити|скасуй|delete|remove|cancel)\b/iu;
 
@@ -14,8 +18,10 @@ export type CalendarCreateByTitleTimeMatch = {
   patternId: string;
 };
 
-const QUESTION_START =
-  /^(?:какая|какой|какую|какое|какие|что|що|яка|який|які|which|what|when|когда|коли)\b/iu;
+const QUESTION_START = new RegExp(
+  `${CALENDAR_WORD_EDGE}(?:какая|какой|какую|какое|какие|что|що|яка|який|які|which|what|when|когда|коли)${CALENDAR_WORD_END}`,
+  'iu',
+);
 
 const TITLE_TIME_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   {
@@ -97,7 +103,7 @@ export function detectCalendarCreateByTitleTimePattern(
     const titlePart = match.groups.title.trim();
     const timePart = match.groups.time.trim();
 
-    if (titlePart.length < 2 || isTemporalOnlyTitle(titlePart)) {
+    if (titlePart.length < 2 || isTemporalOnlyTitle(titlePart) || QUESTION_START.test(titlePart)) {
       continue;
     }
 

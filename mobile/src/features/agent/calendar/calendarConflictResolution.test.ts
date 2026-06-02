@@ -52,6 +52,31 @@ function buildNegotiationsPending() {
   });
 }
 
+function buildWalkUpdatePending() {
+  return buildCalendarPendingAction({
+    actionType: 'update',
+    originalIntent: 'Перенеси прогулку на 19:00',
+    eventTitle: 'Прогулка',
+    sourceTranscript: 'Перенеси прогулку на 19:00',
+    titleSourceTranscript: 'Перенеси прогулку на 19:00',
+    languageCode: 'ru-RU',
+    proposedStartMs: conflictStartMs,
+    proposedEndMs: conflictEndMs,
+    alternativeStartMs: [
+      Date.parse('2026-06-01T18:00:00-05:00'),
+      Date.parse('2026-06-01T21:00:00-05:00'),
+    ],
+    conflictEvents: [
+      {
+        eventId: 'gym',
+        title: 'Спортзал',
+        startsAt: '2026-06-01T20:00:00-05:00',
+        endsAt: '2026-06-01T21:00:00-05:00',
+      },
+    ],
+  });
+}
+
 function buildWalkPending() {
   return buildCalendarPendingAction({
     actionType: 'create',
@@ -109,7 +134,7 @@ describe('pending conflict resolution', () => {
     assert.equal(classifyPendingCalendarReply('предложи другое время'), 'alternate_time');
   });
 
-  it('resolves да as execute original at requested time', () => {
+  it('resolves да as execute original at requested time for create', () => {
     const resolution = resolveWithReply('да');
 
     assert.equal(resolution.kind, 'execute_original');
@@ -119,8 +144,24 @@ describe('pending conflict resolution', () => {
     }
   });
 
-  it('resolves нет as suggest alternatives without creating', () => {
-    assert.equal(resolveWithReply('нет').kind, 'suggest_alternatives');
+  it('resolves explicit override as force create at requested time', () => {
+    const resolution = resolveWithReply('все равно создай');
+
+    assert.equal(resolution.kind, 'execute_original');
+
+    if (resolution.kind === 'execute_original') {
+      assert.equal(resolution.skipScheduleConflictCheck, true);
+    }
+  });
+
+  it('resolves да as execute original for update after conflict warning', () => {
+    const resolution = resolveWithReply('да', buildWalkUpdatePending());
+
+    assert.equal(resolution.kind, 'execute_original');
+  });
+
+  it('resolves нет as cancel without creating', () => {
+    assert.equal(resolveWithReply('нет').kind, 'cancel');
   });
 
   it('resolves 21:00 to matching suggested slot preserving title', () => {
@@ -195,8 +236,15 @@ describe('pending conflict resolution', () => {
     assert.match(transcript, /9 вечера/i);
   });
 
-  it('resolves suggest another time without treating it as clock reply', () => {
-    assert.equal(resolveWithReply('предложи другое время').kind, 'suggest_alternatives');
+  it('classifies reschedule-with-time as alternate time during conflict', () => {
+    setupConflictPending();
+    transitionCalendarConversationState({
+      toState: 'WAITING_ALTERNATIVE_SLOT',
+      pendingAction: buildWalkUpdatePending(),
+      reason: 'test_conflict',
+    });
+
+    assert.equal(classifyPendingCalendarReply('перенеси на 7 вечера'), 'alternate_time');
   });
 
   it('cancels pending state on отмена', () => {

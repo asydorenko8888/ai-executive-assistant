@@ -223,8 +223,29 @@ export function stripSpokenTimePhrases(transcript: string) {
   return transcript.replace(STRIP_SPOKEN_TIME_PATTERN, ' ').replace(/\s+/g, ' ').trim();
 }
 
+const RELATIVE_SCHEDULE_SHIFT_PATTERN =
+  /(?:^|[\s,.;:!?—-]+)(?:на|for|через)\s+(?:(\d+)\s+)?(?:минут(?:ы|у)?|хвилин(?:и|у)?|minutes?|годин(?:у|и|ы)?|час(?:а|ов|у)?|hours?|hrs?)\s+(?:раньше|раніше|earlier|позже|пізніше|later)(?:[,.!\s]|$)/iu;
+
+const RELATIVE_SCHEDULE_UNIT_ONLY_PATTERN =
+  /(?:^|[\s,.;:!?—-]+)(?:на|for|через)\s+(?:час|годину|hour)\s+(?:раньше|раніше|earlier|позже|пізніше|later)(?:[,.!\s]|$)/iu;
+
+export function isRelativeScheduleShiftPhrase(transcript: string) {
+  const normalized = transcript.trim();
+
+  return (
+    RELATIVE_SCHEDULE_SHIFT_PATTERN.test(normalized) ||
+    RELATIVE_SCHEDULE_UNIT_ONLY_PATTERN.test(normalized)
+  );
+}
+
 export function isExplicitDurationPhrase(transcript: string) {
-  return /(?:^|[\s,.;:!?—-]+)(?:на|for)\s+\d+(?:[.,]\d+)?\s*(?:час(?:а|ов|у)?|годин(?:и|у|ы)?|hours?|hrs?)(?:[,.!\s]|$)/iu.test(
-    transcript.trim(),
+  const normalized = transcript.trim();
+
+  if (isRelativeScheduleShiftPhrase(normalized)) {
+    return true;
+  }
+
+  return /(?:^|[\s,.;:!?—-]+)(?:на|for|через)\s+\d+(?:[.,]\d+)?\s*(?:минут(?:ы|у)?|хвилин(?:и|у)?|minutes?|час(?:а|ов|у)?|годин(?:и|у|ы)?|hours?|hrs?)(?:[,.!\s]|$)/iu.test(
+    normalized,
   );
 }

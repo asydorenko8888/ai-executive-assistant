@@ -1,8 +1,10 @@
+import { isCalendarReadBypassDuringPendingConflict } from '@/src/features/agent/calendar/calendarPendingConflictReadBypass';
 import type { AssistantExecutionState } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
 import { cancelCalendarConversation } from '@/src/features/agent/calendar/calendarConversationCancel';
 import {
   buildCalendarConflictAlternativesOnlyReply,
+  buildCalendarUpdateConflictAlternativesOnlyReply,
   buildVagueConflictTimeClarificationReply,
   formatConflictSlotLabelWithDay,
   resolveConflictDayOffset,
@@ -24,6 +26,7 @@ import {
   classifyPendingCalendarReply,
   logPendingReplyClassified,
 } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
+import { resolveStoredUpdateTargetFromPending } from '@/src/features/agent/calendar/calendarPendingConflictTarget';
 import {
   clearPendingCalendarStateAfterVerifiedMutation,
   dismissCalendarConflictConfirmationState,
@@ -190,17 +193,40 @@ async function buildAlternativeSlotsReply(
   );
 
   return {
-    reply: buildCalendarConflictAlternativesOnlyReply({
-      locale,
-      optionLabels,
-    }),
+    reply:
+      pending.action === 'UPDATE_EVENT'
+        ? buildCalendarUpdateConflictAlternativesOnlyReply({
+            locale,
+            proposedTitle: pending.eventTitle,
+            optionLabels,
+          })
+        : buildCalendarConflictAlternativesOnlyReply({
+            locale,
+            proposedTitle: pending.eventTitle,
+            optionLabels,
+          }),
     alternativeStartMs,
     optionLabels,
   };
 }
 
-function conflictAwaitingReminder(languageCode: VoiceLanguageCode) {
+function conflictAwaitingReminder(
+  languageCode: VoiceLanguageCode,
+  pendingAction?: CalendarPendingAction,
+) {
   const locale = getChatLocaleFromVoiceLanguage(languageCode);
+
+  if (pendingAction?.action === 'UPDATE_EVENT') {
+    if (locale === 'uk') {
+      return 'Скажіть «так», щоб продовжити, «ні», щоб скасувати, або «запропонуй інший час».';
+    }
+
+    if (locale === 'ru') {
+      return 'Скажите «да», чтобы продолжить, «нет», чтобы отменить, или «предложи другое время».';
+    }
+
+    return 'Say "yes" to proceed, "no" to cancel, or ask for another time.';
+  }
 
   if (locale === 'uk') {
     return 'Скажіть «так», «ні» або «запропонуй інший час».';
@@ -231,6 +257,21 @@ function beginConfirmedConflictMutation(params: ExecutePendingMutationParams) {
 
   dismissCalendarConflictConfirmationState('conflict_confirmed', transcript);
   acknowledgeCalendarConflictConfirmation();
+}
+
+function shouldUseStoredConflictUpdateTarget(params: ExecutePendingMutationParams) {
+  if (!params.skipScheduleConflictCheck || params.scheduleOverride) {
+    return false;
+  }
+
+  if (
+    params.transcriptOverride &&
+    params.transcriptOverride.trim() !== params.pending.sourceTranscript.trim()
+  ) {
+    return false;
+  }
+
+  return Boolean(resolveStoredUpdateTargetFromPending(params.pending));
 }
 
 async function executePendingMutation(params: ExecutePendingMutationParams) {
@@ -265,11 +306,16 @@ async function executePendingMutation(params: ExecutePendingMutationParams) {
   }
 
   if (params.pending.action === 'UPDATE_EVENT') {
+    const storedUpdateTarget = shouldUseStoredConflictUpdateTarget(params)
+      ? resolveStoredUpdateTargetFromPending(params.pending)
+      : null;
+
     const outcome = await executeCalendarUpdateEvent({
       transcript,
       languageCode: params.pending.languageCode,
       referenceNow: params.referenceNow,
       skipScheduleConflictCheck: params.skipScheduleConflictCheck,
+      storedUpdateTarget: storedUpdateTarget ?? undefined,
     });
 
     const verified = isVerifiedCalendarUpdateSuccess(outcome.tool);
@@ -529,7 +575,6 @@ async function handleConflictDecisionState(params: {
         endMs: resolution.endMs,
         explicitDayOffset: resolution.explicitDayOffset,
       },
-      skipScheduleConflictCheck: true,
     };
 
     beginConfirmedConflictMutation(mutationParams);
@@ -543,7 +588,6 @@ async function handleConflictDecisionState(params: {
       referenceNow: params.referenceNow,
       calendarConnected: params.calendarConnected,
       transcriptOverride: resolution.transcript,
-      skipScheduleConflictCheck: true,
     };
 
     beginConfirmedConflictMutation(mutationParams);
@@ -551,7 +595,7 @@ async function handleConflictDecisionState(params: {
     return executePendingMutation(mutationParams);
   }
 
-  const reminder = conflictAwaitingReminder(params.pending.languageCode);
+  const reminder = conflictAwaitingReminder(params.pending.languageCode, params.pending);
 
   return mapOutcome({
     intent,
@@ -702,6 +746,10 @@ export async function handleCalendarConversationTurn(params: {
   titleSourceTranscript?: string;
   calendarConnected: boolean;
 }): Promise<CalendarConversationTurnResult | null> {
+  if (isCalendarReadBypassDuringPendingConflict(params.transcript.trim())) {
+    return null;
+  }
+
   const snapshot = getCalendarConversationSnapshot();
 
   if (snapshot.state === 'IDLE' || !snapshot.pendingAction) {
@@ -760,6 +808,7 @@ export async function handleCalendarConversationTurn(params: {
       });
       break;
     case 'WAITING_DELETE_CONFIRMATION':
+    case 'AWAITING_EVENT_SELECTION':
     case 'WAITING_EVENT_SELECTION':
       result = await handleDeleteOrSelectionState({
         pending,

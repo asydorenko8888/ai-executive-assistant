@@ -4,7 +4,6 @@ import {
   buildCalendarScheduleConflictReply,
 } from '@/src/features/agent/calendar/calendarConflictReplies';
 import {
-  syncConversationStateForConflict,
   syncConversationStateForConflictAlternatives,
   syncConversationStateForConflictInitial,
 } from '@/src/features/agent/calendar/calendarConversationSync';
@@ -35,6 +34,8 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
   proposedEndMs: number;
   referenceNow: Date;
   updateEventId?: string;
+  targetOriginalStartsAt?: string;
+  targetOriginalEndsAt?: string;
   selfCreatedEventId?: string | null;
   skipScheduleConflictCheck?: boolean;
   /** When true, offer numbered alternatives immediately (after user declined force-create). */
@@ -55,8 +56,21 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
     skipCheck: params.skipScheduleConflictCheck,
   });
 
-  if (check.status === 'clear' || check.status === 'error') {
+  if (check.status === 'clear') {
     return null;
+  }
+
+  if (check.status === 'error') {
+    const tool = createCalendarToolFailure(
+      'CALENDAR_READ_FAILED',
+      'Could not validate schedule conflicts before calendar mutation.',
+    );
+
+    return {
+      tool,
+      reply: tool.error ?? 'Calendar conflict validation failed',
+      spokenReply: tool.error ?? 'Calendar conflict validation failed',
+    };
   }
 
   if (check.status === 'fetch_failed') {
@@ -84,6 +98,8 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
     proposedStartMs: params.proposedStartMs,
     proposedEndMs: params.proposedEndMs,
     updateEventId: params.updateEventId,
+    targetOriginalStartsAt: params.targetOriginalStartsAt,
+    targetOriginalEndsAt: params.targetOriginalEndsAt,
     conflictingEventId: primary.event.id,
     conflictingTitle: primary.event.title,
     conflictingStartsAt: primary.event.startsAt,
@@ -111,6 +127,8 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
         locale,
         proposedTitle: params.proposedTitle,
         conflict: primary,
+        proposedStartMs: params.proposedStartMs,
+        proposedEndMs: params.proposedEndMs,
       });
       setPendingCalendarConflictContext(pendingContext);
       syncConversationStateForConflictInitial(pendingContext, check.conflicts);
@@ -118,14 +136,14 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
   } else {
     reply = buildCalendarScheduleConflictReply({
       locale,
-      operation: params.operation,
+      operation: 'update',
       proposedTitle: params.proposedTitle,
       conflict: primary,
       proposedStartMs: params.proposedStartMs,
       proposedEndMs: params.proposedEndMs,
     });
     setPendingCalendarConflictContext(pendingContext);
-    syncConversationStateForConflict(pendingContext, 'WAITING_CONFLICT_DECISION', check.conflicts);
+    syncConversationStateForConflictInitial(pendingContext, check.conflicts);
   }
 
   const tool = createCalendarToolFailure('CALENDAR_SCHEDULE_CONFLICT', reply);

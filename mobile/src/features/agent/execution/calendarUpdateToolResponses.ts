@@ -6,7 +6,9 @@ import {
 import { buildCalendarOperationInProgressReply } from '@/src/features/agent/calendar/calendarOperationUserReplies';
 import {
   buildCalendarUpdateAmbiguousReply,
+  buildCalendarUpdateNoTimeChangeReply,
   buildCalendarUpdateNotFoundReply,
+  buildCalendarUpdateTimeParseFailedReply,
 } from '@/src/features/agent/calendar/calendarUpdateNaturalReplies';
 import { buildNaturalCalendarUpdateSuccessReply } from '@/src/features/agent/execution/calendarUpdateSuccessReply';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
@@ -24,6 +26,7 @@ export type CalendarUpdateToolReplyBundle = {
 function buildNaturalUpdateFailureReply(
   tool: CalendarToolResponse,
   languageCode: VoiceLanguageCode,
+  options?: { eventTitle?: string | null },
 ): string | null {
   const locale = getChatLocaleFromVoiceLanguage(languageCode);
 
@@ -33,6 +36,14 @@ function buildNaturalUpdateFailureReply(
 
   if (tool.errorCode === 'CALENDAR_EVENT_AMBIGUOUS') {
     return buildCalendarUpdateAmbiguousReply(locale);
+  }
+
+  if (tool.errorCode === 'CALENDAR_NO_TIME_CHANGE') {
+    return buildCalendarUpdateNoTimeChangeReply(locale, options?.eventTitle ?? 'that event');
+  }
+
+  if (tool.errorCode === 'CALENDAR_DATE_PARSE_FAILED') {
+    return buildCalendarUpdateTimeParseFailedReply(locale);
   }
 
   return null;
@@ -53,7 +64,11 @@ function mapToolStatusToExecutionState(tool: CalendarToolResponse): CalendarExec
 export function buildCalendarUpdateToolReplyBundle(
   tool: CalendarToolResponse,
   languageCode: VoiceLanguageCode,
-  options?: { referenceNow?: Date; previousStartsAt?: string },
+  options?: {
+    referenceNow?: Date;
+    previousStartsAt?: string;
+    requestedEventTitle?: string | null;
+  },
 ): CalendarUpdateToolReplyBundle {
   if (tool.status === 'SUCCESS' && isVerifiedCalendarUpdateSuccess(tool) && tool.event) {
     const copy = buildNaturalCalendarUpdateSuccessReply({
@@ -87,7 +102,9 @@ export function buildCalendarUpdateToolReplyBundle(
     };
   }
 
-  const naturalFailure = buildNaturalUpdateFailureReply(tool, languageCode);
+  const naturalFailure = buildNaturalUpdateFailureReply(tool, languageCode, {
+    eventTitle: options?.requestedEventTitle,
+  });
 
   if (naturalFailure) {
     return {

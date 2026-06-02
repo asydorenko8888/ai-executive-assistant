@@ -1,5 +1,6 @@
 import type { ChatMessage } from '@/src/entities/chat/types';
 import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calendar/calendarConversationState';
+import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import { tryMergePendingCalendarDeleteReply } from '@/src/features/agent/calendar/calendarDeletePendingContext';
@@ -51,6 +52,14 @@ export function mergeActionContextFromHistory(params: {
   referenceNow: Date;
 }) {
   const normalized = params.transcript.trim();
+
+  if (isCalendarExactTimeReadQuery(normalized)) {
+    return {
+      mergedTranscript: normalized,
+      usedContext: false,
+      contextSource: null,
+    };
+  }
 
   if (isCalendarConversationAwaitingInput()) {
     if (isBareCalendarShortReply(normalized) || isNewCalendarCommandMessage(normalized)) {

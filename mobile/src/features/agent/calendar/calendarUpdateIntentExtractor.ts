@@ -12,7 +12,15 @@ import {
   resolveUpdateTargetMs,
   stripCalendarUpdateSchedulePhrases,
 } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
-import { isEventPronounReference } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import {
+  isEventPronounReference,
+  resolveEventTitleQueryForMemory,
+} from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import {
+  isMeridiemOnlyTitle,
+  isTemporalOnlyTitle,
+  stripMeridiemTitleArtifact,
+} from '@/src/features/agent/calendar/calendarTemporalWords';
 import { resolveMoveEventReference } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { UPDATE_COMMAND_PREFIX } from '@/src/features/agent/calendar/calendarUpdateVerbs';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
@@ -63,9 +71,15 @@ export function extractUpdateEventTitle(transcript: string) {
   text = stripCalendarUpdateSchedulePhrases(text).trim();
   text = text.replace(/^[\s,.:;!\-—]+|[\s,.:;!\-—]+$/gu, '');
   text = text.replace(/\s+(?:с|з|на|from|to)\.?$/iu, '').trim();
+  text = stripMeridiemTitleArtifact(text);
   text = normalizeUpdateTitle(text);
 
-  if (text.length < 2 || isEventPronounReference(text)) {
+  if (
+    text.length < 2 ||
+    isEventPronounReference(text) ||
+    isTemporalOnlyTitle(text) ||
+    isMeridiemOnlyTitle(text)
+  ) {
     return null;
   }
 
@@ -86,7 +100,11 @@ export function extractCalendarUpdateParameters(
   const schedule = parseCalendarUpdateSchedule(normalized, referenceNow, timeZone);
   const extractedTitle = extractUpdateEventTitle(normalized);
   const memoryRef = resolveMoveEventReference(referenceNow);
-  const title = extractedTitle ?? memoryRef?.title ?? null;
+  const titleQuery = resolveEventTitleQueryForMemory({
+    extractedTitle,
+    memoryTitle: memoryRef?.title ?? null,
+  });
+  const title = titleQuery || null;
   const memoryStartMs = memoryRef?.startISO ? Date.parse(memoryRef.startISO) : Number.NaN;
   const hasMemoryStart = !Number.isNaN(memoryStartMs);
 

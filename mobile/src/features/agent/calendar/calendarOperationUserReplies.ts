@@ -15,3 +15,17 @@ export function buildCalendarOperationInProgressReply(languageCode: VoiceLanguag
 
   return 'Calendar is still updating. Please wait a moment.';
 }
+
+export function buildCalendarRefreshFailedReply(languageCode: VoiceLanguageCode) {
+  const locale = getChatLocaleFromVoiceLanguage(languageCode);
+
+  if (locale === 'uk') {
+    return 'Не вдалося оновити дані календаря. Спробуйте ще раз.';
+  }
+
+  if (locale === 'ru') {
+    return 'Не удалось обновить данные календаря. Попробуйте ещё раз.';
+  }
+
+  return "I couldn't refresh calendar data. Please try again.";
+}

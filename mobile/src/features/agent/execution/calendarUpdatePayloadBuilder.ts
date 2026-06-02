@@ -9,6 +9,7 @@ import {
   resolveUpdateTargetMs,
   stripCalendarUpdateSchedulePhrases,
 } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import type { CalendarUpdateResolvedIntent } from '@/src/features/agent/calendar/calendarUpdateEventResolution';
 import type { CalendarUpdateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -24,9 +25,54 @@ export type CalendarUpdatePayloadBuildResult =
     }
   | {
       ok: false;
-      reason: 'date_parse_failed' | 'title_parse_failed' | 'event_not_found';
+      reason: 'date_parse_failed' | 'title_parse_failed' | 'event_not_found' | 'no_time_change';
       detail: string;
     };
+
+const NO_OP_TOLERANCE_MS = 60_000;
+
+export function buildCalendarUpdatePayloadFromResolution(params: {
+  resolution: Extract<CalendarUpdateResolvedIntent, { ok: true }>;
+  languageCode: VoiceLanguageCode;
+}): CalendarUpdatePayloadBuildResult {
+  const timeZone = getExecutiveCalendarTimezone();
+  const { target, requestedStartMs, requestedEndMs, originalStartMs } = params.resolution;
+  const resolvedTitle = target.title.trim() || params.resolution.requestedEventName;
+
+  const payload: CalendarUpdateEventPayload = {
+    summary: resolvedTitle,
+    start: {
+      dateTime: formatGoogleDateTimeFromUtcMs(requestedStartMs, timeZone),
+      timeZone,
+    },
+    end: {
+      dateTime: formatGoogleDateTimeFromUtcMs(requestedEndMs, timeZone),
+      timeZone,
+    },
+  };
+
+  logCalendarCreate('update parsed payload', {
+    ok: true,
+    eventId: target.id,
+    title: payload.summary,
+    fromMs: originalStartMs,
+    toMs: requestedStartMs,
+    start: payload.start,
+    end: payload.end,
+    languageCode: params.languageCode,
+    timeZone,
+    source: 'resolved_intent',
+  });
+
+  return {
+    ok: true,
+    eventId: target.id,
+    payload,
+    matchedEvent: target,
+    fromMs: originalStartMs,
+    toMs: requestedStartMs,
+  };
+}
 
 export function buildCalendarUpdateEventPayload(params: {
   transcript: string;
@@ -68,6 +114,14 @@ export function buildCalendarUpdateEventPayload(params: {
       ok: false,
       reason: 'date_parse_failed',
       detail: 'Could not resolve update destination time',
+    };
+  }
+
+  if (Math.abs(targetToMs - matchedStartMs) <= NO_OP_TOLERANCE_MS) {
+    return {
+      ok: false,
+      reason: 'no_time_change',
+      detail: 'Requested time is the same as the current event start time',
     };
   }
 
@@ -130,5 +184,100 @@ export function buildCalendarUpdateEventPayload(params: {
     matchedEvent: params.matchedEvent,
     fromMs: matchedStartMs,
     toMs: targetToMs,
+  };
+}
+
+export function buildCalendarUpdatePayloadFromStoredTarget(params: {
+  eventId: string;
+  title: string;
+  originalStartsAt: string;
+  originalEndsAt: string;
+  requestedStartMs: number;
+  requestedEndMs: number;
+  languageCode: VoiceLanguageCode;
+}): CalendarUpdatePayloadBuildResult {
+  const timeZone = getExecutiveCalendarTimezone();
+  const matchedStartMs = Date.parse(params.originalStartsAt);
+  const matchedEndMs = Date.parse(params.originalEndsAt);
+  const requestedStartMs = params.requestedStartMs;
+  const requestedEndMs = params.requestedEndMs;
+
+  if (
+    Number.isNaN(matchedStartMs) ||
+    Number.isNaN(matchedEndMs) ||
+    Number.isNaN(requestedStartMs) ||
+    Number.isNaN(requestedEndMs)
+  ) {
+    return {
+      ok: false,
+      reason: 'event_not_found',
+      detail: 'Stored update target has invalid timestamps',
+    };
+  }
+
+  if (Math.abs(requestedStartMs - matchedStartMs) <= NO_OP_TOLERANCE_MS) {
+    return {
+      ok: false,
+      reason: 'no_time_change',
+      detail: 'Requested time is the same as the current event start time',
+    };
+  }
+
+  const durationMs = Math.max(
+    requestedEndMs - requestedStartMs,
+    matchedEndMs - matchedStartMs,
+    30 * 60_000,
+  );
+  const newEndMs = requestedStartMs + durationMs;
+  const resolvedTitle = params.title.trim();
+
+  if (!resolvedTitle) {
+    return {
+      ok: false,
+      reason: 'title_parse_failed',
+      detail: 'Stored update target is missing event title',
+    };
+  }
+
+  const matchedEvent: CalendarEvent = {
+    id: params.eventId,
+    title: resolvedTitle,
+    startsAt: params.originalStartsAt,
+    endsAt: params.originalEndsAt,
+    isAllDay: false,
+  };
+
+  const payload: CalendarUpdateEventPayload = {
+    summary: resolvedTitle,
+    start: {
+      dateTime: formatGoogleDateTimeFromUtcMs(requestedStartMs, timeZone),
+      timeZone,
+    },
+    end: {
+      dateTime: formatGoogleDateTimeFromUtcMs(newEndMs, timeZone),
+      timeZone,
+    },
+  };
+
+  logCalendarCreate('update parsed payload', {
+    ok: true,
+    eventId: params.eventId,
+    title: payload.summary,
+    fromMs: matchedStartMs,
+    toMs: requestedStartMs,
+    start: payload.start,
+    end: payload.end,
+    languageCode: params.languageCode,
+    timeZone,
+    source: 'stored_conflict_target',
+  });
+
+  return {
+    ok: true,
+    eventId: params.eventId,
+    payload,
+    matchedEvent,
+    fromMs: matchedStartMs,
+    toMs: requestedStartMs,
   };
 }

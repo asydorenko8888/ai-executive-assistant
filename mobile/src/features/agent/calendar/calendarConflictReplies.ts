@@ -22,6 +22,51 @@ function formatSlotRange(slot: CalendarFreeSlot, timeZone: string) {
   return `${startLabel}–${endLabel}`;
 }
 
+function formatConflictTimeLabel(startMs: number, timeZone: string) {
+  return formatTimeInExecutiveTimezone(new Date(startMs).toISOString(), timeZone);
+}
+
+/** Initial conflict warning for a move — asks the user to confirm, never refuses. */
+export function buildCalendarUpdateConflictInitialReply(params: {
+  locale: CalendarConflictLocale;
+  proposedTitle: string;
+  conflict: CalendarScheduleConflict;
+  proposedStartMs: number;
+  proposedEndMs: number;
+}) {
+  return buildCalendarScheduleConflictReply({
+    locale: params.locale,
+    operation: 'update',
+    proposedTitle: params.proposedTitle,
+    conflict: params.conflict,
+    proposedStartMs: params.proposedStartMs,
+    proposedEndMs: params.proposedEndMs,
+  });
+}
+
+/** Shown after user confirms on an update conflict — event stays unchanged. */
+export function buildCalendarUpdateConflictAlternativesOnlyReply(params: {
+  locale: CalendarConflictLocale;
+  proposedTitle: string;
+  optionLabels: string[];
+}) {
+  const numbered = params.optionLabels.slice(0, 3).map((label, index) => `${index + 1}. ${label}`);
+
+  const title = params.proposedTitle.trim() || 'Untitled';
+  const slots =
+    numbered.length > 0 ? `\n${numbered.join('\n')}` : '';
+
+  if (params.locale === 'uk') {
+    return `Гаразд, я не переносив «${title}». Можу запропонувати інший час:${slots}`;
+  }
+
+  if (params.locale === 'ru') {
+    return `Ок, я не переносил «${title}». Могу предложить другое время:${slots}`;
+  }
+
+  return `Ok, I did not move ${title}. I can suggest another time:${slots}`;
+}
+
 export function buildCalendarScheduleConflictReply(params: {
   locale: CalendarConflictLocale;
   operation: 'create' | 'update';
@@ -32,38 +77,30 @@ export function buildCalendarScheduleConflictReply(params: {
 }) {
   const timeZone = getExecutiveCalendarTimezone();
   const conflictTitle = params.conflict.event.title.trim() || 'Untitled';
-  const conflictRange = formatConflictRange(
-    params.conflict.startsAtMs,
-    params.conflict.endsAtMs,
-    timeZone,
-  );
-  const proposedRange = formatConflictRange(
-    params.proposedStartMs,
-    params.proposedEndMs,
-    timeZone,
-  );
+  const requestedTime = formatConflictTimeLabel(params.proposedStartMs, timeZone);
+  const title = params.proposedTitle.trim() || 'Untitled';
 
   if (params.locale === 'uk') {
     if (params.operation === 'update') {
-      return `У вас уже є подія «${conflictTitle}» (${conflictRange}). Усе одно перенести «${params.proposedTitle}» на ${proposedRange}?`;
+      return `На ${requestedTime} уже є: «${conflictTitle}». Перенести «${title}» на ${requestedTime} все одно?`;
     }
 
-    return `На цей час уже є подія «${conflictTitle}» (${conflictRange}). Усе одно створити «${params.proposedTitle}» о ${proposedRange}?`;
+    return `На ${requestedTime} уже є: «${conflictTitle}». Створити «${title}» на ${requestedTime} все одно?`;
   }
 
   if (params.locale === 'ru') {
     if (params.operation === 'update') {
-      return `У вас уже есть событие «${conflictTitle}» (${conflictRange}). Всё равно перенести «${params.proposedTitle}» на ${proposedRange}?`;
+      return `На ${requestedTime} уже занято: «${conflictTitle}». Перенести «${title}» на ${requestedTime} всё равно?`;
     }
 
-    return `На это время уже есть событие «${conflictTitle}» (${conflictRange}). Всё равно создать «${params.proposedTitle}» на ${proposedRange}?`;
+    return `На ${requestedTime} уже занято: «${conflictTitle}». Создать «${title}» на ${requestedTime} всё равно?`;
   }
 
   if (params.operation === 'update') {
-    return `You already have ${conflictTitle} from ${conflictRange}. Do you still want to move ${params.proposedTitle} to ${proposedRange}?`;
+    return `At ${requestedTime} you already have: ${conflictTitle}. Move ${title} to ${requestedTime} anyway?`;
   }
 
-  return `There is already an event at this time: ${conflictTitle}, ${conflictRange}. Do you still want to schedule ${params.proposedTitle} at ${proposedRange}?`;
+  return `At ${requestedTime} you already have: ${conflictTitle}. Create ${title} at ${requestedTime} anyway?`;
 }
 
 export function buildCalendarConflictCancelledReply(locale: CalendarConflictLocale) {
@@ -119,43 +156,39 @@ export function buildCalendarCreateConflictInitialReply(params: {
   locale: CalendarConflictLocale;
   proposedTitle: string;
   conflict: CalendarScheduleConflict;
+  proposedStartMs: number;
+  proposedEndMs: number;
 }) {
-  const timeZone = getExecutiveCalendarTimezone();
-  const conflictTitle = params.conflict.event.title.trim() || 'Untitled';
-  const conflictRange = formatConflictRange(
-    params.conflict.startsAtMs,
-    params.conflict.endsAtMs,
-    timeZone,
-  );
-  const title = params.proposedTitle.trim() || 'Untitled';
-
-  if (params.locale === 'uk') {
-    return `На цей час уже є подія «${conflictTitle}» о ${conflictRange}. Створити «${title}» все одно?`;
-  }
-
-  if (params.locale === 'ru') {
-    return `На это время уже есть событие «${conflictTitle}» на ${conflictRange}. Создать «${title}» всё равно?`;
-  }
-
-  return `There is already an event ${conflictTitle} at ${conflictRange}. Create ${title} anyway?`;
+  return buildCalendarScheduleConflictReply({
+    locale: params.locale,
+    operation: 'create',
+    proposedTitle: params.proposedTitle,
+    conflict: params.conflict,
+    proposedStartMs: params.proposedStartMs,
+    proposedEndMs: params.proposedEndMs,
+  });
 }
 
-/** Shown after user declines force-create — must not repeat the conflict warning. */
+/** Shown after user declines — must not repeat the conflict warning. */
 export function buildCalendarConflictAlternativesOnlyReply(params: {
   locale: CalendarConflictLocale;
+  proposedTitle?: string;
   optionLabels: string[];
 }) {
   const numbered = params.optionLabels.slice(0, 3).map((label, index) => `${index + 1}. ${label}`);
+  const title = params.proposedTitle?.trim() || 'Untitled';
+  const slots =
+    numbered.length > 0 ? `\n${numbered.join('\n')}` : '';
 
   if (params.locale === 'uk') {
-    return `Гаразд, не створюю поверх конфлікту. Можу запропонувати:\n${numbered.join('\n')}\nАбо назвіть свій час.`;
+    return `Гаразд, я не створював «${title}». Можу запропонувати інший час:${slots}`;
   }
 
   if (params.locale === 'ru') {
-    return `Ок, не создаю поверх конфликта. Могу предложить:\n${numbered.join('\n')}\nИли назовите своё время.`;
+    return `Ок, я не создавал «${title}». Могу предложить другое время:${slots}`;
   }
 
-  return `Okay, I won't create over the conflict. I can suggest:\n${numbered.join('\n')}\nOr name your own time.`;
+  return `Ok, I did not create ${title}. I can suggest another time:${slots}`;
 }
 
 export function buildVagueConflictTimeClarificationReply(params: {

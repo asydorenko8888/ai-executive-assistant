@@ -3,15 +3,18 @@ import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendar
 import type { CalendarToolStatus } from '@/src/features/agent/execution/calendarToolContract';
 import {
   buildCalendarConflictAlternativesOnlyReply,
+  buildCalendarUpdateConflictAlternativesOnlyReply,
   buildCalendarConflictCancelledReply,
   formatConflictSlotLabelWithDay,
   resolveConflictDayOffset,
 } from '@/src/features/agent/calendar/calendarConflictReplies';
 import { syncConversationStateForConflictAlternatives } from '@/src/features/agent/calendar/calendarConversationSync';
+import { conflictContextToPendingAction } from '@/src/features/agent/calendar/calendarConversationSync';
 import {
   markPendingConflictProceed,
   resolveCalendarConflictFollowUp,
 } from '@/src/features/agent/calendar/calendarConflictPendingContext';
+import { resolveStoredUpdateTargetFromPending } from '@/src/features/agent/calendar/calendarPendingConflictTarget';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import { executeCalendarUpdateEvent } from '@/src/features/agent/execution/calendarUpdateEventExecutor';
 import {
@@ -133,10 +136,17 @@ async function buildFreeSlotsReplyForPending(
     );
 
   return {
-    reply: buildCalendarConflictAlternativesOnlyReply({
-      locale,
-      optionLabels,
-    }),
+    reply:
+      pending.operation === 'update'
+        ? buildCalendarUpdateConflictAlternativesOnlyReply({
+            locale,
+            proposedTitle: pending.proposedTitle,
+            optionLabels,
+          })
+        : buildCalendarConflictAlternativesOnlyReply({
+            locale,
+            optionLabels,
+          }),
     alternativeStartMs,
   };
 }
@@ -184,14 +194,16 @@ export async function handleCalendarConflictFollowUp(params: {
   }
 
   if (followUp?.kind === 'proceed') {
-    setPendingCalendarConflictContext(markPendingConflictProceed(pending));
-
     if (pending.operation === 'update') {
+      const pendingAction = conflictContextToPendingAction(pending);
+      const storedUpdateTarget = resolveStoredUpdateTargetFromPending(pendingAction);
+
       const outcome = await executeCalendarUpdateEvent({
         transcript: pending.sourceTranscript,
         languageCode: pending.languageCode,
         referenceNow: params.referenceNow,
         skipScheduleConflictCheck: true,
+        storedUpdateTarget: storedUpdateTarget ?? undefined,
       });
 
       clearPendingCalendarConflictContext();
@@ -208,6 +220,8 @@ export async function handleCalendarConflictFollowUp(params: {
         eventId: outcome.tool.eventId ?? null,
       });
     }
+
+    setPendingCalendarConflictContext(markPendingConflictProceed(pending));
 
     const outcome = await executeCalendarCreateEvent({
       transcript: pending.sourceTranscript,

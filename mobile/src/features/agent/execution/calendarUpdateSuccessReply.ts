@@ -59,8 +59,8 @@ export function buildNaturalCalendarUpdateSuccessReply(params: {
       : `Событие обновлено успешно:\nНазвание: ${exactTitle}\nНовое время: ${newScheduleLabel}`;
   } else {
     reply = hasPrevious
-      ? `Event rescheduled:\nTitle: ${exactTitle}\nPrevious: ${oldScheduleLabel}\nNew: ${newScheduleLabel}`
-      : `Event updated successfully:\nTitle: ${exactTitle}\nNew time: ${newScheduleLabel}`;
+      ? `${exactTitle} moved successfully.\nPrevious time: ${oldScheduleLabel}\nNew time: ${newScheduleLabel}`
+      : `${exactTitle} updated successfully.\nNew time: ${newScheduleLabel}`;
   }
 
   logCalendarCreate('update success reply', {

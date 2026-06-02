@@ -27,6 +27,13 @@ const FULL_AGENDA_REQUEST_PATTERNS = [
   /\bagenda\b/i,
 ];
 
+const TONIGHT_AGENDA_PATTERNS = [
+  /\btonight\b/i,
+  /\b(?:what|what's|whats).{0,24}tonight/i,
+  /\bчто.{0,24}(?:сегодня\s+)?вечером/i,
+  /\bщо.{0,24}(?:сьогодні\s+)?вечор/i,
+];
+
 const TOMORROW_AGENDA_PATTERNS = [
   /\b(?:завтра|tomorrow)\b/i,
   /\bзадач[аи]?\s+на\s+завтра/i,
@@ -55,6 +62,7 @@ export function isCalendarAgendaQuery(transcript: string) {
     Boolean(classifyCalendarAgendaQueryIntent(normalized)) ||
     isCalendarListQuestion(normalized) ||
     FULL_AGENDA_REQUEST_PATTERNS.some((pattern) => pattern.test(normalized)) ||
+    TONIGHT_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized)) ||
     TOMORROW_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized)) ||
     TODAY_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized)) ||
     /\b(?:какие|які|what|which|сколько|скільки).{0,32}(?:задач|tasks?|events?|meetings?|зустріч)/i.test(

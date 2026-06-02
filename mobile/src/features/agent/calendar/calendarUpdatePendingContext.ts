@@ -2,6 +2,7 @@ import {
   extractCalendarUpdateParameters,
   type CalendarUpdateExtractResult,
 } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
+import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import { logUpdateClarificationMerged } from '@/src/features/agent/calendar/calendarUpdateLogger';
 import {
   applyClockLabelToEventStartIso,
@@ -136,7 +137,7 @@ export function tryMergePendingCalendarUpdateReply(params: {
 }) {
   const reply = params.reply.trim();
 
-  if (!reply) {
+  if (!reply || isCalendarExactTimeReadQuery(reply)) {
     return null;
   }
 

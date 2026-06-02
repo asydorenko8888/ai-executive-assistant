@@ -14,6 +14,7 @@ import {
   isCalendarExtractionExecutable,
 } from '@/src/features/agent/calendar/calendarCommandExtractor';
 import { handleCalendarConversationTurn } from '@/src/features/agent/calendar/calendarConversationTurnHandler';
+import { isCalendarReadBypassDuringPendingConflict } from '@/src/features/agent/calendar/calendarPendingConflictReadBypass';
 import {
   classifyPendingCalendarReply,
   logPendingReplyClassified,
@@ -36,6 +37,7 @@ import {
   isCalendarConversationAwaitingInput,
 } from '@/src/features/agent/calendar/calendarConversationState';
 import { isExplicitDifferentCalendarCommand } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
+import { shouldClearStalePendingForNewCommand } from '@/src/features/agent/calendar/calendarNewCommandPendingClear';
 import { enrichCalendarCommandTranscript } from '@/src/features/agent/calendar/calendarTranscriptEnrichment';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
@@ -112,6 +114,18 @@ export async function executeCalendarCommand(params: {
     });
 
     if (inConflictDecision) {
+      if (isCalendarReadBypassDuringPendingConflict(params.transcript)) {
+        return {
+          matched: false,
+          intent: 'none',
+          reply: '',
+          spokenReply: '',
+          toolStatus: 'FAILURE',
+          executionState: 'conversational',
+          verified: false,
+        };
+      }
+
       const conversationTurn = await handleCalendarConversationTurn({
         transcript: params.transcript,
         languageCode: params.languageCode,
@@ -145,11 +159,12 @@ export async function executeCalendarCommand(params: {
     }
 
     const overridesPending =
-      classification === 'new_calendar_command' &&
+      (classification === 'new_calendar_command' || shouldClearStalePendingForNewCommand(enrichedTranscript, pending)) &&
       pending &&
       !pendingIntent &&
       (!inConflictDecision ||
-        isExplicitDifferentCalendarCommand(enrichedTranscript, pending));
+        isExplicitDifferentCalendarCommand(enrichedTranscript, pending) ||
+        shouldClearStalePendingForNewCommand(enrichedTranscript, pending));
 
     if (overridesPending) {
       logNewCommandOverridesPending({
@@ -245,7 +260,7 @@ export async function executeCalendarCommand(params: {
 
   if (intent === 'update_calendar_event') {
     const outcome = await executeCalendarUpdateEvent({
-      transcript: params.transcript,
+      transcript: enrichedTranscript,
       languageCode: params.languageCode,
       referenceNow: params.referenceNow,
     });

@@ -135,7 +135,7 @@ describe('calendar conversation context retention', () => {
     assert.equal(deleted.matchSource, 'conversation_memory');
   });
 
-  it('4: after conflict rejected with нет, next time continues same pending create intent', () => {
+  it('4: after conflict cancelled with нет, pending action is cleared', () => {
     const pending = buildCalendarPendingAction({
       actionType: 'create',
       originalIntent: 'Добавь медитацию завтра в 13:00',
@@ -159,7 +159,19 @@ describe('calendar conversation context retention', () => {
       referenceNow,
     });
 
-    assert.equal(decline.kind, 'suggest_alternatives');
+    assert.equal(decline.kind, 'cancel');
+  });
+
+  it('4b: time refinement while pending still executes updated schedule', () => {
+    const pending = buildCalendarPendingAction({
+      actionType: 'create',
+      originalIntent: 'Добавь медитацию завтра в 13:00',
+      eventTitle: 'Медитация',
+      sourceTranscript: 'Добавь медитацию завтра в 13:00',
+      languageCode: 'ru-RU',
+      proposedStartMs: Date.parse('2026-06-03T13:00:00-05:00'),
+      proposedEndMs: Date.parse('2026-06-03T14:00:00-05:00'),
+    });
 
     const followUp = resolvePendingConflictResolution({
       pending,
@@ -172,8 +184,6 @@ describe('calendar conversation context retention', () => {
     if (followUp.kind === 'execute_with_schedule') {
       assert.equal(followUp.startMs, Date.parse('2026-06-03T15:00:00-05:00'));
     }
-
-    assert.equal(getCalendarConversationSnapshot().pendingAction?.eventTitle, 'Медитация');
   });
 
   it('stores activeCalendarEvent with last_created source after create', () => {

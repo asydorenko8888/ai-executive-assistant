@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 
-import { buildCalendarScheduleConflictReply } from '@/src/features/agent/calendar/calendarConflictReplies';
+import { buildCalendarUpdateConflictInitialReply } from '@/src/features/agent/calendar/calendarConflictReplies';
 import {
   buildCalendarPendingAction,
   getCalendarConversationSnapshot,
@@ -51,9 +51,8 @@ function buildMeditationMovePending() {
 
   return {
     pending,
-    conflictReply: buildCalendarScheduleConflictReply({
+    conflictReply: buildCalendarUpdateConflictInitialReply({
       locale: 'en',
-      operation: 'update',
       proposedTitle: 'Meditation',
       conflict: {
         event: {
@@ -73,12 +72,13 @@ function buildMeditationMovePending() {
 }
 
 describe('move-into-conflict prompt', () => {
-  it('asks to proceed when Meditation would land on Dentist', () => {
+  it('asks for confirmation when Meditation would land on Dentist', () => {
     const { conflictReply } = buildMeditationMovePending();
 
     assert.match(conflictReply, /Dentist/i);
     assert.match(conflictReply, /Meditation/i);
-    assert.match(conflictReply, /still want to move/i);
+    assert.match(conflictReply, /Move Meditation to .* anyway/i);
+    assert.doesNotMatch(conflictReply, /won't move/i);
   });
 });
 
@@ -114,7 +114,7 @@ describe('calendar execution honesty', () => {
     assert.equal(getCalendarConversationSnapshot().pendingAction?.eventTitle, 'Meditation');
   });
 
-  it('resolves yes on a move conflict to execute_original with conflict check skipped', () => {
+  it('resolves yes on a move conflict to execute the requested move', () => {
     const { pending } = buildMeditationMovePending();
     const resolution = resolvePendingConflictResolution({
       pending,
@@ -124,10 +124,6 @@ describe('calendar execution honesty', () => {
     });
 
     assert.equal(resolution.kind, 'execute_original');
-
-    if (resolution.kind === 'execute_original') {
-      assert.equal(resolution.skipScheduleConflictCheck, true);
-    }
   });
 
   it('preserves lastReferencedEvent when conflict pending is still active', () => {

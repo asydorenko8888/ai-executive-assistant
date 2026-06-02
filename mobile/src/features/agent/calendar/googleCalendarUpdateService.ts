@@ -21,6 +21,7 @@ import { ApiError } from '@/src/shared/api/api-error';
 export async function updateGoogleCalendarEvent(
   eventId: string,
   payload: CalendarUpdateEventPayload,
+  options?: { originalStartsAt?: string },
 ): Promise<CalendarToolResponse> {
   const auth = await ensureCalendarAuthForTool('google_calendar_update_event');
 
@@ -84,7 +85,8 @@ export async function updateGoogleCalendarEvent(
       response.executionState !== 'success' ||
       !response.verified ||
       !response.verificationFetched ||
-      !response.event?.id
+      !response.event?.id ||
+      response.event.id !== eventId
     ) {
       logCalendarUpdateFailed({
         eventId,
@@ -101,7 +103,10 @@ export async function updateGoogleCalendarEvent(
       );
     }
 
-    const clientVerification = verifyUpdatedEventMatchesPayload(response.event, payload);
+    const clientVerification = verifyUpdatedEventMatchesPayload(response.event, payload, {
+      requestedEventId: eventId,
+      originalStartsAt: options?.originalStartsAt,
+    });
 
     if (!clientVerification.ok) {
       logCalendarUpdateFailed({
