@@ -10,6 +10,13 @@ import type {
   PendingCalendarDeleteContext,
   PendingCalendarUpdateContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
+import { setPendingEventFromAction } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import { setPendingIntentFromAction } from '@/src/features/agent/calendar/calendarPendingIntent';
+
+function persistPendingEventAsActiveContext(pending: CalendarPendingAction) {
+  setPendingEventFromAction(pending);
+  setPendingIntentFromAction(pending);
+}
 
 function conflictContextToPendingAction(
   context: PendingCalendarConflictContext,
@@ -72,78 +79,117 @@ function updateContextToPendingAction(
   context: PendingCalendarUpdateContext,
   languageCode: CalendarPendingAction['languageCode'],
 ): CalendarPendingAction {
+  const toMs = context.toStartISO ? Date.parse(context.toStartISO) : 0;
+  const fromMs = context.fromStartISO ? Date.parse(context.fromStartISO) : 0;
+  const proposedStartMs = Number.isNaN(toMs) || toMs <= 0 ? fromMs : toMs;
+  const proposedEndMs =
+    proposedStartMs > 0 && !Number.isNaN(proposedStartMs) ? proposedStartMs + 60 * 60_000 : 0;
+
   return buildCalendarPendingAction({
     actionType: 'update',
     originalIntent: context.sourceTranscript,
     eventTitle: context.title?.trim() || 'event',
     sourceTranscript: context.sourceTranscript,
     languageCode,
-    proposedStartMs: 0,
-    proposedEndMs: 0,
-    updateFromTime: context.fromTime,
-    updateToTime: context.toTime,
+    proposedStartMs: Number.isNaN(proposedStartMs) ? 0 : proposedStartMs,
+    proposedEndMs: Number.isNaN(proposedEndMs) ? 0 : proposedEndMs,
+    updateFromStartISO: context.fromStartISO,
+    updateToStartISO: context.toStartISO,
   });
 }
 
 export function syncConversationStateForConflict(
   context: PendingCalendarConflictContext,
-  toState: CalendarConversationState = 'WAITING_CONFLICT_CONFIRMATION',
+  toState: CalendarConversationState = 'WAITING_CONFLICT_DECISION',
   conflicts?: Array<{
     event: { id: string; title: string; startsAt: string; endsAt: string };
     startsAtMs: number;
     endsAtMs: number;
   }>,
 ) {
+  const pendingAction = conflictContextToPendingAction(context, conflicts);
+
   transitionCalendarConversationState({
     toState,
-    pendingAction: conflictContextToPendingAction(context, conflicts),
+    pendingAction,
     reason: 'schedule_conflict_detected',
   });
+  persistPendingEventAsActiveContext(pendingAction);
+}
+
+export function syncConversationStateForConflictInitial(
+  context: PendingCalendarConflictContext,
+  conflicts?: Array<{
+    event: { id: string; title: string; startsAt: string; endsAt: string };
+    startsAtMs: number;
+    endsAtMs: number;
+  }>,
+) {
+  const pendingAction = conflictContextToPendingAction(context, conflicts);
+
+  transitionCalendarConversationState({
+    toState: 'WAITING_CONFLICT_DECISION',
+    pendingAction,
+    reason: 'schedule_conflict_yes_no_prompt',
+  });
+  persistPendingEventAsActiveContext(pendingAction);
 }
 
 export function syncConversationStateForConflictAlternatives(
   context: PendingCalendarConflictContext,
   alternativeStartMs: number[],
 ) {
+  const pendingAction = {
+    ...conflictContextToPendingAction(context),
+    alternativeStartMs,
+  };
+
   transitionCalendarConversationState({
-    toState: 'WAITING_NEW_TIME',
-    pendingAction: {
-      ...conflictContextToPendingAction(context),
-      alternativeStartMs,
-    },
+    toState: 'WAITING_CONFLICT_RESOLUTION',
+    pendingAction,
     reason: 'conflict_alternatives_offered',
   });
+  persistPendingEventAsActiveContext(pendingAction);
 }
 
 export function syncConversationStateForDeleteSelection(
   context: PendingCalendarDeleteContext,
   languageCode: CalendarPendingAction['languageCode'],
 ) {
+  const pendingAction = deleteContextToPendingAction(context, languageCode);
+
   transitionCalendarConversationState({
     toState: 'WAITING_EVENT_SELECTION',
-    pendingAction: deleteContextToPendingAction(context, languageCode),
+    pendingAction,
     reason: 'delete_event_ambiguous',
   });
+  persistPendingEventAsActiveContext(pendingAction);
 }
 
 export function syncConversationStateForMoveClarification(
   context: PendingCalendarUpdateContext,
   languageCode: CalendarPendingAction['languageCode'],
 ) {
+  const pendingAction = updateContextToPendingAction(context, languageCode);
+
   transitionCalendarConversationState({
     toState: 'WAITING_MOVE_CONFIRMATION',
-    pendingAction: updateContextToPendingAction(context, languageCode),
+    pendingAction,
     reason: 'update_move_clarification',
   });
+  persistPendingEventAsActiveContext(pendingAction);
 }
 
 export function syncConversationStateForUpdateSelection(
   context: PendingCalendarUpdateContext,
   languageCode: CalendarPendingAction['languageCode'],
 ) {
+  const pendingAction = updateContextToPendingAction(context, languageCode);
+
   transitionCalendarConversationState({
     toState: 'WAITING_EVENT_SELECTION',
-    pendingAction: updateContextToPendingAction(context, languageCode),
+    pendingAction,
     reason: 'update_event_ambiguous',
   });
+  persistPendingEventAsActiveContext(pendingAction);
 }

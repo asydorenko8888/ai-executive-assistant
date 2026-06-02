@@ -2,10 +2,12 @@ import type { AssistantExecutionState } from '@/src/features/agent/conversation/
 import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
 import type { CalendarToolStatus } from '@/src/features/agent/execution/calendarToolContract';
 import {
+  buildCalendarConflictAlternativesOnlyReply,
   buildCalendarConflictCancelledReply,
-  buildCalendarConflictFreeSlotsReply,
+  formatConflictSlotLabelWithDay,
   resolveConflictDayOffset,
 } from '@/src/features/agent/calendar/calendarConflictReplies';
+import { syncConversationStateForConflictAlternatives } from '@/src/features/agent/calendar/calendarConversationSync';
 import {
   markPendingConflictProceed,
   resolveCalendarConflictFollowUp,
@@ -27,6 +29,7 @@ import {
 import { normalizeCalendarEvents } from '@/src/features/agent/calendarIntelligence/normalizeEvents';
 import { getFreeWindows } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import { fetchTimedEventsNearScheduleWindow } from '@/src/features/agent/calendar/calendarScheduleConflict';
+import { parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -81,7 +84,7 @@ function mapVerifiedOutcome(params: {
 
 async function buildFreeSlotsReplyForPending(
   pending: NonNullable<ReturnType<typeof getPendingCalendarConflictContext>>,
-) {
+): Promise<{ reply: string; alternativeStartMs: number[] }> {
   const locale = getChatLocaleFromVoiceLanguage(pending.languageCode);
   const timeZone = getExecutiveCalendarTimezone();
   const referenceNow = new Date();
@@ -102,7 +105,10 @@ async function buildFreeSlotsReplyForPending(
   });
 
   if (!fetchOk) {
-    return 'Could not refresh the calendar to suggest free slots.';
+    return {
+      reply: 'Could not refresh the calendar to suggest free slots.',
+      alternativeStartMs: [],
+    };
   }
 
   const normalized = normalizeCalendarEvents(events, timeZone);
@@ -111,13 +117,28 @@ async function buildFreeSlotsReplyForPending(
     Math.round((pending.proposedEndMs - pending.proposedStartMs) / 60_000),
   );
   const slots = getFreeWindows(normalized, adjustedDay, referenceNow, durationMinutes);
+  const alternativeStartMs = slots
+    .slice(0, 3)
+    .map((slot) => parseGoogleCalendarInstant(slot.startISO) ?? 0)
+    .filter((value) => value > 0);
+  const optionLabels = slots
+    .slice(0, 3)
+    .map((slot) =>
+      formatConflictSlotLabelWithDay({
+        slot,
+        referenceNow,
+        locale,
+        timeZone,
+      }),
+    );
 
-  return buildCalendarConflictFreeSlotsReply({
-    locale,
-    slots,
-    durationMinutes,
-    dayOffset,
-  });
+  return {
+    reply: buildCalendarConflictAlternativesOnlyReply({
+      locale,
+      optionLabels,
+    }),
+    alternativeStartMs,
+  };
 }
 
 export async function handleCalendarConflictFollowUp(params: {
@@ -150,13 +171,14 @@ export async function handleCalendarConflictFollowUp(params: {
   }
 
   if (followUp?.kind === 'suggest_slots') {
-    const reply = await buildFreeSlotsReplyForPending(pending);
+    const slotResult = await buildFreeSlotsReplyForPending(pending);
+    syncConversationStateForConflictAlternatives(pending, slotResult.alternativeStartMs);
 
     return mapVerifiedOutcome({
       intent: pending.operation === 'update' ? 'update_calendar_event' : 'create_calendar_event',
       tool: createCalendarToolFailure('CALENDAR_SCHEDULE_CONFLICT', 'Awaiting conflict confirmation'),
-      reply,
-      spokenReply: reply,
+      reply: slotResult.reply,
+      spokenReply: slotResult.reply,
       verified: false,
     });
   }

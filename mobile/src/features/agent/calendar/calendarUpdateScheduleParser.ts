@@ -42,6 +42,7 @@ export type CalendarUpdateSchedule =
       toMs: number;
       toMinutes: number;
       explicitDayOffset: number;
+      hasExplicitDay: boolean;
     }
   | {
       ok: true;
@@ -64,6 +65,7 @@ export type CalendarUpdateSchedule =
       kind: 'day_period';
       explicitDayOffset: number;
       clockMinutes: number;
+      hasExplicitDay: boolean;
     }
   | {
       ok: false;
@@ -85,6 +87,17 @@ const RELATIVE_EARLIER = new RegExp(
 
 const RELATIVE_MINUTES_LATER = new RegExp(
   `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:(\\d+)\\s+)?(?:минут(?:ы)?|хвилин(?:и|у)?|minutes?)\\s+(?:позже|пізніше|later)${PHRASE_END}`,
+  'iu',
+);
+
+/** "на 3:00 позже" = +3h00m from event start (duration), not absolute 03:00. */
+const RELATIVE_CLOCK_OFFSET_LATER = new RegExp(
+  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(\\d{1,2}):(\\d{2})\\s+(?:позже|пізніше|later)${PHRASE_END}`,
+  'iu',
+);
+
+const RELATIVE_CLOCK_OFFSET_EARLIER = new RegExp(
+  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(\\d{1,2}):(\\d{2})\\s+(?:раньше|раніше|earlier)${PHRASE_END}`,
   'iu',
 );
 
@@ -141,10 +154,79 @@ function hasFromToShift(transcript: string) {
   return /(?:^|[\s,.;:!?—-]+)(?:с|з|from)\s+\d/i.test(transcript);
 }
 
+function hasExplicitDateInTranscript(
+  transcript: string,
+  referenceNow: Date,
+  timeZone: string,
+) {
+  if (parseNaturalDayOffset(transcript, referenceNow, timeZone) !== null) {
+    return true;
+  }
+
+  return /\b(20\d{2}-\d{2}-\d{2})\b/.test(transcript);
+}
+
+function applyClockMinutesToEventDate(params: {
+  matchedEventStartMs: number;
+  clockMinutes: number;
+  timeZone: string;
+}) {
+  const eventYmd = getZonedYmd(new Date(params.matchedEventStartMs), params.timeZone);
+  const hour = Math.floor(params.clockMinutes / 60);
+  const minute = params.clockMinutes % 60;
+
+  return zonedLocalToUtcMs(
+    {
+      ...eventYmd,
+      hour,
+      minute,
+      second: 0,
+    },
+    params.timeZone,
+  );
+}
+
 function formatClockLabelFromMinutes(clockMinutes: number) {
   const pad = (value: number) => String(value).padStart(2, '0');
 
   return `${pad(Math.floor(clockMinutes / 60))}:${pad(clockMinutes % 60)}`;
+}
+
+export function formatClockLabelFromInstantMs(instantMs: number, timeZone: string) {
+  const parts = getZonedTimeParts(new Date(instantMs), timeZone);
+
+  return formatClockLabelFromMinutes(parts.hour * 60 + parts.minute);
+}
+
+export function instantMsToIso(instantMs: number) {
+  return new Date(instantMs).toISOString();
+}
+
+export function applyClockLabelToEventStartIso(params: {
+  anchorStartISO: string;
+  clockLabel: string;
+  timeZone: string;
+}) {
+  const anchorMs = Date.parse(params.anchorStartISO);
+
+  if (Number.isNaN(anchorMs)) {
+    return null;
+  }
+
+  const match = params.clockLabel.trim().match(/^(\d{1,2}):(\d{2})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  const clockMinutes = Number(match[1]) * 60 + Number(match[2]);
+  const targetMs = applyClockMinutesToEventDate({
+    matchedEventStartMs: anchorMs,
+    clockMinutes,
+    timeZone: params.timeZone,
+  });
+
+  return instantMsToIso(targetMs);
 }
 
 function parseRelativeOffset(transcript: string): CalendarUpdateSchedule | null {
@@ -237,9 +319,35 @@ function parseRelativeOffset(transcript: string): CalendarUpdateSchedule | null 
     };
   }
 
+  const clockLater = transcript.match(RELATIVE_CLOCK_OFFSET_LATER);
+  const clockEarlier = transcript.match(RELATIVE_CLOCK_OFFSET_EARLIER);
   const laterHours = transcript.match(RELATIVE_LATER);
   const earlierHours = transcript.match(RELATIVE_EARLIER);
   const laterMinutes = transcript.match(RELATIVE_MINUTES_LATER);
+
+  if (clockLater) {
+    const hours = Number(clockLater[1]);
+    const minutes = Number(clockLater[2]);
+
+    return {
+      ok: true,
+      kind: 'relative_offset',
+      offsetMs: (hours * 60 + minutes) * 60_000,
+      direction: 'later',
+    };
+  }
+
+  if (clockEarlier) {
+    const hours = Number(clockEarlier[1]);
+    const minutes = Number(clockEarlier[2]);
+
+    return {
+      ok: true,
+      kind: 'relative_offset',
+      offsetMs: (hours * 60 + minutes) * 60_000,
+      direction: 'earlier',
+    };
+  }
 
   if (laterHours) {
     const amount = laterHours[1] ? Number(laterHours[1]) : 1;
@@ -333,6 +441,7 @@ function parsePeriodReschedule(
     kind: 'day_period',
     explicitDayOffset: dayResolution?.dayOffset ?? 0,
     clockMinutes: periodMinutes,
+    hasExplicitDay: dayResolution !== null,
   };
 }
 
@@ -386,6 +495,7 @@ export function parseCalendarUpdateSchedule(
         toMs: point.startMs,
         toMinutes: parts.hour * 60 + parts.minute,
         explicitDayOffset: point.explicitDayOffset,
+        hasExplicitDay: hasExplicitDateInTranscript(normalized, referenceNow, timeZone),
       };
     }
 
@@ -408,6 +518,8 @@ export function stripCalendarUpdateSchedulePhrases(transcript: string) {
   cleaned = stripNaturalDatePhrases(cleaned);
   cleaned = stripCalendarDayPeriodPhrases(cleaned);
   cleaned = stripCalendarClockPhrases(cleaned);
+  cleaned = cleaned.replace(RELATIVE_CLOCK_OFFSET_LATER, ' ');
+  cleaned = cleaned.replace(RELATIVE_CLOCK_OFFSET_EARLIER, ' ');
   cleaned = cleaned.replace(RELATIVE_LATER, ' ');
   cleaned = cleaned.replace(RELATIVE_EARLIER, ' ');
   cleaned = cleaned.replace(RELATIVE_MINUTES_LATER, ' ');
@@ -458,7 +570,27 @@ export function resolveUpdateTargetMs(params: {
   const timeZone = params.timeZone ?? getExecutiveCalendarTimezone();
   const referenceNow = params.referenceNow ?? new Date();
 
-  if (params.schedule.kind === 'from_to' || params.schedule.kind === 'destination') {
+  if (params.schedule.kind === 'destination') {
+    if (!params.schedule.hasExplicitDay) {
+      return applyClockMinutesToEventDate({
+        matchedEventStartMs: params.matchedEventStartMs,
+        clockMinutes: params.schedule.toMinutes,
+        timeZone,
+      });
+    }
+
+    return params.schedule.toMs;
+  }
+
+  if (params.schedule.kind === 'from_to') {
+    if (!params.schedule.hasExplicitDay) {
+      return applyClockMinutesToEventDate({
+        matchedEventStartMs: params.matchedEventStartMs,
+        clockMinutes: params.schedule.toMinutes,
+        timeZone,
+      });
+    }
+
     return params.schedule.toMs;
   }
 
@@ -497,6 +629,14 @@ export function resolveUpdateTargetMs(params: {
   }
 
   if (params.schedule.kind === 'day_period') {
+    if (!params.schedule.hasExplicitDay) {
+      return applyClockMinutesToEventDate({
+        matchedEventStartMs: params.matchedEventStartMs,
+        clockMinutes: params.schedule.clockMinutes,
+        timeZone,
+      });
+    }
+
     const targetYmd = addDaysToZonedYmd(
       getZonedYmd(referenceNow, timeZone),
       params.schedule.explicitDayOffset,
@@ -521,7 +661,11 @@ export function resolveUpdateTargetMs(params: {
   return params.matchedEventStartMs + signedOffset;
 }
 
-export function formatUpdateScheduleToTime(schedule: CalendarUpdateSchedule, timeZone: string) {
+export function formatUpdateScheduleToTime(
+  schedule: CalendarUpdateSchedule,
+  timeZone: string,
+  matchedEventStartMs?: number | null,
+) {
   if (!schedule.ok) {
     return null;
   }
@@ -542,12 +686,18 @@ export function formatUpdateScheduleToTime(schedule: CalendarUpdateSchedule, tim
     return null;
   }
 
-  const parts = getZonedTimeParts(
-    new Date(Date.now() + (schedule.direction === 'later' ? schedule.offsetMs : -schedule.offsetMs)),
-    timeZone,
-  );
+  if (
+    matchedEventStartMs === undefined ||
+    matchedEventStartMs === null ||
+    Number.isNaN(matchedEventStartMs)
+  ) {
+    return null;
+  }
 
-  return formatClockLabelFromMinutes(parts.hour * 60 + parts.minute);
+  const signedOffset =
+    schedule.direction === 'later' ? schedule.offsetMs : -schedule.offsetMs;
+
+  return formatClockLabelFromInstantMs(matchedEventStartMs + signedOffset, timeZone);
 }
 
 export function formatUpdateScheduleFromTime(params: {

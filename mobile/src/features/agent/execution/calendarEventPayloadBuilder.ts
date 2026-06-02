@@ -1,5 +1,6 @@
 import type { CalendarCreateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import { extractCreateEventTitle } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
+import { applyCalendarCreatePastTimeGuard } from '@/src/features/agent/calendar/calendarCreatePastTimeGuard';
 import { parseCalendarCreateSchedule } from '@/src/features/agent/calendar/calendarCreateScheduleParser';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import {
@@ -49,7 +50,7 @@ export function buildCalendarCreateEventPayload(params: {
   };
 }):
   | { ok: true; payload: CalendarCreateEventPayload; scheduleIso: string; startMs: number; endMs: number }
-  | { ok: false; reason: 'date_parse_failed'; detail: string } {
+  | { ok: false; reason: 'date_parse_failed' | 'past_time_needs_clarification'; detail: string } {
   const extraction = extractCalendarCommand({
     transcript: params.transcript,
     titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
@@ -81,23 +82,38 @@ export function buildCalendarCreateEventPayload(params: {
     };
   }
 
+  const timeZone = getExecutiveCalendarTimezone();
+  const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
+
   const schedule = params.scheduleOverride
-    ? {
-        ok: true as const,
-        startMs: params.scheduleOverride.startMs,
-        endMs: params.scheduleOverride.endMs,
-        hasExplicitTime: true as const,
-        explicitDayOffset: params.scheduleOverride.explicitDayOffset ?? 0,
-      }
-    : parseCalendarCreateSchedule(params.transcript, params.referenceNow);
+    ? applyCalendarCreatePastTimeGuard({
+        transcript: params.transcript,
+        referenceNow: params.referenceNow,
+        schedule: {
+          ok: true,
+          startMs: params.scheduleOverride.startMs,
+          endMs: params.scheduleOverride.endMs,
+          hasExplicitTime: true,
+          explicitDayOffset: params.scheduleOverride.explicitDayOffset ?? 0,
+        },
+        timeZone,
+        locale,
+      })
+    : parseCalendarCreateSchedule(params.transcript, params.referenceNow, timeZone, locale);
 
   if (!schedule.ok) {
-    return schedule;
+    return {
+      ok: false,
+      reason:
+        schedule.reason === 'past_time_needs_clarification'
+          ? 'past_time_needs_clarification'
+          : 'date_parse_failed',
+      detail: schedule.detail,
+    };
   }
 
   const location = extractCalendarEventLocation(params.transcript);
   const summary = extraction.title;
-  const timeZone = getExecutiveCalendarTimezone();
   const durationMs = schedule.endMs - schedule.startMs;
 
   const payload: CalendarCreateEventPayload = {

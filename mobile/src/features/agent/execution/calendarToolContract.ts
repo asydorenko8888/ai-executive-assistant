@@ -23,7 +23,8 @@ export type CalendarToolErrorCode =
   | 'CALENDAR_EVENT_AMBIGUOUS'
   | 'CALENDAR_RECURRING_NOT_SUPPORTED'
   | 'CALENDAR_ALL_DAY_NOT_SUPPORTED'
-  | 'CALENDAR_SCHEDULE_CONFLICT';
+  | 'CALENDAR_SCHEDULE_CONFLICT'
+  | 'CALENDAR_SCHEDULE_IN_PAST';
 
 export type CalendarToolResponse = {
   status: CalendarToolStatus;

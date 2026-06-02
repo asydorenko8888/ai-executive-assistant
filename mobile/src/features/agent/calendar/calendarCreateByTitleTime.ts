@@ -1,3 +1,5 @@
+import { isCalendarQueryOrFindIntent } from '@/src/features/agent/calendar/calendarQueryIntent';
+import { isTemporalOnlyTitle } from '@/src/features/agent/calendar/calendarTemporalWords';
 import { hasSpokenTimeHint, parseSpokenTimeFragment } from '@/src/features/agent/calendar/calendarSpokenTime';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 const BLOCKED_DELETE_START =
@@ -77,6 +79,7 @@ export function detectCalendarCreateByTitleTimePattern(
 
   if (
     !normalized ||
+    isCalendarQueryOrFindIntent(normalized) ||
     QUESTION_START.test(normalized) ||
     BLOCKED_DELETE_START.test(normalized) ||
     BLOCKED_UPDATE_START.test(normalized)
@@ -94,7 +97,7 @@ export function detectCalendarCreateByTitleTimePattern(
     const titlePart = match.groups.title.trim();
     const timePart = match.groups.time.trim();
 
-    if (titlePart.length < 2) {
+    if (titlePart.length < 2 || isTemporalOnlyTitle(titlePart)) {
       continue;
     }
 

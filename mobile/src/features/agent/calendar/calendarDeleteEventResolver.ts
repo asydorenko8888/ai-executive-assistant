@@ -11,6 +11,11 @@ import {
 } from '@/src/features/agent/calendar/calendarDeleteResolution';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import {
+  getActiveCalendarEvent,
+  resolveMutationSearchDayOffset,
+} from '@/src/features/agent/calendar/calendarActiveEventContext';
+import { resolveEventTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import {
   logCalendarMutationCandidates,
   logCalendarMutationFreshRead,
   logCalendarMutationSelection,
@@ -30,10 +35,23 @@ export async function resolveCalendarDeleteTarget(params: {
   transcript: string;
   referenceNow: Date;
 }): Promise<CalendarDeleteResolution> {
-  const titleQuery = extractDeleteEventTitle(params.transcript) ?? '';
+  const extractedTitle = extractDeleteEventTitle(params.transcript);
+  const memoryRef = getActiveCalendarEvent(params.referenceNow);
+  const titleQuery = resolveEventTitleQueryForMemory({
+    extractedTitle,
+    memoryTitle: memoryRef?.title ?? null,
+  }) ?? '';
   const timeZone = getExecutiveCalendarTimezone();
-  const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
-  const clockMinutes = parseCalendarClockMinutes(params.transcript, day);
+  const searchDayOffset = resolveMutationSearchDayOffset({
+    transcript: params.transcript,
+    referenceNow: params.referenceNow,
+    memoryRef,
+    timeZone,
+  });
+  const clockMinutes = parseCalendarClockMinutes(
+    params.transcript,
+    resolveTargetDayContext(params.transcript, params.referenceNow, timeZone),
+  );
 
   logDeleteParsedRequest({
     transcript: params.transcript,
@@ -44,11 +62,11 @@ export async function resolveCalendarDeleteTarget(params: {
 
   const { events, range, fetchOk } = await fetchCalendarEventsForZonedDay(
     params.referenceNow,
-    day.dayOffset,
+    searchDayOffset,
   );
 
   logCalendarMutationFreshRead({
-    dayOffset: day.dayOffset,
+    dayOffset: searchDayOffset,
     timeMin: range.timeMin,
     timeMax: range.timeMax,
     fetchOk,

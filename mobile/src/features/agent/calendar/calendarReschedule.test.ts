@@ -6,6 +6,11 @@ import {
   parseCalendarUpdateSchedule,
   resolveUpdateTargetMs,
 } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import { extractCalendarUpdateParameters } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
+import {
+  recordModifiedConversationEvent,
+  resetConversationEventMemory,
+} from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { buildCalendarUpdateEventPayload } from '@/src/features/agent/execution/calendarUpdatePayloadBuilder';
 import { getExecutiveCalendarTimezone, getZonedTimeParts } from '@/src/features/agent/calendar/calendarTimezone';
 import { findCalendarEventForUpdateFromEvents } from '@/src/features/agent/calendarIntelligence/eventAtTimeMatch';
@@ -40,6 +45,35 @@ function zonedHourMinute(ms: number) {
 }
 
 describe('calendar natural language reschedule', () => {
+  it('stores ISO instants in extraction, never localized display strings', () => {
+    resetConversationEventMemory('test');
+    const walkTomorrow = chicagoEvent('walk-tomorrow', 'Прогулка', 11, 0, 1);
+
+    recordModifiedConversationEvent({
+      eventId: walkTomorrow.id,
+      title: walkTomorrow.title,
+      startISO: walkTomorrow.startsAt,
+      endISO: walkTomorrow.endsAt,
+    });
+
+    const extracted = extractCalendarUpdateParameters(
+      'Перенеси её на 2 часа позже',
+      referenceNow,
+    );
+
+    assert.equal(extracted.readyToExecute, true);
+    assert.equal(extracted.toTime, '13:00');
+    assert.ok(!/(?:дня|утра|завтра)/iu.test(extracted.toTime ?? ''));
+    assert.equal(
+      Date.parse(extracted.toStartISO ?? ''),
+      Date.parse('2026-05-29T13:00:00-05:00'),
+    );
+    assert.equal(
+      Date.parse(extracted.fromStartISO ?? ''),
+      Date.parse(walkTomorrow.startsAt),
+    );
+  });
+
   it('parses English relative shifts (minutes and hours)', () => {
     const twoHours = parseCalendarUpdateSchedule('Move walk 2 hours later', referenceNow, timeZone);
     assert.equal(twoHours.ok, true);
@@ -116,6 +150,88 @@ describe('calendar natural language reschedule', () => {
     assert.ok(toMs);
     const resolved = zonedHourMinute(toMs!);
     assert.equal(resolved.hour, 22);
+    assert.equal(resolved.day, 29);
+  });
+
+  it('preserves event date when user specifies only destination time', () => {
+    const walkTomorrow = chicagoEvent('walk-tomorrow', 'Прогулка', 11, 0, 1);
+    const startMs = Date.parse(walkTomorrow.startsAt);
+    const schedule = parseCalendarUpdateSchedule('Перенеси её на 13:00', referenceNow, timeZone);
+
+    assert.equal(schedule.ok, true);
+
+    if (!schedule.ok) {
+      return;
+    }
+
+    assert.equal(schedule.kind, 'destination');
+    assert.equal(schedule.hasExplicitDay, false);
+
+    const toMs = resolveUpdateTargetMs({
+      schedule,
+      matchedEventStartMs: startMs,
+      referenceNow,
+      timeZone,
+    });
+
+    assert.ok(toMs);
+    const resolved = zonedHourMinute(toMs!);
+    assert.equal(resolved.hour, 13);
+    assert.equal(resolved.minute, 0);
+    assert.equal(resolved.day, 29);
+  });
+
+  it('preserves event date for relative hour shift', () => {
+    const walkTomorrow = chicagoEvent('walk-tomorrow', 'Прогулка', 13, 0, 1);
+    const startMs = Date.parse(walkTomorrow.startsAt);
+    const schedule = parseCalendarUpdateSchedule('Перенеси её на час позже', referenceNow, timeZone);
+
+    assert.equal(schedule.ok, true);
+
+    if (!schedule.ok) {
+      return;
+    }
+
+    assert.equal(schedule.kind, 'relative_offset');
+
+    const toMs = resolveUpdateTargetMs({
+      schedule,
+      matchedEventStartMs: startMs,
+      referenceNow,
+      timeZone,
+    });
+
+    assert.ok(toMs);
+    const resolved = zonedHourMinute(toMs!);
+    assert.equal(resolved.hour, 14);
+    assert.equal(resolved.day, 29);
+  });
+
+  it('uses explicit date when user says tomorrow with time', () => {
+    const walkTomorrow = chicagoEvent('walk-tomorrow', 'Прогулка', 13, 0, 1);
+    const startMs = Date.parse(walkTomorrow.startsAt);
+    const schedule = parseCalendarUpdateSchedule('Перенеси её на завтра 15:00', referenceNow, timeZone);
+
+    assert.equal(schedule.ok, true);
+
+    if (!schedule.ok) {
+      return;
+    }
+
+    assert.equal(schedule.kind, 'destination');
+    assert.equal(schedule.hasExplicitDay, true);
+
+    const toMs = resolveUpdateTargetMs({
+      schedule,
+      matchedEventStartMs: startMs,
+      referenceNow,
+      timeZone,
+    });
+
+    assert.ok(toMs);
+    const resolved = zonedHourMinute(toMs!);
+    assert.equal(resolved.hour, 15);
+    assert.equal(resolved.minute, 0);
     assert.equal(resolved.day, 29);
   });
 
@@ -201,5 +317,65 @@ describe('calendar natural language reschedule', () => {
 
     assert.equal(relative.match?.id, 'walk');
     assert.equal(relative.toMs, Date.parse(walk.startsAt) + 2 * 60 * 60_000);
+  });
+
+  it('chains relative hour shifts on ISO instants without display string round-trip', () => {
+    let eventMs = Date.parse(chicagoEvent('walk-chain', 'Прогулка', 11, 0, 1).startsAt);
+
+    const plusTwo = parseCalendarUpdateSchedule('Перенеси её на 2 часа позже', referenceNow, timeZone);
+    assert.equal(plusTwo.ok, true);
+
+    if (!plusTwo.ok) {
+      return;
+    }
+
+    const afterPlusTwo = resolveUpdateTargetMs({
+      schedule: plusTwo,
+      matchedEventStartMs: eventMs,
+      referenceNow,
+      timeZone,
+    });
+
+    assert.ok(afterPlusTwo);
+    assert.equal(zonedHourMinute(afterPlusTwo!).hour, 13);
+    assert.equal(zonedHourMinute(afterPlusTwo!).minute, 0);
+    eventMs = afterPlusTwo!;
+
+    const minusThree = parseCalendarUpdateSchedule('Перенеси её на 3 часа раньше', referenceNow, timeZone);
+    assert.equal(minusThree.ok, true);
+
+    if (!minusThree.ok) {
+      return;
+    }
+
+    const afterMinusThree = resolveUpdateTargetMs({
+      schedule: minusThree,
+      matchedEventStartMs: eventMs,
+      referenceNow,
+      timeZone,
+    });
+
+    assert.ok(afterMinusThree);
+    assert.equal(zonedHourMinute(afterMinusThree!).hour, 10);
+    assert.equal(zonedHourMinute(afterMinusThree!).minute, 0);
+    eventMs = afterMinusThree!;
+
+    const plusOne = parseCalendarUpdateSchedule('Перенеси её на час позже', referenceNow, timeZone);
+    assert.equal(plusOne.ok, true);
+
+    if (!plusOne.ok) {
+      return;
+    }
+
+    const afterPlusOne = resolveUpdateTargetMs({
+      schedule: plusOne,
+      matchedEventStartMs: eventMs,
+      referenceNow,
+      timeZone,
+    });
+
+    assert.ok(afterPlusOne);
+    assert.equal(zonedHourMinute(afterPlusOne!).hour, 11);
+    assert.equal(zonedHourMinute(afterPlusOne!).minute, 0);
   });
 });

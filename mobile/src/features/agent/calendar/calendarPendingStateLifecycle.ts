@@ -4,6 +4,9 @@ import {
   resetCalendarConversationState,
   type CalendarPendingAction,
 } from '@/src/features/agent/calendar/calendarConversationState';
+import { clearPendingEventInMemory } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import { isCalendarConversationContextFresh } from '@/src/features/agent/calendar/calendarConversationContext';
+import { clearPendingIntent } from '@/src/features/agent/calendar/calendarPendingIntent';
 import {
   clearPendingCalendarConflictContext,
   clearPendingCalendarDeleteIntent,
@@ -43,6 +46,8 @@ export function clearPendingCalendarState(reason: string, incomingMessage?: stri
   const pending = getCalendarConversationSnapshot().pendingAction;
 
   resetCalendarConversationState(reason, incomingMessage);
+  clearPendingEventInMemory();
+  clearPendingIntent(reason);
   clearPendingCalendarConflictContext();
   clearPendingCalendarUpdateIntent();
   clearPendingCalendarDeleteIntent();
@@ -61,6 +66,15 @@ export function expirePendingCalendarStateIfStale(referenceNow: Date) {
 
   if (!snapshot.pendingAction) {
     return false;
+  }
+
+  if (!isCalendarConversationContextFresh()) {
+    console.log('[PENDING STATE EXPIRED]');
+    console.log(`pendingActionId=${snapshot.pendingAction.pendingActionId}`);
+    console.log('reason=conversation_turn_limit');
+
+    clearPendingCalendarState('expired_after_turn_limit');
+    return true;
   }
 
   const ageMs = referenceNow.getTime() - snapshot.pendingAction.createdAtMs;

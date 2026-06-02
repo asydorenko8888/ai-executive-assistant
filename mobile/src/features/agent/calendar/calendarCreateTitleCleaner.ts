@@ -123,7 +123,7 @@ function normalizeLeadingDomain(text: string) {
       return `call with ${target}`;
     }
 
-    return `Звонок ${target}`;
+    return `Звонок ${target.charAt(0).toUpperCase()}${target.slice(1)}`;
   }
 
   return text.replace(LEADING_DOMAIN_NOISE, '');

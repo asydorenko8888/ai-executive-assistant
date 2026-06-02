@@ -1,3 +1,13 @@
+import { CREATE_COMMAND_PREFIX } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
+import {
+  isExplicitDifferentCalendarCommand,
+  referencesPendingEventTitle,
+} from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
+import { isPendingConflictTimeFollowUp } from '@/src/features/agent/calendar/calendarTemporalWords';
+import {
+  getCalendarConversationSnapshot,
+  isCalendarConflictDecisionState,
+} from '@/src/features/agent/calendar/calendarConversationState';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import {
@@ -9,18 +19,26 @@ import {
 export type PendingReplyClassification =
   | 'confirmation'
   | 'rejection'
+  | 'decline_proceed'
   | 'alternate_time'
   | 'new_calendar_command'
   | 'unrelated';
 
 const BARE_SHORT_REPLY =
-  /^(?:please\s+)?(?:yes|yeah|yep|ok|okay|sure|да|так|ага|ні|no|nope|cancel|нет|не\s+надо|не\s+треба|скасуй|отмена|отмени|go\s+ahead|do\s+it)(?:[,.!\s]|$)/iu;
+  /^(?:please\s+)?(?:yes|yeah|yep|ok|okay|sure|да|так|ага|конечно|создай|створи|пусть\s+будет|ні|no|nope|cancel|нет|не\s+надо|не\s+треба|скасуй|отмена|отмени|go\s+ahead|do\s+it|все\s+равно|все\s+одно|всё\s+равно|другое\s+время)(?:[,.!\s]|$)/iu;
 
 const DURATION_PHRASE =
   /(?:^|[\s,.;:!?—-]+)(?:на|for)\s+\d+(?:[.,]\d+)?\s*(?:час(?:а|ов|у)?|годин(?:и|у|ы)?|hours?|hrs?|минут(?:ы)?|minutes?|мин(?:ут)?)(?:[,.!\s]|$)/iu;
 
 const RELATIVE_TIME_REPLY =
   /(?:^|[\s,.;:!?—-]+)(?:через|in)\s+\d+\s*(?:минут|minutes|мин|хвилин|час|hours|годин)/iu;
+
+const CALENDAR_WRITE_VERB_START =
+  /^(?:please\s+)?(?:добав(?:ь|ьте|ить)|додай|створи|создай|запланируй|внеси|add|create|schedule|book|перенеси|перенести|move|reschedule|удали|удалить|видали|видалити|delete|remove|cancel)/iu;
+
+function isConflictTimeFollowUp(transcript: string) {
+  return isPendingConflictTimeFollowUp(transcript);
+}
 
 function isBareShortReply(transcript: string) {
   const normalized = transcript.trim();
@@ -34,8 +52,22 @@ function isBareShortReply(transcript: string) {
 
 export function isNewCalendarCommandMessage(transcript: string) {
   const normalized = transcript.trim();
+  const snapshot = getCalendarConversationSnapshot();
 
-  if (!normalized || isBareShortReply(normalized)) {
+  if (!normalized || isBareShortReply(normalized) || isConflictTimeFollowUp(normalized)) {
+    return false;
+  }
+
+  if (isCalendarConflictDecisionState(snapshot.state) && snapshot.pendingAction) {
+    if (isExplicitDifferentCalendarCommand(normalized, snapshot.pendingAction)) {
+      return (
+        isOperationalCalendarCreateRequest(normalized) ||
+        CREATE_COMMAND_PREFIX.test(normalized) ||
+        isOperationalCalendarUpdateRequest(normalized) ||
+        isOperationalCalendarDeleteRequest(normalized)
+      );
+    }
+
     return false;
   }
 
@@ -69,11 +101,15 @@ function looksLikeAlternateTimeReply(transcript: string) {
     return true;
   }
 
-  if (/(?:suggest|another\s+time|free\s+slot|вільн|свободн|інший\s+час|другой\s+время|запропонуй\s+час)/iu.test(normalized)) {
-    return true;
+  if (
+    /(?:suggest|another\s+time|free\s+slot|вільн|свободн|інший\s+час|другой\s+время|другое\s+время|запропонуй\s+час|предложи\s+другое\s+время)/iu.test(
+      normalized,
+    )
+  ) {
+    return false;
   }
 
-  return /^\d{1,2}$/.test(normalized);
+  return /^[1-9]\d*$/.test(normalized) || /^(?:вариант|option|варіант)\s+[1-9]\d*$/iu.test(normalized);
 }
 
 export function classifyPendingCalendarReply(transcript: string): PendingReplyClassification {
@@ -85,15 +121,19 @@ export function classifyPendingCalendarReply(transcript: string): PendingReplyCl
 
   const short = classifyCalendarShortReply(normalized);
 
-  if (short === 'cancel' && isBareShortReply(normalized)) {
+  if (short === 'cancel_abort' && isBareShortReply(normalized)) {
     return 'rejection';
+  }
+
+  if (short === 'decline_proceed' && isBareShortReply(normalized)) {
+    return 'decline_proceed';
   }
 
   if (short === 'proceed' && isBareShortReply(normalized)) {
     return 'confirmation';
   }
 
-  if (short === 'suggest_new_time' && isBareShortReply(normalized)) {
+  if (short === 'suggest_new_time') {
     return 'alternate_time';
   }
 
@@ -101,7 +141,23 @@ export function classifyPendingCalendarReply(transcript: string): PendingReplyCl
     return 'new_calendar_command';
   }
 
-  if (looksLikeAlternateTimeReply(normalized)) {
+  const snapshot = getCalendarConversationSnapshot();
+
+  if (
+    isCalendarConflictDecisionState(snapshot.state) &&
+    snapshot.pendingAction &&
+    (looksLikeAlternateTimeReply(normalized) ||
+      isConflictTimeFollowUp(normalized) ||
+      referencesPendingEventTitle(normalized, snapshot.pendingAction.eventTitle))
+  ) {
+    return 'alternate_time';
+  }
+
+  if (looksLikeAlternateTimeReply(normalized) || isConflictTimeFollowUp(normalized)) {
+    return 'alternate_time';
+  }
+
+  if (isCalendarConflictDecisionState(snapshot.state) && snapshot.pendingAction) {
     return 'alternate_time';
   }
 

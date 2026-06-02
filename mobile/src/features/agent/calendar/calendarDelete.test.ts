@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { beforeEach, describe, it } from 'node:test';
 
 import type { CalendarEvent } from '@/src/entities/calendar/types';
+import { resetConversationEventMemory } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
 import {
   buildCalendarDeleteAmbiguousReply,
@@ -60,6 +61,10 @@ function resolveDelete(transcript: string, events: CalendarEvent[], titleQuery?:
 }
 
 describe('calendar delete integration', () => {
+  beforeEach(() => {
+    resetConversationEventMemory('delete_test_reset');
+  });
+
   it('resolves the same tea event for READ and DELETE at 19:30 after the event started', () => {
     const tea = chicagoEvent('tea-1930', 'Чаепитие', 19, 30, 60);
     const readTranscript = 'Какая задача сегодня стоит у меня в 19:30';

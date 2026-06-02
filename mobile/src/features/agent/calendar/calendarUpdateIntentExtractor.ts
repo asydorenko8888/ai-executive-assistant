@@ -4,11 +4,16 @@ import {
   logUpdateParametersExtracted,
 } from '@/src/features/agent/calendar/calendarUpdateLogger';
 import {
+  formatClockLabelFromInstantMs,
   formatUpdateScheduleFromTime,
   formatUpdateScheduleToTime,
+  instantMsToIso,
   parseCalendarUpdateSchedule,
+  resolveUpdateTargetMs,
   stripCalendarUpdateSchedulePhrases,
 } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import { isEventPronounReference } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import { resolveMoveEventReference } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { UPDATE_COMMAND_PREFIX } from '@/src/features/agent/calendar/calendarUpdateVerbs';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 
@@ -18,8 +23,11 @@ export type CalendarUpdateMissingField = 'title' | 'fromTime' | 'toTime';
 
 export type CalendarUpdateExtractResult = {
   title: string | null;
+  /** 24h clock labels derived from ISO instants — logging/UI only, never authoritative. */
   fromTime: string | null;
   toTime: string | null;
+  fromStartISO: string | null;
+  toStartISO: string | null;
   fromMs: number | null;
   toMs: number | null;
   missingFields: CalendarUpdateMissingField[];
@@ -57,7 +65,11 @@ export function extractUpdateEventTitle(transcript: string) {
   text = text.replace(/\s+(?:с|з|на|from|to)\.?$/iu, '').trim();
   text = normalizeUpdateTitle(text);
 
-  return text.length >= 2 ? text : null;
+  if (text.length < 2 || isEventPronounReference(text)) {
+    return null;
+  }
+
+  return text;
 }
 
 export function extractCalendarUpdateParameters(
@@ -72,10 +84,16 @@ export function extractCalendarUpdateParameters(
   });
 
   const schedule = parseCalendarUpdateSchedule(normalized, referenceNow, timeZone);
-  const title = extractUpdateEventTitle(normalized);
+  const extractedTitle = extractUpdateEventTitle(normalized);
+  const memoryRef = resolveMoveEventReference(referenceNow);
+  const title = extractedTitle ?? memoryRef?.title ?? null;
+  const memoryStartMs = memoryRef?.startISO ? Date.parse(memoryRef.startISO) : Number.NaN;
+  const hasMemoryStart = !Number.isNaN(memoryStartMs);
 
   let fromTime: string | null = null;
   let toTime: string | null = null;
+  let fromStartISO: string | null = null;
+  let toStartISO: string | null = null;
   let fromMs: number | null = null;
   let toMs: number | null = null;
 
@@ -88,12 +106,33 @@ export function extractCalendarUpdateParameters(
         matchedEventStartMs: schedule.fromMs,
         timeZone,
       });
-      toTime = formatUpdateScheduleToTime(schedule, timeZone);
+      toTime = formatUpdateScheduleToTime(schedule, timeZone, schedule.fromMs);
+    } else if (hasMemoryStart) {
+      fromMs = memoryStartMs;
+      toMs = resolveUpdateTargetMs({
+        schedule,
+        matchedEventStartMs: memoryStartMs,
+        referenceNow,
+        timeZone,
+      });
+      fromTime = formatClockLabelFromInstantMs(memoryStartMs, timeZone);
+      toTime =
+        toMs === null || Number.isNaN(toMs)
+          ? formatUpdateScheduleToTime(schedule, timeZone, memoryStartMs)
+          : formatClockLabelFromInstantMs(toMs, timeZone);
     } else if (schedule.kind === 'destination') {
       toMs = schedule.toMs;
       toTime = formatUpdateScheduleToTime(schedule, timeZone);
     } else {
       toTime = formatUpdateScheduleToTime(schedule, timeZone);
+    }
+
+    if (fromMs !== null && !Number.isNaN(fromMs)) {
+      fromStartISO = instantMsToIso(fromMs);
+    }
+
+    if (toMs !== null && !Number.isNaN(toMs)) {
+      toStartISO = instantMsToIso(toMs);
     }
   }
 
@@ -108,19 +147,23 @@ export function extractCalendarUpdateParameters(
       missingFields.push('fromTime', 'toTime');
     }
   } else if (schedule.kind === 'from_to') {
-    if (!fromTime) {
+    if (fromMs === null || Number.isNaN(fromMs)) {
       missingFields.push('fromTime');
     }
 
-    if (!toTime) {
+    if (toMs === null || Number.isNaN(toMs)) {
       missingFields.push('toTime');
     }
+  } else if (toMs === null || Number.isNaN(toMs)) {
+    missingFields.push('toTime');
   }
 
   const readyToExecute = missingFields.length === 0;
 
   logUpdateParametersExtracted({
     title,
+    fromStartISO,
+    toStartISO,
     fromTime,
     toTime,
     readyToExecute,
@@ -134,6 +177,8 @@ export function extractCalendarUpdateParameters(
     title,
     fromTime,
     toTime,
+    fromStartISO,
+    toStartISO,
     fromMs,
     toMs,
     missingFields,

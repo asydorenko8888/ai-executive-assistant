@@ -1,59 +1,8 @@
 import type { VerifiedCalendarEvent } from '@/src/features/agent/execution/actionExecutionTypes';
+import { formatCalendarClock24ForUi, formatCalendarDayPhrase } from '@/src/features/agent/calendar/calendarScheduleDisplay';
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
-import { formatTimeInLocalTimezone } from '@/src/features/agent/calendar/calendarTime';
-
-function isSameCalendarDay(left: Date, right: Date) {
-  return (
-    left.getFullYear() === right.getFullYear() &&
-    left.getMonth() === right.getMonth() &&
-    left.getDate() === right.getDate()
-  );
-}
-
-function isTomorrow(start: Date, referenceNow: Date) {
-  const tomorrow = new Date(referenceNow);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  tomorrow.setHours(0, 0, 0, 0);
-  const startDay = new Date(start);
-  startDay.setHours(0, 0, 0, 0);
-
-  return startDay.getTime() === tomorrow.getTime();
-}
-
-function formatDayPhrase(start: Date, referenceNow: Date, locale: 'uk' | 'ru' | 'en') {
-  if (isSameCalendarDay(start, referenceNow)) {
-    if (locale === 'uk') {
-      return 'сьогодні';
-    }
-
-    if (locale === 'ru') {
-      return 'сегодня';
-    }
-
-    return 'today';
-  }
-
-  if (isTomorrow(start, referenceNow)) {
-    if (locale === 'uk') {
-      return 'завтра';
-    }
-
-    if (locale === 'ru') {
-      return 'завтра';
-    }
-
-    return 'tomorrow';
-  }
-
-  const intlLocale = locale === 'ru' ? 'ru-RU' : locale === 'uk' ? 'uk-UA' : 'en-US';
-
-  return start.toLocaleDateString(intlLocale, {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-  });
-}
 
 export function buildNaturalCalendarDeleteSuccessReply(params: {
   event: VerifiedCalendarEvent;
@@ -64,9 +13,10 @@ export function buildNaturalCalendarDeleteSuccessReply(params: {
   const referenceNow = params.referenceNow ?? new Date();
   const title = params.event.summary.trim();
   const startMs = Date.parse(params.event.startsAt);
-  const start = Number.isNaN(startMs) ? referenceNow : new Date(startMs);
-  const dayPhrase = formatDayPhrase(start, referenceNow, locale);
-  const timeLabel = formatTimeInLocalTimezone(params.event.startsAt);
+  const instantMs = Number.isNaN(startMs) ? referenceNow.getTime() : startMs;
+  const timeZone = getExecutiveCalendarTimezone();
+  const dayPhrase = formatCalendarDayPhrase(instantMs, referenceNow.getTime(), locale, timeZone);
+  const timeLabel = formatCalendarClock24ForUi(instantMs, timeZone);
 
   if (locale === 'uk') {
     const spokenReply = `Я видалив подію: ${title}, ${dayPhrase}, ${timeLabel}.`;

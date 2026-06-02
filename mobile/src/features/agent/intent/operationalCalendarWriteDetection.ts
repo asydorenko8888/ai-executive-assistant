@@ -8,6 +8,7 @@ import {
 } from '@/src/features/agent/calendar/calendarUpdateVerbs';
 import { isCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
 import { hasSpokenTimeHint } from '@/src/features/agent/calendar/calendarSpokenTime';
+import { isCalendarQueryOrFindIntent } from '@/src/features/agent/calendar/calendarQueryIntent';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 
 function isExactTimeReadQuery(transcript: string) {
@@ -119,6 +120,7 @@ export function isOperationalCalendarCreateRequest(transcript: string) {
 
   if (
     !normalized ||
+    isCalendarQueryOrFindIntent(normalized) ||
     isExactTimeReadQuery(normalized) ||
     isOperationalCalendarDeleteRequest(normalized) ||
     isOperationalCalendarUpdateRequest(normalized)

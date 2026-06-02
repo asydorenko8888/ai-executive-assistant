@@ -115,14 +115,10 @@ export function buildCalendarConflictFreeSlotsReply(params: {
   return `Nearest free slots:\n${top.join('\n')}\nSay "yes" to keep the requested time anyway, or pick another time.`;
 }
 
-export function buildCalendarCreateConflictReplyWithAlternatives(params: {
+export function buildCalendarCreateConflictInitialReply(params: {
   locale: CalendarConflictLocale;
   proposedTitle: string;
   conflict: CalendarScheduleConflict;
-  proposedStartMs: number;
-  proposedEndMs: number;
-  slotLabels: string[];
-  tomorrowLabel: string | null;
 }) {
   const timeZone = getExecutiveCalendarTimezone();
   const conflictTitle = params.conflict.event.title.trim() || 'Untitled';
@@ -131,22 +127,78 @@ export function buildCalendarCreateConflictReplyWithAlternatives(params: {
     params.conflict.endsAtMs,
     timeZone,
   );
-
-  const alternatives = params.slotLabels.slice(0, 2).map((label, index) => `${index + 1}. ${label}`);
-
-  if (params.tomorrowLabel) {
-    alternatives.push(`${alternatives.length + 1}. ${params.tomorrowLabel}`);
-  }
+  const title = params.proposedTitle.trim() || 'Untitled';
 
   if (params.locale === 'uk') {
-    return `На цей час уже є подія: ${conflictTitle}, ${conflictRange}.\nМожу запропонувати:\n${alternatives.join('\n')}\nЩо обрати?`;
+    return `На цей час уже є подія «${conflictTitle}» о ${conflictRange}. Створити «${title}» все одно?`;
   }
 
   if (params.locale === 'ru') {
-    return `На это время уже есть событие: ${conflictTitle}, ${conflictRange}.\nМогу предложить:\n${alternatives.join('\n')}\nЧто выбрать?`;
+    return `На это время уже есть событие «${conflictTitle}» на ${conflictRange}. Создать «${title}» всё равно?`;
   }
 
-  return `There is already an event at this time: ${conflictTitle}, ${conflictRange}.\nI can suggest:\n${alternatives.join('\n')}\nWhich one should I use?`;
+  return `There is already an event ${conflictTitle} at ${conflictRange}. Create ${title} anyway?`;
+}
+
+/** Shown after user declines force-create — must not repeat the conflict warning. */
+export function buildCalendarConflictAlternativesOnlyReply(params: {
+  locale: CalendarConflictLocale;
+  optionLabels: string[];
+}) {
+  const numbered = params.optionLabels.slice(0, 3).map((label, index) => `${index + 1}. ${label}`);
+
+  if (params.locale === 'uk') {
+    return `Добре. Можу запропонувати:\n${numbered.join('\n')}\nАбо назвіть свій час.`;
+  }
+
+  if (params.locale === 'ru') {
+    return `Хорошо. Могу предложить:\n${numbered.join('\n')}\nИли назовите своё время.`;
+  }
+
+  return `Okay. I can suggest:\n${numbered.join('\n')}\nOr name your own time.`;
+}
+
+export function formatConflictSlotLabelWithDay(params: {
+  slot: CalendarFreeSlot;
+  referenceNow: Date;
+  locale: CalendarConflictLocale;
+  timeZone?: string;
+}) {
+  const timeZone = params.timeZone ?? getExecutiveCalendarTimezone();
+  const range = formatSlotRange(params.slot, timeZone);
+  const startMs = Date.parse(params.slot.startISO);
+
+  if (Number.isNaN(startMs)) {
+    return range;
+  }
+
+  const dayOffset = resolveConflictDayOffset(startMs, params.referenceNow);
+
+  if (dayOffset === 0) {
+    if (params.locale === 'uk') {
+      return `Сьогодні ${range}`;
+    }
+
+    if (params.locale === 'ru') {
+      return `Сегодня ${range}`;
+    }
+
+    return `Today ${range}`;
+  }
+
+  if (dayOffset === 1) {
+    if (params.locale === 'uk') {
+      return `Завтра ${range}`;
+    }
+
+    if (params.locale === 'ru') {
+      return `Завтра ${range}`;
+    }
+
+    return `Tomorrow ${range}`;
+  }
+
+  return range;
 }
 
 export function resolveConflictDayOffset(proposedStartMs: number, referenceNow: Date) {

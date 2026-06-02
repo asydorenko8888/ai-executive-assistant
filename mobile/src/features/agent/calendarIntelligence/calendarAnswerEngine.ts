@@ -26,6 +26,7 @@ import {
   getNextEvent,
 } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import type { DeterministicCalendarAnswer } from '@/src/features/agent/calendarIntelligence/types';
+import { recordSearchedConversationEvent } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { setLastCalendarReadMatch } from '@/src/features/agent/execution/calendarExecutionSession';
 
 function resolveAtTimeEvents(params: {
@@ -118,6 +119,12 @@ export function buildDeterministicCalendarAnswer(params: {
         startISO: only.startsAt,
         clockMinutes,
         readTimeKind,
+      });
+      recordSearchedConversationEvent({
+        eventId: only.id,
+        title: only.title,
+        startISO: only.startsAt,
+        endISO: only.endsAt,
       });
     } else {
       setLastCalendarReadMatch(null);

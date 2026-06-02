@@ -10,4 +10,4 @@ export const UPDATE_COMMAND_PREFIX = new RegExp(
 export const UPDATE_WRITE_VERBS = new RegExp(UPDATE_MUTATION_VERB, 'iu');
 
 export const RELATIVE_SHIFT_HINT =
-  /(?:позже|пізніше|раньше|раніше|later|earlier|earlier\s+by|later\s+by|(?:\d+\s+)?(?:minutes?|mins?|hours?|hrs?)\s+(?:later|earlier)|half\s+hour\s+later|на\s+(?:\d+\s+)?(?:час|годин|hour|minute|минут|хвилин)|\b(?:morning|afternoon|evening|утром|вечером|ранку)\b)/iu;
+  /(?:позже|пізніше|раньше|раніше|later|earlier|earlier\s+by|later\s+by|(?:\d+\s+)?(?:minutes?|mins?|hours?|hrs?)\s+(?:later|earlier)|half\s+hour\s+later|на\s+(?:\d{1,2}:\d{2}|\d+\s+)?(?:час|годин|hour|minute|минут|хвилин)|\b(?:morning|afternoon|evening|утром|вечером|ранку)\b)/iu;

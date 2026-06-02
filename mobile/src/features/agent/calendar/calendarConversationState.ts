@@ -1,16 +1,34 @@
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import {
+  clearPendingEventInMemory,
+  setPendingEventFromAction,
+} from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import {
   createPendingActionId,
   logPendingStateCreated,
 } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 
 export type CalendarConversationState =
   | 'IDLE'
+  | 'WAITING_CONFLICT_RESOLUTION'
+  | 'WAITING_CONFLICT_DECISION'
   | 'WAITING_CONFLICT_CONFIRMATION'
+  | 'WAITING_ALTERNATIVE_SELECTION'
+  | 'WAITING_EVENT_CONFIRMATION'
   | 'WAITING_EVENT_SELECTION'
   | 'WAITING_NEW_TIME'
   | 'WAITING_DELETE_CONFIRMATION'
   | 'WAITING_MOVE_CONFIRMATION';
+
+export function isCalendarConflictDecisionState(state: CalendarConversationState) {
+  return (
+    state === 'WAITING_CONFLICT_RESOLUTION' ||
+    state === 'WAITING_CONFLICT_DECISION' ||
+    state === 'WAITING_CONFLICT_CONFIRMATION' ||
+    state === 'WAITING_ALTERNATIVE_SELECTION' ||
+    state === 'WAITING_NEW_TIME'
+  );
+}
 
 export type CalendarPendingActionType = 'CREATE_EVENT' | 'UPDATE_EVENT' | 'DELETE_EVENT';
 
@@ -47,8 +65,8 @@ export type CalendarPendingAction = {
   conflictingEndsAt?: string | null;
   alternativeStartMs?: number[];
   deleteTitleQuery?: string | null;
-  updateFromTime?: string | null;
-  updateToTime?: string | null;
+  updateFromStartISO?: string | null;
+  updateToStartISO?: string | null;
   proceedDespiteConflict?: boolean;
 };
 
@@ -156,8 +174,8 @@ export function buildCalendarPendingAction(params: {
   conflictingEndsAt?: string | null;
   alternativeStartMs?: number[];
   deleteTitleQuery?: string | null;
-  updateFromTime?: string | null;
-  updateToTime?: string | null;
+  updateFromStartISO?: string | null;
+  updateToStartISO?: string | null;
   proceedDespiteConflict?: boolean;
   pendingActionId?: string;
   createdAtMs?: number;
@@ -188,8 +206,8 @@ export function buildCalendarPendingAction(params: {
     conflictingEndsAt: params.conflictingEndsAt ?? null,
     alternativeStartMs: params.alternativeStartMs,
     deleteTitleQuery: params.deleteTitleQuery ?? null,
-    updateFromTime: params.updateFromTime ?? null,
-    updateToTime: params.updateToTime ?? null,
+    updateFromStartISO: params.updateFromStartISO ?? null,
+    updateToStartISO: params.updateToStartISO ?? null,
     proceedDespiteConflict: params.proceedDespiteConflict ?? false,
   };
 }
@@ -209,6 +227,14 @@ export function transitionCalendarConversationState(params: {
 
   if (params.pendingAction && fromState === 'IDLE') {
     logPendingStateCreated(params.pendingAction);
+  }
+
+  if (params.pendingAction && isCalendarConflictDecisionState(params.toState)) {
+    setPendingEventFromAction(params.pendingAction);
+  }
+
+  if (params.toState === 'IDLE') {
+    clearPendingEventInMemory();
   }
 
   logCalendarConversationEvent({

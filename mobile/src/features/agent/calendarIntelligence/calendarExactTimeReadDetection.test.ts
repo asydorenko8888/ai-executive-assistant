@@ -82,4 +82,13 @@ describe('calendarExactTimeReadDetection', () => {
   it('does not treat advisory "стоит ли" as exact-time read', () => {
     assert.equal(isCalendarExactTimeReadQuery('Стоит ли переносить встречу на 17:30'), false);
   });
+
+  it('treats visibility complaints with clock time as read, not create', () => {
+    const transcript = 'Я не вижу в календаре медитацию на 9 вечера';
+
+    assert.equal(isCalendarExactTimeReadQuery(transcript), true);
+    assert.equal(isOperationalCalendarCreateRequest(transcript), false);
+    assert.equal(detectCalendarCommandIntent(transcript), 'none');
+    assert.equal(isDeterministicCalendarReadQuery(transcript), true);
+  });
 });

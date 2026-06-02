@@ -1,19 +1,29 @@
+import {
+  enrichTranscriptWhenPendingConflictActive,
+  getActivePendingConflictAction,
+  isExplicitDifferentCalendarCommand,
+  resolvePendingEventReferences,
+} from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
 import { extractCreateEventTitle } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
+import { extractUpdateEventTitle } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
+import { EVENT_PRONOUN_REFERENCE } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import { getActiveCalendarEventRecord } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
-import { getLastCalendarEventContext } from '@/src/features/agent/calendar/calendarLastEventContext';
 import {
   isOperationalCalendarCreateRequest,
   isOperationalCalendarUpdateRequest,
 } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 
-const PRONOUN_REFERENCE =
-  /\b(?:его|её|ее|их|it|this|that|him|her|them)\b|(?:^|[\s,.;:!?—-]+)(?:перенеси|перенести|удали|удалить|видали|видалити|move|reschedule|delete|remove)\s+(?:его|её|ее|it|this)(?:[\s,.;:!?—-]|$)/iu;
+const PRONOUN_REFERENCE = EVENT_PRONOUN_REFERENCE;
 
 const IMPLICIT_REFERENCE_UPDATE =
   /^(?:please\s+)?(?:перенеси|перенести|move|reschedule|shift|сдвинь|сдвинуть)\b/iu;
 
 const IMPLICIT_REFERENCE_DELETE =
   /^(?:please\s+)?(?:удали|удалить|видали|видалити|delete|remove|cancel)\b/iu;
+
+const RELATIVE_SHIFT_HINT =
+  /(?:^|[\s,.;:!?—-]+)(?:через|in)\s+\d+\s*(?:минут|minutes|мин|хвилин|час|hours|годин)|(?:на|by)\s+\d{1,2}:\d{2}\s+(?:позже|пізніше|later|раньше|раніше|earlier)|(?:на|by)\s+\d+\s*(?:час|hours|годин|годину|хвилин(?:и|у)?)|\d+\s*(?:час(?:а|ов)?|hours?|годин(?:и|у)?|хвилин(?:и|у)?)\s+(?:позже|пізніше|later|раньше|раніше|earlier)|(?:пізніше|раніше|later|earlier)/iu;
 
 function hasExplicitClockOrDay(transcript: string) {
   return (
@@ -24,8 +34,16 @@ function hasExplicitClockOrDay(transcript: string) {
   );
 }
 
+function extractNamedTargetTitle(transcript: string) {
+  if (IMPLICIT_REFERENCE_UPDATE.test(transcript) || isOperationalCalendarUpdateRequest(transcript)) {
+    return extractUpdateEventTitle(transcript);
+  }
+
+  return extractCreateEventTitle(transcript);
+}
+
 function hasExplicitNamedTarget(transcript: string) {
-  const title = (extractCreateEventTitle(transcript) ?? '').trim();
+  const title = (extractNamedTargetTitle(transcript) ?? '').trim();
 
   if (title.length >= 3 && !PRONOUN_REFERENCE.test(title)) {
     return true;
@@ -42,7 +60,7 @@ function hasExplicitNamedTarget(transcript: string) {
     return false;
   }
 
-  if (PRONOUN_REFERENCE.test(withoutVerbs.split(/\s+/).slice(0, 2).join(' '))) {
+  if (PRONOUN_REFERENCE.test(withoutVerbs.split(/\s+/).slice(0, 3).join(' '))) {
     return false;
   }
 
@@ -53,8 +71,12 @@ export function hasExplicitEventTitleAndTime(transcript: string) {
   return hasExplicitNamedTarget(transcript) && hasExplicitClockOrDay(transcript);
 }
 
-function needsLastEventContext(transcript: string) {
+function needsConversationEventContext(transcript: string) {
   if (PRONOUN_REFERENCE.test(transcript)) {
+    return true;
+  }
+
+  if (RELATIVE_SHIFT_HINT.test(transcript)) {
     return true;
   }
 
@@ -69,30 +91,36 @@ function needsLastEventContext(transcript: string) {
   return false;
 }
 
-function buildEnrichedTranscript(transcript: string, title: string) {
+function buildEnrichedTranscript(transcript: string, title: string, eventId?: string) {
   const normalized = transcript.trim();
   const quotedTitle = title.includes(' ') ? `"${title}"` : title;
 
-  if (IMPLICIT_REFERENCE_UPDATE.test(normalized) || isOperationalCalendarUpdateRequest(normalized)) {
-    if (/\b(?:его|её|ее|it|this)\b/iu.test(normalized)) {
-      return normalized
-        .replace(/\b(?:его|её|ее|it|this)\b/iu, quotedTitle)
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
+  let resolved = resolvePendingEventReferences(normalized, title);
+  resolved = resolved.replace(/\b(?:it|this|that|them|him|her)\b/giu, quotedTitle);
 
-    return `${normalized} ${quotedTitle}`.replace(/\s+/g, ' ').trim();
+  if (IMPLICIT_REFERENCE_UPDATE.test(normalized) || isOperationalCalendarUpdateRequest(normalized)) {
+    if (PRONOUN_REFERENCE.test(normalized) || !extractUpdateEventTitle(normalized)) {
+      if (!resolved.toLowerCase().includes(title.toLowerCase())) {
+        return `${resolved} ${quotedTitle}`.replace(/\s+/g, ' ').trim();
+      }
+
+      return resolved;
+    }
   }
 
   if (IMPLICIT_REFERENCE_DELETE.test(normalized)) {
-    return `${normalized} ${quotedTitle}`.replace(/\s+/g, ' ').trim();
+    return `${resolved} ${quotedTitle}`.replace(/\s+/g, ' ').trim();
   }
 
   if (isOperationalCalendarCreateRequest(normalized) && PRONOUN_REFERENCE.test(normalized)) {
-    return normalized.replace(PRONOUN_REFERENCE, quotedTitle).replace(/\s+/g, ' ').trim();
+    return resolved;
   }
 
-  return `${normalized} ${quotedTitle}`.replace(/\s+/g, ' ').trim();
+  if (!resolved.toLowerCase().includes(title.toLowerCase())) {
+    return `${resolved} ${quotedTitle}`.replace(/\s+/g, ' ').trim();
+  }
+
+  return resolved;
 }
 
 export function enrichCalendarCommandTranscript(params: {
@@ -105,29 +133,62 @@ export function enrichCalendarCommandTranscript(params: {
     return normalized;
   }
 
+  const pending = getActivePendingConflictAction();
+
+  if (pending && !isExplicitDifferentCalendarCommand(normalized, pending)) {
+    const enriched = enrichTranscriptWhenPendingConflictActive(normalized);
+
+    if (enriched && enriched !== normalized) {
+      console.log('[PENDING CONFLICT CONTEXT BOUND]');
+      console.log(
+        JSON.stringify({
+          pendingActionId: pending.pendingActionId,
+          eventTitle: pending.eventTitle,
+          from: normalized.slice(0, 100),
+          to: enriched.slice(0, 140),
+        }),
+      );
+
+      return enriched;
+    }
+
+    const withPronouns = resolvePendingEventReferences(normalized, pending.eventTitle);
+
+    if (withPronouns !== normalized) {
+      return withPronouns;
+    }
+  }
+
+  const memoryRef = getActiveCalendarEventRecord(params.referenceNow);
+
+  if (memoryRef && needsConversationEventContext(normalized)) {
+    const enriched = buildEnrichedTranscript(normalized, memoryRef.title, memoryRef.eventId);
+
+    console.log('[CONVERSATION EVENT MEMORY USED]');
+    console.log(
+      JSON.stringify({
+        eventId: memoryRef.eventId,
+        title: memoryRef.title,
+        source: memoryRef.source,
+        from: normalized.slice(0, 100),
+        to: enriched.slice(0, 140),
+      }),
+    );
+
+    return enriched;
+  }
+
   if (hasExplicitEventTitleAndTime(normalized)) {
     return normalized;
   }
 
-  if (!needsLastEventContext(normalized)) {
+  if (!needsConversationEventContext(normalized)) {
     return normalized;
   }
 
-  const last = getLastCalendarEventContext(params.referenceNow);
-
-  if (!last) {
+  if (!memoryRef) {
     return normalized;
   }
 
-  console.log('[LAST EVENT CONTEXT USED]');
-  console.log(
-    JSON.stringify({
-      eventId: last.eventId,
-      title: last.title,
-      actionType: last.actionType,
-      transcriptPreview: normalized.slice(0, 120),
-    }),
-  );
-
-  return buildEnrichedTranscript(normalized, last.title);
+  return buildEnrichedTranscript(normalized, memoryRef.title, memoryRef.eventId);
 }

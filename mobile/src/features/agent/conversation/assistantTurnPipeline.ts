@@ -410,8 +410,8 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       syncConversationStateForMoveClarification(pendingContext, params.languageCode);
       logUpdateClarificationStored({
         title: pendingContext.title,
-        fromTime: pendingContext.fromTime,
-        toTime: pendingContext.toTime,
+        fromStartISO: pendingContext.fromStartISO,
+        toStartISO: pendingContext.toStartISO,
         missingFields: extracted.missingFields,
         sourceTranscriptPreview: actionTranscript.slice(0, 160),
       });

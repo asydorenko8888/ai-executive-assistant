@@ -1,4 +1,5 @@
-import { clearLastCalendarEventContext } from '@/src/features/agent/calendar/calendarLastEventContext';
+import { resetConversationEventMemory } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import { clearPendingIntent } from '@/src/features/agent/calendar/calendarPendingIntent';
 import { clearPendingCalendarState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 import { MAX_CALENDAR_TOOL_RETRIES, type CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
@@ -10,11 +11,12 @@ let calendarOperationInProgress = false;
 let calendarRetryCount = 0;
 let lastOperationKey: string | null = null;
 let lastToolResponse: CalendarToolResponse | null = null;
+let currentCalendarOperationEventId: string | null = null;
 export type PendingCalendarUpdateContext = {
   operation: 'update';
   title: string | null;
-  fromTime: string | null;
-  toTime: string | null;
+  fromStartISO: string | null;
+  toStartISO: string | null;
   sourceTranscript: string;
 };
 
@@ -76,6 +78,14 @@ export function getPendingCalendarConflictContext() {
   return pendingCalendarConflictContext;
 }
 
+export function getCurrentCalendarOperationEventId() {
+  return currentCalendarOperationEventId;
+}
+
+export function setCurrentCalendarOperationEventId(eventId: string | null) {
+  currentCalendarOperationEventId = eventId;
+}
+
 export function setPendingCalendarConflictContext(context: PendingCalendarConflictContext | null) {
   pendingCalendarConflictContext = context;
 }
@@ -114,8 +124,8 @@ export function setPendingCalendarUpdateIntent(params: { sourceTranscript: strin
   pendingCalendarUpdateContext = {
     operation: 'update',
     title: null,
-    fromTime: null,
-    toTime: null,
+    fromStartISO: null,
+    toStartISO: null,
     sourceTranscript: params.sourceTranscript.trim(),
   };
 }
@@ -196,8 +206,12 @@ export function tryBeginCalendarOperation(transcript: string) {
   return true;
 }
 
-export function endCalendarOperation(params: { failed: boolean }) {
+export function endCalendarOperation(params: { failed: boolean; createdEventId?: string | null }) {
   calendarOperationInProgress = false;
+
+  if (params.createdEventId) {
+    currentCalendarOperationEventId = params.createdEventId;
+  }
 
   if (params.failed) {
     calendarRetryCount += 1;
@@ -234,11 +248,13 @@ export function resetCalendarExecutionSession() {
   calendarRetryCount = 0;
   lastOperationKey = null;
   lastToolResponse = null;
+  currentCalendarOperationEventId = null;
   lastCommandOutcome = null;
   pendingCalendarUpdateContext = null;
   pendingCalendarDeleteContext = null;
   pendingCalendarConflictContext = null;
   lastCalendarReadMatch = null;
   clearPendingCalendarState('session_reset');
-  clearLastCalendarEventContext();
+  clearPendingIntent('session_reset');
+  resetConversationEventMemory('session_reset');
 }

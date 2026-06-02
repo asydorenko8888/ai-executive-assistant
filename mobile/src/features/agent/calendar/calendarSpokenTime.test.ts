@@ -35,6 +35,9 @@ describe('Russian/Ukrainian evening time parsing', () => {
     { phrase: 'переговоры на 4:00 вечера', hour: 16 },
     { phrase: 'на семь вечера', hour: 19 },
     { phrase: 'на 8 вечера', hour: 20 },
+    { phrase: 'на 9 вечера', hour: 21 },
+    { phrase: '9 утра', hour: 9 },
+    { phrase: 'о 4 PM', hour: 16 },
   ];
 
   for (const { phrase, hour, minute = 0 } of cases) {

@@ -207,11 +207,12 @@ describe('calendar update integration', () => {
   });
 
   it('merges pending update clarification when user replies with only destination time', () => {
+    const fromStartISO = '2026-05-28T17:30:00-05:00';
     const pending = {
       operation: 'update' as const,
       title: 'чаепитие',
-      fromTime: '17:30',
-      toTime: null,
+      fromStartISO,
+      toStartISO: null,
       sourceTranscript: 'Перенеси чаепитие с 17:30',
     };
 
@@ -222,7 +223,10 @@ describe('calendar update integration', () => {
     });
 
     assert.ok(merged);
-    assert.equal(merged?.context.toTime, '18:30');
+    assert.equal(
+      Date.parse(merged?.context.toStartISO ?? ''),
+      Date.parse('2026-05-28T18:30:00-05:00'),
+    );
     assert.equal(merged?.readyToExecute, true);
     assert.match(merged?.transcript ?? '', /чаепитие/);
     assert.match(merged?.transcript ?? '', /17:30/);
@@ -233,8 +237,8 @@ describe('calendar update integration', () => {
     const transcript = buildTranscriptFromPendingContext({
       operation: 'update',
       title: 'чаепитие',
-      fromTime: '17:30',
-      toTime: '18:30',
+      fromStartISO: '2026-05-28T17:30:00-05:00',
+      toStartISO: '2026-05-28T18:30:00-05:00',
       sourceTranscript: 'Перенеси чаепитие с 17:30 на 18:30',
     });
 
@@ -389,8 +393,8 @@ describe('calendar update integration', () => {
     const pending = {
       operation: 'update' as const,
       title: incomplete.title,
-      fromTime: incomplete.fromTime,
-      toTime: incomplete.toTime,
+      fromStartISO: incomplete.fromStartISO,
+      toStartISO: incomplete.toStartISO,
       sourceTranscript: 'перенеси прогулянку',
     };
 
@@ -402,15 +406,18 @@ describe('calendar update integration', () => {
 
     assert.ok(merged);
     assert.equal(merged?.readyToExecute, true);
-    assert.equal(merged?.context.toTime, '15:00');
+    assert.equal(
+      Date.parse(merged?.context.toStartISO ?? ''),
+      Date.parse('2026-05-29T15:00:00-05:00'),
+    );
     assert.match(merged?.transcript ?? '', /прогулянк/i);
     assert.match(merged?.transcript ?? '', /15:00/);
 
     const walkEvent = {
       id: 'evt-walk',
       title: 'Прогулка',
-      startsAt: '2026-05-28T14:00:00-05:00',
-      endsAt: '2026-05-28T15:00:00-05:00',
+      startsAt: '2026-05-29T14:00:00-05:00',
+      endsAt: '2026-05-29T15:00:00-05:00',
       isAllDay: false,
     } satisfies CalendarEvent;
 

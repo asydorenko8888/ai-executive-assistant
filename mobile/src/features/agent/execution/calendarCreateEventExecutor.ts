@@ -47,6 +47,11 @@ export type CalendarCreateExecutionParams = {
   /** Current user message only — never merged history. */
   titleSourceTranscript?: string;
   skipScheduleConflictCheck?: boolean;
+  scheduleOverride?: {
+    startMs: number;
+    endMs: number;
+    explicitDayOffset: number;
+  };
 };
 
 export type CalendarCreateExecutionOutcome = CalendarToolReplyBundle & {
@@ -159,7 +164,8 @@ export async function executeCalendarCreateEvent(
 
   const timeZone = getExecutiveCalendarTimezone();
   const scheduleOverride =
-    afterEventSchedule.ok === true
+    params.scheduleOverride ??
+    (afterEventSchedule.ok === true
       ? {
           startMs: afterEventSchedule.startMs,
           endMs: afterEventSchedule.endMs,
@@ -169,7 +175,7 @@ export async function executeCalendarCreateEvent(
             timeZone,
           ),
         }
-      : undefined;
+      : undefined);
 
   const payloadResult = buildCalendarCreateEventPayload({
     transcript: params.transcript,
@@ -180,7 +186,12 @@ export async function executeCalendarCreateEvent(
   });
 
   if (!payloadResult.ok) {
-    const tool = createCalendarToolFailure('CALENDAR_DATE_PARSE_FAILED', payloadResult.detail);
+    const tool = createCalendarToolFailure(
+      payloadResult.reason === 'past_time_needs_clarification'
+        ? 'CALENDAR_SCHEDULE_IN_PAST'
+        : 'CALENDAR_DATE_PARSE_FAILED',
+      payloadResult.detail,
+    );
     endCalendarOperation({ failed: true });
     return finalizeOutcome(
       buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
@@ -351,7 +362,7 @@ export async function executeCalendarCreateEvent(
     });
 
     clearPendingCalendarConflictContext();
-    endCalendarOperation({ failed: false });
+    endCalendarOperation({ failed: false, createdEventId: tool.eventId ?? null });
 
     logCalendarMutationVerification({
       intent: 'create_calendar_event',

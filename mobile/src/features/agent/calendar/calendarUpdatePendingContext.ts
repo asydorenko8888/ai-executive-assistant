@@ -3,6 +3,11 @@ import {
   type CalendarUpdateExtractResult,
 } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import { logUpdateClarificationMerged } from '@/src/features/agent/calendar/calendarUpdateLogger';
+import {
+  applyClockLabelToEventStartIso,
+  formatClockLabelFromInstantMs,
+} from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import type { PendingCalendarUpdateContext } from '@/src/features/agent/execution/calendarExecutionSession';
 
 const TIME_ONLY_REPLY = /^(\d{1,2}:\d{2})$/;
@@ -14,10 +19,25 @@ function usesCyrillicUpdateTemplate(sourceTranscript: string) {
   return /[а-яёіїєґ]/iu.test(sourceTranscript);
 }
 
+function clockLabelFromStartISO(startISO: string | null | undefined, timeZone: string) {
+  if (!startISO) {
+    return '';
+  }
+
+  const instantMs = Date.parse(startISO);
+
+  if (Number.isNaN(instantMs)) {
+    return '';
+  }
+
+  return formatClockLabelFromInstantMs(instantMs, timeZone);
+}
+
 export function buildTranscriptFromPendingContext(context: PendingCalendarUpdateContext) {
+  const timeZone = getExecutiveCalendarTimezone();
   const title = context.title?.trim() ?? '';
-  const fromTime = context.fromTime?.trim() ?? '';
-  const toTime = context.toTime?.trim() ?? '';
+  const fromTime = clockLabelFromStartISO(context.fromStartISO, timeZone);
+  const toTime = clockLabelFromStartISO(context.toStartISO, timeZone);
 
   if (title && fromTime && toTime) {
     if (usesCyrillicUpdateTemplate(context.sourceTranscript)) {
@@ -55,10 +75,58 @@ export function pendingContextFromExtraction(params: {
   return {
     operation: 'update',
     title: params.extraction.title,
-    fromTime: params.extraction.fromTime,
-    toTime: params.extraction.toTime,
+    fromStartISO: params.extraction.fromStartISO,
+    toStartISO: params.extraction.toStartISO,
     sourceTranscript: params.sourceTranscript.trim(),
   };
+}
+
+function applyClockReplyToPendingContext(params: {
+  pending: PendingCalendarUpdateContext;
+  clockLabel: string;
+  referenceNow: Date;
+}) {
+  const timeZone = getExecutiveCalendarTimezone();
+  const anchorStartISO = params.pending.fromStartISO ?? params.pending.toStartISO;
+  const next: PendingCalendarUpdateContext = { ...params.pending };
+
+  if (!next.toStartISO) {
+    const resolvedToIso = anchorStartISO
+      ? applyClockLabelToEventStartIso({
+          anchorStartISO,
+          clockLabel: params.clockLabel,
+          timeZone,
+        })
+      : null;
+
+    if (resolvedToIso) {
+      next.toStartISO = resolvedToIso;
+    }
+  } else if (!next.fromStartISO && anchorStartISO) {
+    const resolvedFromIso = applyClockLabelToEventStartIso({
+      anchorStartISO,
+      clockLabel: params.clockLabel,
+      timeZone,
+    });
+
+    if (resolvedFromIso) {
+      next.fromStartISO = resolvedFromIso;
+    }
+  } else {
+    const resolvedToIso = anchorStartISO
+      ? applyClockLabelToEventStartIso({
+          anchorStartISO,
+          clockLabel: params.clockLabel,
+          timeZone,
+        })
+      : null;
+
+    if (resolvedToIso) {
+      next.toStartISO = resolvedToIso;
+    }
+  }
+
+  return next;
 }
 
 export function tryMergePendingCalendarUpdateReply(params: {
@@ -79,9 +147,9 @@ export function tryMergePendingCalendarUpdateReply(params: {
     const previewExtraction = extractCalendarUpdateParameters(combinedPreview, params.referenceNow);
     const improvesContext =
       (previewExtraction.title && !params.pending.title) ||
-      (previewExtraction.fromTime && !params.pending.fromTime) ||
-      (previewExtraction.toTime && !params.pending.toTime) ||
-      (previewExtraction.readyToExecute && !params.pending.toTime);
+      (previewExtraction.fromStartISO && !params.pending.fromStartISO) ||
+      (previewExtraction.toStartISO && !params.pending.toStartISO) ||
+      (previewExtraction.readyToExecute && !params.pending.toStartISO);
 
     if (
       !improvesContext &&
@@ -91,34 +159,28 @@ export function tryMergePendingCalendarUpdateReply(params: {
     }
   }
 
-  const next: PendingCalendarUpdateContext = {
+  let next: PendingCalendarUpdateContext = {
     ...params.pending,
     title: params.pending.title,
-    fromTime: params.pending.fromTime,
-    toTime: params.pending.toTime,
+    fromStartISO: params.pending.fromStartISO,
+    toStartISO: params.pending.toStartISO,
   };
 
   const timeOnly = reply.match(TIME_ONLY_REPLY);
   const bareHour = reply.match(BARE_HOUR_REPLY);
 
   if (timeOnly) {
-    if (!next.toTime) {
-      next.toTime = timeOnly[1];
-    } else if (!next.fromTime) {
-      next.fromTime = timeOnly[1];
-    } else {
-      next.toTime = timeOnly[1];
-    }
+    next = applyClockReplyToPendingContext({
+      pending: next,
+      clockLabel: timeOnly[1],
+      referenceNow: params.referenceNow,
+    });
   } else if (bareHour) {
-    const normalized = `${bareHour[1].padStart(2, '0')}:00`;
-
-    if (!next.toTime) {
-      next.toTime = normalized;
-    } else if (!next.fromTime) {
-      next.fromTime = normalized;
-    } else {
-      next.toTime = normalized;
-    }
+    next = applyClockReplyToPendingContext({
+      pending: next,
+      clockLabel: `${bareHour[1].padStart(2, '0')}:00`,
+      referenceNow: params.referenceNow,
+    });
   } else {
     const combined = params.pending.title
       ? `Перенеси ${params.pending.title} ${reply}`.replace(/\s+/g, ' ').trim()
@@ -126,8 +188,8 @@ export function tryMergePendingCalendarUpdateReply(params: {
     const extraction = extractCalendarUpdateParameters(combined, params.referenceNow);
 
     next.title = extraction.title ?? next.title;
-    next.fromTime = extraction.fromTime ?? next.fromTime;
-    next.toTime = extraction.toTime ?? next.toTime;
+    next.fromStartISO = extraction.fromStartISO ?? next.fromStartISO;
+    next.toStartISO = extraction.toStartISO ?? next.toStartISO;
     next.sourceTranscript = combined;
   }
 
@@ -135,14 +197,14 @@ export function tryMergePendingCalendarUpdateReply(params: {
   const verification = extractCalendarUpdateParameters(transcript, params.referenceNow);
 
   next.title = verification.title ?? next.title;
-  next.fromTime = verification.fromTime ?? next.fromTime;
-  next.toTime = verification.toTime ?? next.toTime;
+  next.fromStartISO = verification.fromStartISO ?? next.fromStartISO;
+  next.toStartISO = verification.toStartISO ?? next.toStartISO;
 
   logUpdateClarificationMerged({
     replyPreview: reply.slice(0, 80),
     title: next.title,
-    fromTime: next.fromTime,
-    toTime: next.toTime,
+    fromStartISO: next.fromStartISO,
+    toStartISO: next.toStartISO,
     transcriptPreview: transcript.slice(0, 160),
     readyToExecute: verification.readyToExecute,
   });

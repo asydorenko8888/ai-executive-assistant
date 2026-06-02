@@ -46,7 +46,8 @@ describe('calendar schedule conflict', () => {
   it('resolves yes, no, and suggest-slot follow-ups', () => {
     assert.equal(resolveCalendarConflictFollowUp('yes')?.kind, 'proceed');
     assert.equal(resolveCalendarConflictFollowUp('still move it')?.kind, 'proceed');
-    assert.equal(resolveCalendarConflictFollowUp('no')?.kind, 'cancel');
+    assert.equal(resolveCalendarConflictFollowUp('no')?.kind, 'suggest_slots');
+    assert.equal(resolveCalendarConflictFollowUp('cancel')?.kind, 'cancel');
     assert.equal(resolveCalendarConflictFollowUp('suggest another time')?.kind, 'suggest_slots');
   });
 });

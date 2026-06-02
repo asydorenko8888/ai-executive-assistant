@@ -13,6 +13,20 @@ import {
   getEventsStartingAtTime,
 } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import type { NormalizedCalendarEvent } from '@/src/features/agent/calendarIntelligence/types';
+import {
+  findMoveConversationEventInList,
+  resolveMoveEventReference,
+} from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import {
+  getActiveCalendarEvent,
+  resolveActiveEventForMutation,
+  resolveMutationSearchDayOffset,
+  shouldResolveMutationFromActiveMemory,
+} from '@/src/features/agent/calendar/calendarActiveEventContext';
+import { resolveEventTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import { calendarConversationTitlesMatch } from '@/src/features/agent/calendar/calendarConversationTitleMatch';
+import { validateMoveTargetAgainstConversationMemory } from '@/src/features/agent/calendar/calendarConversationMemorySchedule';
+import { isIgnorableTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { getLastCalendarReadMatch } from '@/src/features/agent/execution/calendarExecutionSession';
 
 function normalizeMatchText(value: string) {
@@ -163,6 +177,75 @@ function formatClockLabel(minutes: number) {
   return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
 }
 
+function tryPinnedConversationMemory(params: {
+  events: CalendarEvent[];
+  titleQuery: string;
+  referenceNow: Date;
+}) {
+  const effectiveTitleQuery = isIgnorableTitleQueryForMemory(params.titleQuery)
+    ? ''
+    : params.titleQuery;
+
+  const pinned = findMoveConversationEventInList({
+    events: params.events,
+    referenceNow: params.referenceNow,
+    titleQuery: effectiveTitleQuery,
+  }) ?? resolveActiveEventForMutation({
+    events: params.events,
+    referenceNow: params.referenceNow,
+    titleQuery: effectiveTitleQuery,
+  });
+
+  if (!pinned) {
+    return null;
+  }
+
+  return { match: pinned, source: 'conversation_memory' as const };
+}
+
+function resolveUpdateFromConversationMemory(params: {
+  events: CalendarEvent[];
+  titleQuery: string;
+  referenceNow: Date;
+  transcript: string;
+  timeZone: string;
+  schedule: ReturnType<typeof parseCalendarUpdateSchedule>;
+}) {
+  const memoryPinned = tryPinnedConversationMemory({
+    events: params.events,
+    titleQuery: params.titleQuery,
+    referenceNow: params.referenceNow,
+  });
+
+  if (!memoryPinned) {
+    return null;
+  }
+
+  const matchedStartMs = Date.parse(memoryPinned.match.startsAt);
+  const toMs =
+    params.schedule.ok === true
+      ? resolveUpdateTargetMs({
+          schedule: params.schedule,
+          matchedEventStartMs: matchedStartMs,
+          referenceNow: params.referenceNow,
+          timeZone: params.timeZone,
+        })
+      : null;
+
+  return {
+    match: memoryPinned.match,
+    titleQuery: memoryPinned.match.title,
+    clockMinutes: Number.isNaN(matchedStartMs)
+      ? null
+      : getZonedClockMinutes(matchedStartMs, params.timeZone),
+    candidates: [memoryPinned.match],
+    fromMs: Number.isNaN(matchedStartMs) ? null : matchedStartMs,
+    toMs,
+    ambiguous: false,
+    matchSource: memoryPinned.source,
+  };
+}
+
 function tryPinnedReadMatch(params: {
   events: CalendarEvent[];
   titleQuery: string;
@@ -265,13 +348,59 @@ export function findCalendarEventAtTimeFromEvents(params: {
   };
 }
 
+function applyMoveMemoryScheduleGuard<T extends CalendarEvent | null>(params: {
+  match: T;
+  referenceNow: Date;
+  matchSource: string;
+  titleQuery?: string;
+}): T {
+  const validated = validateMoveTargetAgainstConversationMemory({
+    event: params.match,
+    referenceNow: params.referenceNow,
+    matchSource: params.matchSource,
+    titleQuery: params.titleQuery,
+  });
+
+  return (validated.ok ? validated.event : null) as T;
+}
+
 function findUpdateMatchByTitle(params: {
   events: CalendarEvent[];
   titleQuery: string;
   timeZone: string;
   referenceNow: Date;
+  transcript?: string;
 }) {
-  const day = resolveTargetDayContext('сегодня', params.referenceNow, params.timeZone);
+  const effectiveTitleQuery = isIgnorableTitleQueryForMemory(params.titleQuery)
+    ? ''
+    : params.titleQuery.trim();
+  const memoryPinned = findMoveConversationEventInList({
+    events: params.events,
+    referenceNow: params.referenceNow,
+    titleQuery: effectiveTitleQuery,
+  });
+
+  if (memoryPinned) {
+    return {
+      match: memoryPinned,
+      candidates: [memoryPinned],
+      ambiguous: false,
+    };
+  }
+
+  const conversationRef = resolveMoveEventReference(params.referenceNow);
+
+  if (conversationRef) {
+    const userNamedDifferentEvent =
+      effectiveTitleQuery &&
+      !calendarConversationTitlesMatch(effectiveTitleQuery, conversationRef.title);
+
+    if (!userNamedDifferentEvent) {
+      return { match: null, candidates: [] as CalendarEvent[], ambiguous: false };
+    }
+  }
+
+  const day = resolveTargetDayContext(params.transcript ?? '', params.referenceNow, params.timeZone);
   const normalized = normalizeCalendarEvents(params.events, params.timeZone);
   const dayEvents = getEventsForDay(normalized, day);
   const ranked = dayEvents
@@ -301,7 +430,12 @@ function findUpdateMatchByTitle(params: {
   }
 
   const selected = ranked[0].event;
-  const match = params.events.find((event) => event.id === selected.id) ?? null;
+  const match = applyMoveMemoryScheduleGuard({
+    match: params.events.find((event) => event.id === selected.id) ?? null,
+    referenceNow: params.referenceNow,
+    matchSource: 'title_only',
+    titleQuery: params.titleQuery,
+  });
 
   return {
     match,
@@ -324,11 +458,30 @@ export function findCalendarEventForUpdateFromEvents(params: {
   fromMs: number | null;
   toMs: number | null;
   ambiguous: boolean;
-  matchSource: 'pinned_read' | 'starting_at_time' | 'title_only' | 'title_rank' | 'none';
+  matchSource:
+    | 'pinned_read'
+    | 'conversation_memory'
+    | 'starting_at_time'
+    | 'title_only'
+    | 'title_rank'
+    | 'none';
 } {
   const timeZone = params.timeZone ?? resolveTargetDayContext(params.transcript, params.referenceNow).timezone;
   const schedule = parseCalendarUpdateSchedule(params.transcript, params.referenceNow, timeZone);
   const titleQuery = params.titleQuery.trim();
+
+  const memoryResolved = resolveUpdateFromConversationMemory({
+    events: params.events,
+    titleQuery,
+    referenceNow: params.referenceNow,
+    transcript: params.transcript,
+    timeZone,
+    schedule,
+  });
+
+  if (memoryResolved) {
+    return memoryResolved;
+  }
 
   if (!schedule.ok) {
     if (!titleQuery) {
@@ -349,17 +502,25 @@ export function findCalendarEventForUpdateFromEvents(params: {
       titleQuery,
       timeZone,
       referenceNow: params.referenceNow,
+      transcript: params.transcript,
+    });
+
+    const guardedMatch = applyMoveMemoryScheduleGuard({
+      match: titleOnly.match,
+      referenceNow: params.referenceNow,
+      matchSource: 'title_only',
+      titleQuery,
     });
 
     return {
-      match: titleOnly.match,
+      match: guardedMatch,
       titleQuery,
       clockMinutes: null,
-      candidates: titleOnly.candidates,
-      fromMs: titleOnly.match ? Date.parse(titleOnly.match.startsAt) : null,
+      candidates: guardedMatch ? [guardedMatch] : [],
+      fromMs: guardedMatch ? Date.parse(guardedMatch.startsAt) : null,
       toMs: null,
-      ambiguous: titleOnly.ambiguous,
-      matchSource: titleOnly.match ? 'title_only' : 'none',
+      ambiguous: guardedMatch ? false : titleOnly.ambiguous,
+      matchSource: guardedMatch ? 'title_only' : 'none',
     };
   }
 
@@ -375,6 +536,7 @@ export function findCalendarEventForUpdateFromEvents(params: {
       titleQuery,
       timeZone,
       referenceNow: params.referenceNow,
+      transcript: params.transcript,
     });
 
     const matchedStartMs = titleMatch.match ? Date.parse(titleMatch.match.startsAt) : null;
@@ -416,6 +578,28 @@ export function findCalendarEventForUpdateFromEvents(params: {
     };
   }
 
+  const conversationRef = resolveMoveEventReference(params.referenceNow);
+  const effectiveTitleQuery = isIgnorableTitleQueryForMemory(titleQuery) ? '' : titleQuery;
+
+  if (conversationRef) {
+    const userNamedDifferentEvent =
+      effectiveTitleQuery &&
+      !calendarConversationTitlesMatch(effectiveTitleQuery, conversationRef.title);
+
+    if (!userNamedDifferentEvent) {
+      return {
+        match: null,
+        titleQuery,
+        clockMinutes: schedule.fromMinutes,
+        candidates: [],
+        fromMs: schedule.fromMs,
+        toMs: schedule.toMs,
+        ambiguous: false,
+        matchSource: 'none',
+      };
+    }
+  }
+
   logUpdateRequest({
     transcript: params.transcript,
     titleQuery,
@@ -443,13 +627,22 @@ export function findCalendarEventForUpdateFromEvents(params: {
     candidateCount: resolved.candidates.length,
   });
 
-  const ambiguous = !resolved.match && resolved.candidates.length > 1;
+  const guardedMatch = applyMoveMemoryScheduleGuard({
+    match: resolved.match,
+    referenceNow: params.referenceNow,
+    matchSource: resolved.matchSource,
+    titleQuery,
+  });
+  const ambiguous = !guardedMatch && resolved.candidates.length > 1;
 
   return {
     ...resolved,
+    match: guardedMatch,
+    candidates: guardedMatch ? [guardedMatch] : resolved.candidates,
     fromMs: schedule.fromMs,
     toMs: schedule.toMs,
     ambiguous,
+    matchSource: guardedMatch ? resolved.matchSource : 'none',
   };
 }
 
@@ -473,7 +666,7 @@ export type CalendarDeleteEventMatchResult = {
   clockMinutes: number | null;
   candidates: CalendarEvent[];
   hasExplicitTime: boolean;
-  matchSource: 'pinned_read' | 'starting_at_time' | 'title_only' | 'title_rank' | 'none';
+  matchSource: 'pinned_read' | 'conversation_memory' | 'starting_at_time' | 'title_only' | 'title_rank' | 'none';
   notFoundReason:
     | 'empty_title'
     | 'no_clock_minutes'
@@ -493,36 +686,69 @@ export function findCalendarEventForDeleteFromEvents(params: {
   timeZone?: string;
 }): CalendarDeleteEventMatchResult {
   const timeZone = params.timeZone ?? resolveTargetDayContext(params.transcript, params.referenceNow).timezone;
-  const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
   const titleQuery = params.titleQuery.trim();
-  const clockMinutes = parseCalendarClockMinutes(params.transcript, day);
+  const memoryRef = resolveMoveEventReference(params.referenceNow);
+  const effectiveTitleQuery = resolveEventTitleQueryForMemory({
+    extractedTitle: titleQuery,
+    memoryTitle: memoryRef?.title ?? null,
+  });
   const activeEvents = params.events.filter((event) => !event.isCancelled);
 
-  if (!titleQuery) {
+  const memoryMatch =
+    shouldResolveMutationFromActiveMemory({
+      transcript: params.transcript,
+      referenceNow: params.referenceNow,
+      titleQuery: effectiveTitleQuery,
+      timeZone,
+    })
+      ? resolveActiveEventForMutation({
+          events: activeEvents,
+          referenceNow: params.referenceNow,
+          titleQuery: effectiveTitleQuery,
+        })
+      : null;
+
+  if (memoryMatch) {
+    return {
+      match: memoryMatch,
+      titleQuery: memoryMatch.title,
+      clockMinutes: null,
+      candidates: [memoryMatch],
+      hasExplicitTime: false,
+      matchSource: 'conversation_memory',
+      notFoundReason: null,
+    };
+  }
+
+  if (!effectiveTitleQuery) {
     logDeleteNotFoundReason({
       reason: 'empty_title',
       titleQuery,
-      clockMinutes,
+      clockMinutes: null,
       candidateCount: 0,
     });
 
     return {
       match: null,
       titleQuery,
-      clockMinutes,
+      clockMinutes: null,
       candidates: [],
-      hasExplicitTime: clockMinutes !== null,
+      hasExplicitTime: false,
       matchSource: 'none',
       notFoundReason: 'empty_title',
     };
   }
+
+  const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
+  const clockMinutes = parseCalendarClockMinutes(params.transcript, day);
+  const resolvedTitleQuery = effectiveTitleQuery;
 
   if (clockMinutes !== null) {
     const resolved = findCalendarEventAtTimeFromEvents({
       events: activeEvents,
       transcript: params.transcript,
       referenceNow: params.referenceNow,
-      titleQuery,
+      titleQuery: resolvedTitleQuery,
       clockMinutes,
       timeZone,
       matchMode: 'starting_at_time',
@@ -618,7 +844,7 @@ export function findCalendarEventForDeleteFromEvents(params: {
   const titleMatches = dayEvents
     .map((event) => ({
       event,
-      score: scoreTitleMatch(titleQuery, event.title),
+      score: scoreTitleMatch(resolvedTitleQuery, event.title),
     }))
     .filter((entry) => entry.score >= 70)
     .sort((left, right) => right.score - left.score);

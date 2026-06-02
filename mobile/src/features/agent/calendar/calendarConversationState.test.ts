@@ -19,8 +19,8 @@ describe('calendar conversation state', () => {
 
   it('classifies yes, no, and cancel replies', () => {
     assert.equal(classifyCalendarShortReply('yes'), 'proceed');
-    assert.equal(classifyCalendarShortReply('no'), 'cancel');
-    assert.equal(classifyCalendarShortReply('cancel'), 'cancel');
+    assert.equal(classifyCalendarShortReply('no'), 'decline_proceed');
+    assert.equal(classifyCalendarShortReply('cancel'), 'cancel_abort');
     assert.equal(classifyCalendarShortReply('suggest another time'), 'suggest_new_time');
   });
 

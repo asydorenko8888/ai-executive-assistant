@@ -23,10 +23,19 @@ import {
   expirePendingCalendarStateIfStale,
   logNewCommandOverridesPending,
 } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
+import { advanceCalendarConversationTurn } from '@/src/features/agent/calendar/calendarConversationContext';
+import { resolveMoveEventReference } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import {
+  getPendingIntent,
+  mergeTranscriptWithPendingIntent,
+  setPendingIntentForClarification,
+} from '@/src/features/agent/calendar/calendarPendingIntent';
 import {
   getCalendarConversationSnapshot,
+  isCalendarConflictDecisionState,
   isCalendarConversationAwaitingInput,
 } from '@/src/features/agent/calendar/calendarConversationState';
+import { isExplicitDifferentCalendarCommand } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
 import { enrichCalendarCommandTranscript } from '@/src/features/agent/calendar/calendarTranscriptEnrichment';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
@@ -79,16 +88,22 @@ export async function executeCalendarCommand(params: {
   /** Current user message only — CREATE titles are extracted from this, not merged history. */
   titleSourceTranscript?: string;
 }): Promise<CalendarCommandResult> {
+  advanceCalendarConversationTurn();
   expirePendingCalendarStateIfStale(params.referenceNow);
 
+  const mergedWithPendingIntent = mergeTranscriptWithPendingIntent(params.transcript);
+
   const enrichedTranscript = enrichCalendarCommandTranscript({
-    transcript: params.transcript,
+    transcript: mergedWithPendingIntent,
     referenceNow: params.referenceNow,
   });
 
   if (isCalendarConversationAwaitingInput()) {
-    const pending = getCalendarConversationSnapshot().pendingAction;
+    const snapshot = getCalendarConversationSnapshot();
+    const pending = snapshot.pendingAction;
+    const pendingIntent = getPendingIntent();
     const classification = classifyPendingCalendarReply(enrichedTranscript);
+    const inConflictDecision = isCalendarConflictDecisionState(snapshot.state);
 
     logPendingReplyClassified({
       transcript: enrichedTranscript,
@@ -96,13 +111,53 @@ export async function executeCalendarCommand(params: {
       pendingActionId: pending?.pendingActionId ?? null,
     });
 
-    if (classification === 'new_calendar_command' && pending) {
+    if (inConflictDecision) {
+      const conversationTurn = await handleCalendarConversationTurn({
+        transcript: enrichedTranscript,
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+        titleSourceTranscript: params.titleSourceTranscript,
+        calendarConnected: params.calendarConnected,
+      });
+
+      if (conversationTurn) {
+        return conversationTurn;
+      }
+
+      if (classification !== 'new_calendar_command') {
+        const reminder =
+          params.languageCode === 'uk-UA'
+            ? 'Скажіть «так», «ні», час або «запропонуй інший час».'
+            : params.languageCode === 'ru-RU'
+              ? 'Скажите «да», «нет», время или «предложи другое время».'
+              : 'Say "yes", "no", a time, or ask for another time.';
+
+        return {
+          matched: true,
+          intent: 'create_calendar_event',
+          reply: reminder,
+          spokenReply: reminder,
+          toolStatus: 'FAILURE',
+          executionState: 'tool_failure',
+          verified: false,
+        };
+      }
+    }
+
+    const overridesPending =
+      classification === 'new_calendar_command' &&
+      pending &&
+      !pendingIntent &&
+      (!inConflictDecision ||
+        isExplicitDifferentCalendarCommand(enrichedTranscript, pending));
+
+    if (overridesPending) {
       logNewCommandOverridesPending({
         pendingActionId: pending.pendingActionId,
         transcript: enrichedTranscript,
       });
       clearPendingCalendarState('new_command_override', enrichedTranscript);
-    } else {
+    } else if (!inConflictDecision) {
       const conversationTurn = await handleCalendarConversationTurn({
         transcript: enrichedTranscript,
         languageCode: params.languageCode,
@@ -245,6 +300,20 @@ export async function executeCalendarCommand(params: {
       missingFields: validation.missingFields,
       languageCode: params.languageCode,
     });
+
+    if (intent === 'create_calendar_event') {
+      setPendingIntentForClarification({
+        intent: 'CREATE_EVENT',
+        title: extraction.title?.trim() || 'event',
+        sourceTranscript: enrichedTranscript,
+      });
+    } else if (intent === 'update_calendar_event') {
+      setPendingIntentForClarification({
+        intent: 'MOVE_EVENT',
+        title: extraction.title?.trim() || resolveMoveEventReference(params.referenceNow)?.title || 'event',
+        sourceTranscript: enrichedTranscript,
+      });
+    }
 
     setLastCalendarCommandOutcome({
       intent,

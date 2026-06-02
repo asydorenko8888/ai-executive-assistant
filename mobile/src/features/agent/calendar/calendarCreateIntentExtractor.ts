@@ -1,3 +1,5 @@
+import { isCalendarQueryOrFindIntent } from '@/src/features/agent/calendar/calendarQueryIntent';
+import { normalizeCalendarEventTitle } from '@/src/features/agent/calendar/calendarEventTitleNormalization';
 import { logCreateParse } from '@/src/features/agent/calendar/calendarCreateParseDiagnostics';
 import { cleanCreateEventTitleText } from '@/src/features/agent/calendar/calendarCreateTitleCleaner';
 import {
@@ -53,10 +55,36 @@ export function extractCreateEventTitle(
   context: CreateTitleParseContext = {},
 ) {
   const originalText = currentUserMessage.trim();
+
+  if (!originalText || isCalendarQueryOrFindIntent(originalText)) {
+    logCreateParse({
+      originalText,
+      cleanedText: '',
+      extractedTitle: null,
+      detectedDate: context.detectedDate ?? null,
+      detectedTime: context.detectedTime ?? null,
+    });
+
+    return null;
+  }
+
+  if (!CREATE_COMMAND_PREFIX.test(originalText) && !CREATE_VERB_ANYWHERE.test(originalText)) {
+    logCreateParse({
+      originalText,
+      cleanedText: '',
+      extractedTitle: null,
+      detectedDate: context.detectedDate ?? null,
+      detectedTime: context.detectedTime ?? null,
+    });
+
+    return null;
+  }
+
   let text = isolateLastCreateCommandSegment(originalText);
   text = stripCreateVerbs(text);
   text = cleanCreateEventTitleText(text);
-  const extractedTitle = text.length >= 2 ? text : null;
+  const extractedTitle =
+    text.length >= 2 ? normalizeCalendarEventTitle(text, originalText) : null;
 
   logCreateParse({
     originalText,

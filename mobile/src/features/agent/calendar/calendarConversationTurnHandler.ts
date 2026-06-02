@@ -2,7 +2,8 @@ import type { AssistantExecutionState } from '@/src/features/agent/conversation/
 import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
 import { cancelCalendarConversation } from '@/src/features/agent/calendar/calendarConversationCancel';
 import {
-  buildCalendarConflictFreeSlotsReply,
+  buildCalendarConflictAlternativesOnlyReply,
+  formatConflictSlotLabelWithDay,
   resolveConflictDayOffset,
 } from '@/src/features/agent/calendar/calendarConflictReplies';
 import {
@@ -14,6 +15,10 @@ import {
   tryMergePendingCalendarUpdateReply,
 } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import {
+  enrichTranscriptForActivePendingConflict,
+  isExplicitDifferentCalendarCommand,
+} from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
+import {
   classifyPendingCalendarReply,
   logPendingReplyClassified,
 } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
@@ -21,13 +26,21 @@ import { clearPendingCalendarState } from '@/src/features/agent/calendar/calenda
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import {
   getCalendarConversationSnapshot,
+  isCalendarConflictDecisionState,
   logCalendarConversationEvent,
   mapPendingActionTypeToCommandIntent,
   transitionCalendarConversationState,
-  type CalendarConversationState,
   type CalendarPendingAction,
 } from '@/src/features/agent/calendar/calendarConversationState';
-import { syncConversationStateForConflictAlternatives } from '@/src/features/agent/calendar/calendarConversationSync';
+import {
+  buildConflictFollowUpTranscript,
+  buildRetriedTranscriptFromStartMs,
+  resolvePendingConflictResolution,
+} from '@/src/features/agent/calendar/calendarPendingConflictResolution';
+import { buildCreateConflictAlternativesBundle } from '@/src/features/agent/calendar/calendarCreateConflictAlternatives';
+import {
+  syncConversationStateForConflictAlternatives,
+} from '@/src/features/agent/calendar/calendarConversationSync';
 import { fetchTimedEventsNearScheduleWindow } from '@/src/features/agent/calendar/calendarScheduleConflict';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import { executeCalendarUpdateEvent } from '@/src/features/agent/execution/calendarUpdateEventExecutor';
@@ -57,7 +70,6 @@ import {
   addDaysToZonedYmd,
   getExecutiveCalendarTimezone,
   getZonedDayRange,
-  getZonedTimeParts,
   getZonedYmd,
 } from '@/src/features/agent/calendar/calendarTimezone';
 import { parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
@@ -145,80 +157,24 @@ async function buildAlternativeSlotsReply(pending: CalendarPendingAction) {
     .slice(0, 3)
     .map((slot) => parseGoogleCalendarInstant(slot.startISO) ?? 0)
     .filter((value) => value > 0);
+  const optionLabels = slots
+    .slice(0, 3)
+    .map((slot) =>
+      formatConflictSlotLabelWithDay({
+        slot,
+        referenceNow,
+        locale,
+        timeZone,
+      }),
+    );
 
   return {
-    reply: buildCalendarConflictFreeSlotsReply({
+    reply: buildCalendarConflictAlternativesOnlyReply({
       locale,
-      slots,
-      durationMinutes,
-      dayOffset,
+      optionLabels,
     }),
     alternativeStartMs,
   };
-}
-
-function resolvePickedAlternativeStartMs(reply: string, alternatives: number[]) {
-  const normalized = reply.trim();
-  const indexMatch = normalized.match(/^(\d{1,2})$/);
-
-  if (indexMatch) {
-    const index = Number(indexMatch[1]) - 1;
-
-    if (index >= 0 && index < alternatives.length) {
-      return alternatives[index];
-    }
-  }
-
-  for (const startMs of alternatives) {
-    const parts = getZonedTimeParts(new Date(startMs), getExecutiveCalendarTimezone());
-    const hour = parts.hour;
-    const minute = parts.minute;
-    const patterns = [
-      new RegExp(`\\b${hour}(?::${String(minute).padStart(2, '0')})?\\b`),
-      new RegExp(`\\b${hour}\\s*(?:pm|am)\\b`, 'i'),
-    ];
-
-    if (patterns.some((pattern) => pattern.test(normalized))) {
-      return startMs;
-    }
-  }
-
-  return null;
-}
-
-function buildTimePhraseFromStartMs(startMs: number) {
-  const timeZone = getExecutiveCalendarTimezone();
-  const parts = getZonedTimeParts(new Date(startMs), timeZone);
-  const pad = (value: number) => String(value).padStart(2, '0');
-  const dayOffset = resolveConflictDayOffset(startMs, new Date());
-
-  if (dayOffset === 1) {
-    return `tomorrow at ${pad(parts.hour)}:${pad(parts.minute)}`;
-  }
-
-  if (dayOffset === 2) {
-    return `the day after tomorrow at ${pad(parts.hour)}:${pad(parts.minute)}`;
-  }
-
-  const hour12 = parts.hour % 12 || 12;
-  const meridiem = parts.hour >= 12 ? 'PM' : 'AM';
-  const clock = parts.minute > 0 ? `${hour12}:${pad(parts.minute)}` : `${hour12}`;
-
-  return `at ${clock} ${meridiem}`;
-}
-
-function buildRetriedTranscript(pending: CalendarPendingAction, timePhrase: string) {
-  const title = pending.eventTitle.trim();
-
-  if (pending.action === 'CREATE_EVENT') {
-    return `Add ${title} ${timePhrase}`.replace(/\s+/g, ' ').trim();
-  }
-
-  if (pending.action === 'UPDATE_EVENT') {
-    return `Move ${title} ${timePhrase}`.replace(/\s+/g, ' ').trim();
-  }
-
-  return `${pending.sourceTranscript} ${timePhrase}`.replace(/\s+/g, ' ').trim();
 }
 
 function conflictAwaitingReminder(languageCode: VoiceLanguageCode) {
@@ -241,8 +197,14 @@ async function executePendingMutation(params: {
   calendarConnected: boolean;
   skipScheduleConflictCheck?: boolean;
   transcriptOverride?: string;
+  scheduleOverride?: {
+    startMs: number;
+    endMs: number;
+    explicitDayOffset: number;
+  };
 }) {
   const transcript = params.transcriptOverride ?? params.pending.sourceTranscript;
+  const titleSourceTranscript = params.pending.titleSourceTranscript ?? params.pending.sourceTranscript;
   const intent = mapPendingActionTypeToCommandIntent(params.pending.action);
 
   if (params.pending.action === 'DELETE_EVENT') {
@@ -288,11 +250,12 @@ async function executePendingMutation(params: {
 
   const outcome = await executeCalendarCreateEvent({
     transcript,
-    titleSourceTranscript: params.pending.titleSourceTranscript ?? transcript,
+    titleSourceTranscript,
     languageCode: params.pending.languageCode,
     calendarConnected: params.calendarConnected,
     referenceNow: params.referenceNow,
     skipScheduleConflictCheck: params.skipScheduleConflictCheck,
+    scheduleOverride: params.scheduleOverride,
   });
 
   clearPendingCalendarState('create_completed', transcript);
@@ -308,81 +271,136 @@ async function executePendingMutation(params: {
   });
 }
 
-async function handleConflictOrNewTimeState(params: {
-  state: CalendarConversationState;
+async function handleConflictDecisionState(params: {
   pending: CalendarPendingAction;
   transcript: string;
   referenceNow: Date;
   calendarConnected: boolean;
+  classification: ReturnType<typeof classifyPendingCalendarReply>;
 }) {
-  const short = classifyCalendarShortReply(params.transcript);
   const intent = mapPendingActionTypeToCommandIntent(params.pending.action);
+  const resolution = resolvePendingConflictResolution({
+    pending: params.pending,
+    transcript: params.transcript,
+    classification: params.classification,
+    referenceNow: params.referenceNow,
+  });
 
-  if (short === 'cancel') {
+  console.log('[PENDING CONFLICT RESOLUTION]');
+  console.log(JSON.stringify({ kind: resolution.kind, transcriptPreview: params.transcript.slice(0, 120) }));
+
+  if (resolution.kind === 'cancel') {
     return cancelPendingOperation(params.pending, params.transcript);
   }
 
-  if (short === 'suggest_new_time' && params.state === 'WAITING_CONFLICT_CONFIRMATION') {
-    const slotResult = await buildAlternativeSlotsReply(params.pending);
+  if (resolution.kind === 'suggest_alternatives') {
+    const locale = getChatLocaleFromVoiceLanguage(params.pending.languageCode);
     const conflictLegacy = getPendingCalendarConflictContext();
+    let reply: string;
+    let alternativeStartMs: number[] = [];
 
-    if (conflictLegacy) {
-      syncConversationStateForConflictAlternatives(conflictLegacy, slotResult.alternativeStartMs);
+    if (params.pending.action === 'CREATE_EVENT' && conflictLegacy) {
+      const primaryConflict = params.pending.conflictEvents[0];
+
+      if (primaryConflict) {
+        const bundle = await buildCreateConflictAlternativesBundle({
+          locale,
+          proposedTitle: params.pending.eventTitle,
+          conflict: {
+            event: {
+              id: primaryConflict.eventId,
+              title: primaryConflict.title,
+              startsAt: primaryConflict.startsAt,
+              endsAt: primaryConflict.endsAt,
+              isAllDay: false,
+            },
+            startsAtMs: Date.parse(primaryConflict.startsAt),
+            endsAtMs: Date.parse(primaryConflict.endsAt),
+          },
+          proposedStartMs: params.pending.requestedStartMs,
+          proposedEndMs: params.pending.requestedEndMs,
+          referenceNow: params.referenceNow,
+        });
+
+        reply = bundle.reply;
+        alternativeStartMs = bundle.alternativeStartMs;
+        syncConversationStateForConflictAlternatives(conflictLegacy, alternativeStartMs);
+      } else {
+        const slotResult = await buildAlternativeSlotsReply(params.pending);
+        reply = slotResult.reply;
+        alternativeStartMs = slotResult.alternativeStartMs;
+        syncConversationStateForConflictAlternatives(conflictLegacy, alternativeStartMs);
+      }
     } else {
-      transitionCalendarConversationState({
-        toState: 'WAITING_NEW_TIME',
-        pendingAction: {
-          ...params.pending,
-          alternativeStartMs: slotResult.alternativeStartMs,
-        },
-        reason: 'user_requested_alternatives',
-        incomingMessage: params.transcript,
-      });
+      const slotResult = await buildAlternativeSlotsReply(params.pending);
+
+      reply = slotResult.reply;
+      alternativeStartMs = slotResult.alternativeStartMs;
+
+      if (conflictLegacy) {
+        syncConversationStateForConflictAlternatives(conflictLegacy, alternativeStartMs);
+      } else {
+        transitionCalendarConversationState({
+          toState: 'WAITING_CONFLICT_RESOLUTION',
+          pendingAction: {
+            ...params.pending,
+            alternativeStartMs,
+          },
+          reason: 'user_requested_alternatives',
+          incomingMessage: params.transcript,
+        });
+      }
     }
 
     return mapOutcome({
       intent,
       tool: createCalendarToolFailure('CALENDAR_SCHEDULE_CONFLICT', 'Awaiting alternative time selection'),
-      reply: slotResult.reply,
-      spokenReply: slotResult.reply,
+      reply,
+      spokenReply: reply,
       verified: false,
     });
   }
 
-  const alternatives = params.pending.alternativeStartMs ?? [];
-
-  if (params.state === 'WAITING_NEW_TIME') {
-    const pickedStartMs = resolvePickedAlternativeStartMs(params.transcript, alternatives);
-
-    if (pickedStartMs) {
-      const retriedTranscript = buildRetriedTranscript(
-        params.pending,
-        buildTimePhraseFromStartMs(pickedStartMs),
-      );
-
-      return executePendingMutation({
-        pending: params.pending,
-        referenceNow: params.referenceNow,
-        calendarConnected: params.calendarConnected,
-        transcriptOverride: retriedTranscript,
-      });
-    }
-
-    if (short === 'proceed') {
-      return executePendingMutation({
-        pending: params.pending,
-        referenceNow: params.referenceNow,
-        calendarConnected: params.calendarConnected,
-        skipScheduleConflictCheck: true,
-      });
-    }
-  }
-
-  if (short === 'proceed') {
+  if (resolution.kind === 'pick_alternative') {
     return executePendingMutation({
       pending: params.pending,
       referenceNow: params.referenceNow,
       calendarConnected: params.calendarConnected,
+      transcriptOverride: buildRetriedTranscriptFromStartMs(params.pending, resolution.startMs),
+      skipScheduleConflictCheck: true,
+    });
+  }
+
+  if (resolution.kind === 'execute_original') {
+    return executePendingMutation({
+      pending: params.pending,
+      referenceNow: params.referenceNow,
+      calendarConnected: params.calendarConnected,
+      skipScheduleConflictCheck: resolution.skipScheduleConflictCheck,
+    });
+  }
+
+  if (resolution.kind === 'execute_with_schedule') {
+    return executePendingMutation({
+      pending: params.pending,
+      referenceNow: params.referenceNow,
+      calendarConnected: params.calendarConnected,
+      transcriptOverride: buildConflictFollowUpTranscript(params.pending, params.transcript),
+      scheduleOverride: {
+        startMs: resolution.startMs,
+        endMs: resolution.endMs,
+        explicitDayOffset: resolution.explicitDayOffset,
+      },
+      skipScheduleConflictCheck: true,
+    });
+  }
+
+  if (resolution.kind === 'execute_with_time') {
+    return executePendingMutation({
+      pending: params.pending,
+      referenceNow: params.referenceNow,
+      calendarConnected: params.calendarConnected,
+      transcriptOverride: resolution.transcript,
       skipScheduleConflictCheck: true,
     });
   }
@@ -406,7 +424,7 @@ async function handleDeleteOrSelectionState(params: {
 }) {
   const short = classifyCalendarShortReply(params.transcript);
 
-  if (short === 'cancel') {
+  if (short === 'cancel_abort') {
     return cancelPendingOperation(params.pending, params.transcript);
   }
 
@@ -476,7 +494,7 @@ async function handleMoveConfirmation(params: {
 }) {
   const short = classifyCalendarShortReply(params.transcript);
 
-  if (short === 'cancel') {
+  if (short === 'cancel_abort') {
     return cancelPendingOperation(params.pending, params.transcript);
   }
 
@@ -521,12 +539,12 @@ async function handleMoveConfirmation(params: {
     });
   }
 
-  return handleConflictOrNewTimeState({
-    state: 'WAITING_MOVE_CONFIRMATION',
+  return handleConflictDecisionState({
     pending: params.pending,
     transcript: params.transcript,
     referenceNow: params.referenceNow,
     calendarConnected: params.calendarConnected,
+    classification: params.classification,
   });
 }
 
@@ -544,15 +562,25 @@ export async function handleCalendarConversationTurn(params: {
   }
 
   const pending = snapshot.pendingAction;
-  const classification = classifyPendingCalendarReply(params.transcript);
+  const inConflictWorkflow = isCalendarConflictDecisionState(snapshot.state);
+  let effectiveTranscript = params.transcript;
+
+  if (
+    inConflictWorkflow &&
+    !isExplicitDifferentCalendarCommand(params.transcript, pending)
+  ) {
+    effectiveTranscript = enrichTranscriptForActivePendingConflict(params.transcript, pending);
+  }
+
+  const classification = classifyPendingCalendarReply(effectiveTranscript);
 
   logPendingReplyClassified({
-    transcript: params.transcript,
+    transcript: effectiveTranscript,
     classification,
     pendingActionId: pending.pendingActionId,
   });
 
-  if (classification === 'new_calendar_command') {
+  if (classification === 'new_calendar_command' && !inConflictWorkflow) {
     return null;
   }
 
@@ -567,14 +595,18 @@ export async function handleCalendarConversationTurn(params: {
   let result: CalendarConversationTurnResult;
 
   switch (snapshot.state) {
+    case 'WAITING_CONFLICT_RESOLUTION':
+    case 'WAITING_CONFLICT_DECISION':
     case 'WAITING_CONFLICT_CONFIRMATION':
+    case 'WAITING_ALTERNATIVE_SELECTION':
+    case 'WAITING_EVENT_CONFIRMATION':
     case 'WAITING_NEW_TIME':
-      result = await handleConflictOrNewTimeState({
-        state: snapshot.state,
+      result = await handleConflictDecisionState({
         pending,
-        transcript: params.transcript,
+        transcript: effectiveTranscript,
         referenceNow: params.referenceNow,
         calendarConnected: params.calendarConnected,
+        classification,
       });
       break;
     case 'WAITING_DELETE_CONFIRMATION':

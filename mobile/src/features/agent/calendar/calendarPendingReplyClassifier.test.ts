@@ -9,10 +9,11 @@ import {
 } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 
 describe('calendar pending reply classifier', () => {
-  it('treats bare yes/no as confirmation or rejection', () => {
+  it('treats bare yes/no as confirmation or decline to alternatives', () => {
     assert.equal(classifyPendingCalendarReply('да'), 'confirmation');
-    assert.equal(classifyPendingCalendarReply('нет'), 'rejection');
-    assert.equal(classifyPendingCalendarReply('ні'), 'rejection');
+    assert.equal(classifyPendingCalendarReply('нет'), 'decline_proceed');
+    assert.equal(classifyPendingCalendarReply('ні'), 'decline_proceed');
+    assert.equal(classifyPendingCalendarReply('отмена'), 'rejection');
   });
 
   it('detects a new calendar command while pending confirmation would be active', () => {

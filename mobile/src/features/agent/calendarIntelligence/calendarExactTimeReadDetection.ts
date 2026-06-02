@@ -1,3 +1,4 @@
+import { isCalendarQueryOrFindIntent } from '@/src/features/agent/calendar/calendarQueryIntent';
 import { detectCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
 import {
   asksAboutEventsAtClock,
@@ -42,6 +43,12 @@ const RU_TASK_AT_TIME_READ_DAY_AFTER = new RegExp(
 
 export function isCalendarExactTimeReadQuery(transcript: string) {
   const normalized = normalizeCalendarReadSemantics(transcript);
+
+  if (isCalendarQueryOrFindIntent(transcript)) {
+    if (extractCalendarClockFragment(normalized) || READ_SCHEDULE_WORDS.test(normalized)) {
+      return true;
+    }
+  }
 
   if (detectCalendarCreateByTitleTimePattern(normalized)) {
     return false;

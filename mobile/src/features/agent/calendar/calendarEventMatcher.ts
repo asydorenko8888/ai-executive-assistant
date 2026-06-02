@@ -1,6 +1,12 @@
 import { fetchCalendarEventsForZonedDay } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import { logUpdateParsedRequest } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
+import { resolveMoveEventReference } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import {
+  getActiveCalendarEvent,
+  resolveMutationSearchDayOffset,
+} from '@/src/features/agent/calendar/calendarActiveEventContext';
+import { resolveEventTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { extractUpdateEventTitle } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import {
   parseCalendarUpdateSchedule,
@@ -23,16 +29,26 @@ export async function findCalendarEventForDelete(params: {
   transcript: string;
   referenceNow: Date;
 }) {
-  const titleQuery = extractDeleteEventTitle(params.transcript) ?? '';
+  const extractedTitle = extractDeleteEventTitle(params.transcript);
+  const memoryRef = getActiveCalendarEvent(params.referenceNow);
+  const titleQuery = resolveEventTitleQueryForMemory({
+    extractedTitle,
+    memoryTitle: memoryRef?.title ?? null,
+  });
   const timeZone = getExecutiveCalendarTimezone();
-  const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
+  const searchDayOffset = resolveMutationSearchDayOffset({
+    transcript: params.transcript,
+    referenceNow: params.referenceNow,
+    memoryRef,
+    timeZone,
+  });
   const { events, range, fetchOk } = await fetchCalendarEventsForZonedDay(
     params.referenceNow,
-    day.dayOffset,
+    searchDayOffset,
   );
 
   logCalendarMutationFreshRead({
-    dayOffset: day.dayOffset,
+    dayOffset: searchDayOffset,
     timeMin: range.timeMin,
     timeMax: range.timeMax,
     fetchOk,
@@ -91,18 +107,21 @@ export async function findCalendarEventForUpdate(params: {
   referenceNow: Date;
   fromMs?: number;
 }) {
-  const titleQuery = extractUpdateEventTitle(params.transcript) ?? '';
+  const extractedTitle = extractUpdateEventTitle(params.transcript);
+  const memoryRef = getActiveCalendarEvent(params.referenceNow) ?? resolveMoveEventReference(params.referenceNow);
+  const titleQuery = resolveEventTitleQueryForMemory({
+    extractedTitle,
+    memoryTitle: memoryRef?.title,
+  });
   const schedule = parseCalendarUpdateSchedule(params.transcript, params.referenceNow);
   const timeZone = getExecutiveCalendarTimezone();
-  const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
-  const titleOnlySearchKinds =
-    schedule.ok &&
-    (schedule.kind === 'destination' ||
-      schedule.kind === 'relative_offset' ||
-      schedule.kind === 'day_preserve_time' ||
-      schedule.kind === 'event_day_shift' ||
-      schedule.kind === 'day_period');
-  const searchDayOffset = titleOnlySearchKinds ? 0 : day.dayOffset;
+  const searchDayOffset = resolveMutationSearchDayOffset({
+    transcript: params.transcript,
+    referenceNow: params.referenceNow,
+    memoryRef,
+    schedule,
+    timeZone,
+  });
   const { events, range, fetchOk } = await fetchCalendarEventsForZonedDay(
     params.referenceNow,
     searchDayOffset,

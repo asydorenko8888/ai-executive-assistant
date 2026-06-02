@@ -310,6 +310,17 @@ function zonedMinutesToInstantMs(day: CalendarDayContext, clockMinutes: number) 
   );
 }
 
+const SHARED_RANGE_MERIDIEM =
+  /(?:вечера|вечером|вечора|увечері|утра|утром|ранку|дня|днём|днем|ночи|ночью|ночі|am|pm|a\.m\.|p\.m\.)/iu;
+
+function appendMeridiemIfMissing(fragment: string, meridiem: string) {
+  if (SHARED_RANGE_MERIDIEM.test(fragment)) {
+    return fragment;
+  }
+
+  return `${fragment} ${meridiem}`.trim();
+}
+
 function extractShiftClockFragments(transcript: string) {
   const match = transcript.match(FROM_TO_EN) ?? transcript.match(FROM_TO_RU);
 
@@ -318,17 +329,77 @@ function extractShiftClockFragments(transcript: string) {
   }
 
   const trailingMeridiem = transcript.match(
-    /(?:на|to|до)\s+\d{1,2}(?::\d{2})?(?:\s+и\s+\d{2})?\s+(вечера|вечером|утра|утром|дня|днём|днем|ночи|ночью|am|pm)/iu,
+    /(?:на|to|до)\s+\d{1,2}(?::\d{2})?(?:\s+и\s+\d{2})?\s+(вечера|вечером|вечора|увечері|утра|утром|ранку|дня|днём|днем|ночи|ночью|ночі|am|pm|a\.m\.|p\.m\.)/iu,
   );
 
-  const fromFragment = normalizeSplitClockFragment(match[1].trim());
+  let fromFragment = normalizeSplitClockFragment(match[1].trim());
   let toFragment = normalizeSplitClockFragment(match[2].trim());
 
   if (trailingMeridiem) {
-    toFragment = `${toFragment} ${trailingMeridiem[1]}`;
+    const meridiem = trailingMeridiem[1];
+    fromFragment = appendMeridiemIfMissing(fromFragment, meridiem);
+    toFragment = appendMeridiemIfMissing(toFragment, meridiem);
   }
 
   return { fromFragment, toFragment };
+}
+
+function extractHyphenRangeFragments(transcript: string) {
+  const match = transcript.match(
+    /(\d{1,2}(?::\d{2})?)\s*[-–—]\s*(\d{1,2}(?::\d{2})?)(?:\s+(вечера|вечером|вечора|увечері|утра|утром|ранку|дня|днём|днем|ночи|ночью|ночі|am|pm|a\.m\.|p\.m\.))?/iu,
+  );
+
+  if (!match?.[1] || !match[2]) {
+    return null;
+  }
+
+  let fromFragment = normalizeSplitClockFragment(match[1].trim());
+  let toFragment = normalizeSplitClockFragment(match[2].trim());
+
+  if (match[3]) {
+    const meridiem = match[3];
+    fromFragment = appendMeridiemIfMissing(fromFragment, meridiem);
+    toFragment = appendMeridiemIfMissing(toFragment, meridiem);
+  }
+
+  return { fromFragment, toFragment };
+}
+
+function buildPointScheduleFromRangeFragments(params: {
+  transcript: string;
+  referenceNow: Date;
+  timeZone: string;
+  fromFragment: string;
+  toFragment: string;
+}): CalendarPointSchedule | null {
+  const day = resolveTargetDayContext(params.transcript, params.referenceNow, params.timeZone);
+  const fromMinutes = parseClockFragmentToMinutes(params.fromFragment, params.transcript);
+  const toMinutes = parseClockFragmentToMinutes(params.toFragment, params.transcript);
+
+  if (fromMinutes === null || toMinutes === null) {
+    return null;
+  }
+
+  const startMs = zonedMinutesToInstantMs(day, fromMinutes);
+  let endMs = zonedMinutesToInstantMs(day, toMinutes);
+
+  if (endMs <= startMs) {
+    endMs = startMs + 60 * 60_000;
+  }
+
+  logDateParser({
+    original: params.transcript,
+    resolvedDate: formatResolvedDateLabel(startMs, params.timeZone),
+    resolvedTime: `${formatResolvedTimeLabel(startMs, params.timeZone)}-${formatResolvedTimeLabel(endMs, params.timeZone)}`,
+  });
+
+  return {
+    ok: true,
+    startMs,
+    endMs,
+    hasExplicitTime: true,
+    explicitDayOffset: day.dayOffset,
+  };
 }
 
 export function stripCalendarTimeShiftPhrases(transcript: string) {
@@ -370,6 +441,38 @@ export function parseCalendarPointSchedule(
       reason: 'date_parse_failed',
       detail: 'Duration phrase is not a clock time',
     };
+  }
+
+  const shiftFragments = extractShiftClockFragments(transcript);
+
+  if (shiftFragments) {
+    const ranged = buildPointScheduleFromRangeFragments({
+      transcript,
+      referenceNow,
+      timeZone,
+      fromFragment: shiftFragments.fromFragment,
+      toFragment: shiftFragments.toFragment,
+    });
+
+    if (ranged) {
+      return ranged;
+    }
+  }
+
+  const hyphenFragments = extractHyphenRangeFragments(transcript);
+
+  if (hyphenFragments) {
+    const ranged = buildPointScheduleFromRangeFragments({
+      transcript,
+      referenceNow,
+      timeZone,
+      fromFragment: hyphenFragments.fromFragment,
+      toFragment: hyphenFragments.toFragment,
+    });
+
+    if (ranged) {
+      return ranged;
+    }
   }
 
   const day = resolveTargetDayContext(transcript, referenceNow, timeZone);
