@@ -1,6 +1,12 @@
-import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calendar/calendarConversationState';
+import {
+  isAwaitingCalendarConflictResolution,
+  isCalendarConversationAwaitingInput,
+} from '@/src/features/agent/calendar/calendarConversationState';
+import { resolveMoveEventReference } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import { transcriptHasEventPronounReference } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
+import { RELATIVE_SHIFT_HINT } from '@/src/features/agent/calendar/calendarUpdateVerbs';
 import {
   getPendingCalendarConflictContext,
   getPendingCalendarDeleteContext,
@@ -41,11 +47,30 @@ export function detectCalendarCommandIntent(transcript: string): CalendarCommand
   return 'none';
 }
 
+function isConversationMemoryFollowUp(transcript: string) {
+  const normalized = transcript.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const memoryRef = resolveMoveEventReference(new Date());
+
+  if (!memoryRef) {
+    return false;
+  }
+
+  return transcriptHasEventPronounReference(normalized) || RELATIVE_SHIFT_HINT.test(normalized);
+}
+
 export function requiresCalendarCommandExecution(transcript: string) {
+  const normalized = transcript.trim();
+
   if (
     isCalendarConversationAwaitingInput() ||
-    isBareCalendarShortReply(transcript) ||
-    isNewCalendarCommandMessage(transcript) ||
+    isAwaitingCalendarConflictResolution() ||
+    isBareCalendarShortReply(normalized) ||
+    isNewCalendarCommandMessage(normalized) ||
     getPendingCalendarUpdateContext() ||
     getPendingCalendarDeleteContext() ||
     getPendingCalendarConflictContext()
@@ -53,7 +78,11 @@ export function requiresCalendarCommandExecution(transcript: string) {
     return true;
   }
 
-  return isOperationalCalendarWriteRequest(transcript.trim());
+  if (isConversationMemoryFollowUp(normalized)) {
+    return true;
+  }
+
+  return isOperationalCalendarWriteRequest(normalized);
 }
 
 export function isCalendarCommandIntent(kind: CalendarCommandKind) {

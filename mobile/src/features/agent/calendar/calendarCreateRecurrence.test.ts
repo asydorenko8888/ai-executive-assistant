@@ -119,6 +119,17 @@ describe('calendar create recurrence (RU/UA)', () => {
     assert.ok(extraction.datetime);
   });
 
+  it('parses limited week daily recurrence with UNTIL', () => {
+    const recurrence = extractCalendarCreateRecurrence(
+      'Add a walk every day this week at 9 PM',
+      referenceNow,
+    );
+
+    assert.ok(recurrence);
+    assert.match(recurrence.recurrence.rrule, /FREQ=DAILY/);
+    assert.match(recurrence.recurrence.rrule, /UNTIL=/);
+  });
+
   it('uses today when Monday time is still in the future', () => {
     const mondayMorning = new Date('2026-06-08T08:00:00-05:00');
     const parsed = parseCalendarCreateScheduleWithRecurrence(

@@ -14,12 +14,17 @@ import {
 
 export type CalendarWeekdayCode = 'MO' | 'TU' | 'WE' | 'TH' | 'FR' | 'SA' | 'SU';
 
-export type CalendarRecurrenceKind = 'daily' | 'weekly';
+export type CalendarRecurrenceKind = 'daily' | 'weekly' | 'monthly';
 
 export type ParsedCalendarRecurrence = {
   kind: CalendarRecurrenceKind;
   byDay?: CalendarWeekdayCode;
   rrule: string;
+};
+
+type RecurrenceResolveContext = {
+  referenceNow: Date;
+  timeZone: string;
 };
 
 export type CalendarCreateRecurrenceExtraction = {
@@ -39,10 +44,139 @@ const WEEKDAY_TO_JS: Record<CalendarWeekdayCode, number> = {
 
 type RecurrencePattern = {
   pattern: RegExp;
-  resolve: (match: RegExpMatchArray) => ParsedCalendarRecurrence;
+  resolve: (match: RegExpMatchArray, ctx: RecurrenceResolveContext) => ParsedCalendarRecurrence;
 };
 
+function formatRruleUntilFromYmd(
+  ymd: { year: number; month: number; day: number },
+  timeZone: string,
+) {
+  const endMs = zonedLocalToUtcMs(
+    { ...ymd, hour: 23, minute: 59, second: 59 },
+    timeZone,
+  );
+  const utc = new Date(endMs);
+  const pad = (value: number) => String(value).padStart(2, '0');
+
+  return `UNTIL=${utc.getUTCFullYear()}${pad(utc.getUTCMonth() + 1)}${pad(utc.getUTCDate())}T${pad(utc.getUTCHours())}${pad(utc.getUTCMinutes())}${pad(utc.getUTCSeconds())}Z`;
+}
+
+function endOfWeekYmd(referenceNow: Date, timeZone: string, week: 'this' | 'next') {
+  const refYmd = getZonedYmd(referenceNow, timeZone);
+  const jsDay = jsDayFromZonedParts(refYmd, timeZone);
+  const daysUntilSunday = jsDay === 0 ? 0 : 7 - jsDay;
+  const offset = week === 'next' ? daysUntilSunday + 7 : daysUntilSunday;
+
+  return addDaysToZonedYmd(refYmd, offset);
+}
+
+function limitedWeekRecurrence(params: {
+  freq: 'daily' | 'weekdays';
+  week: 'this' | 'next';
+  ctx: RecurrenceResolveContext;
+}): ParsedCalendarRecurrence {
+  const until = formatRruleUntilFromYmd(
+    endOfWeekYmd(params.ctx.referenceNow, params.ctx.timeZone, params.week),
+    params.ctx.timeZone,
+  );
+
+  if (params.freq === 'weekdays') {
+    return {
+      kind: 'weekly',
+      rrule: `RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;${until}`,
+    };
+  }
+
+  return {
+    kind: 'daily',
+    rrule: `RRULE:FREQ=DAILY;${until}`,
+  };
+}
+
 const RECURRENCE_PATTERNS: RecurrencePattern[] = [
+  {
+    pattern: new RegExp(
+      `${CALENDAR_WORD_EDGE}(?:every\\s+day\\s+this\\s+week|каждый\\s+день\\s+на\\s+этой\\s+неделе|кожного\\s+дня\\s+цього\\s+тижня)${CALENDAR_WORD_END}`,
+      'iu',
+    ),
+    resolve: (_match, ctx) => limitedWeekRecurrence({ freq: 'daily', week: 'this', ctx }),
+  },
+  {
+    pattern: new RegExp(
+      `${CALENDAR_WORD_EDGE}(?:every\\s+day\\s+next\\s+week|каждый\\s+день\\s+на\\s+следующей\\s+неделе|кожного\\s+дня\\s+наступного\\s+тижня)${CALENDAR_WORD_END}`,
+      'iu',
+    ),
+    resolve: (_match, ctx) => limitedWeekRecurrence({ freq: 'daily', week: 'next', ctx }),
+  },
+  {
+    pattern: new RegExp(
+      `${CALENDAR_WORD_EDGE}(?:every\\s+weekday\\s+this\\s+week|каждый\\s+будний\\s+день\\s+на\\s+этой\\s+неделе|кожного\\s+буднього\\s+дня\\s+цього\\s+тижня)${CALENDAR_WORD_END}`,
+      'iu',
+    ),
+    resolve: (_match, ctx) => limitedWeekRecurrence({ freq: 'weekdays', week: 'this', ctx }),
+  },
+  {
+    pattern: new RegExp(
+      `${CALENDAR_WORD_EDGE}(?:every\\s+weekday\\s+next\\s+week|каждый\\s+будний\\s+день\\s+на\\s+следующей\\s+неделе|кожного\\s+буднього\\s+дня\\s+наступного\\s+тижня)${CALENDAR_WORD_END}`,
+      'iu',
+    ),
+    resolve: (_match, ctx) => limitedWeekRecurrence({ freq: 'weekdays', week: 'next', ctx }),
+  },
+  {
+    pattern: new RegExp(
+      `${CALENDAR_WORD_EDGE}(?:every\\s+weekday|каждый\\s+будний\\s+день|кожного\\s+буднього\\s+дня)${CALENDAR_WORD_END}`,
+      'iu',
+    ),
+    resolve: () => ({
+      kind: 'weekly',
+      rrule: 'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR',
+    }),
+  },
+  {
+    pattern: new RegExp(
+      `${CALENDAR_WORD_EDGE}(?:every\\s+month|каждый\\s+месяц|щомісяця|щомісячно)${CALENDAR_WORD_END}`,
+      'iu',
+    ),
+    resolve: () => ({
+      kind: 'monthly',
+      rrule: 'RRULE:FREQ=MONTHLY',
+    }),
+  },
+  {
+    pattern: new RegExp(
+      `${CALENDAR_WORD_EDGE}(?:every\\s+day|every\\s+week|every\\s+monday|every\\s+tuesday|every\\s+wednesday|every\\s+thursday|every\\s+friday|every\\s+saturday|every\\s+sunday)${CALENDAR_WORD_END}`,
+      'iu',
+    ),
+    resolve: (match) => {
+      const phrase = match[0].toLowerCase();
+
+      if (phrase.includes('every day')) {
+        return { kind: 'daily', rrule: 'RRULE:FREQ=DAILY' };
+      }
+
+      if (phrase.includes('every week')) {
+        return { kind: 'weekly', rrule: 'RRULE:FREQ=WEEKLY' };
+      }
+
+      const weekdayMap: Array<[string, CalendarWeekdayCode]> = [
+        ['monday', 'MO'],
+        ['tuesday', 'TU'],
+        ['wednesday', 'WE'],
+        ['thursday', 'TH'],
+        ['friday', 'FR'],
+        ['saturday', 'SA'],
+        ['sunday', 'SU'],
+      ];
+
+      for (const [name, code] of weekdayMap) {
+        if (phrase.includes(name)) {
+          return { kind: 'weekly', byDay: code, rrule: `RRULE:FREQ=WEEKLY;BYDAY=${code}` };
+        }
+      }
+
+      return { kind: 'weekly', rrule: 'RRULE:FREQ=WEEKLY' };
+    },
+  },
   {
     pattern: new RegExp(
       `${CALENDAR_WORD_EDGE}(?:ежедневно|каждый\\s+день|щодня|кожен\\s+день)${CALENDAR_WORD_END}`,
@@ -282,6 +416,8 @@ function resolveNextDailyOccurrence(params: {
 
 export function extractCalendarCreateRecurrence(
   transcript: string,
+  referenceNow = new Date(),
+  timeZone = getExecutiveCalendarTimezone(),
 ): CalendarCreateRecurrenceExtraction | null {
   const normalized = transcript.trim();
 
@@ -289,6 +425,7 @@ export function extractCalendarCreateRecurrence(
     return null;
   }
 
+  const ctx: RecurrenceResolveContext = { referenceNow, timeZone };
   let best: { index: number; length: number; recurrence: ParsedCalendarRecurrence } | null = null;
 
   for (const entry of RECURRENCE_PATTERNS) {
@@ -298,7 +435,7 @@ export function extractCalendarCreateRecurrence(
       continue;
     }
 
-    const recurrence = entry.resolve(match);
+    const recurrence = entry.resolve(match, ctx);
 
     if (!best || match[0].length > best.length) {
       best = {
@@ -334,7 +471,7 @@ export function applyRecurrenceToCreateSchedule(params: {
   const startParts = getZonedTimeParts(new Date(params.schedule.startMs), timeZone);
   const clockMinutes = startParts.hour * 60 + startParts.minute;
 
-  if (params.recurrence.kind === 'daily') {
+  if (params.recurrence.kind === 'daily' || params.recurrence.kind === 'monthly') {
     const next = resolveNextDailyOccurrence({
       clockMinutes,
       durationMs,

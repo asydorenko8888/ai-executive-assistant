@@ -15,6 +15,7 @@ export function recordVerifiedCalendarEventContext(params: {
   startISO: string;
   endISO: string;
   actionType: LastCalendarEventActionType;
+  recurrenceRrule?: string | null;
   clearPendingReason?: string;
 }) {
   if (params.actionType === 'create') {
@@ -23,6 +24,7 @@ export function recordVerifiedCalendarEventContext(params: {
       title: params.title,
       startISO: params.startISO,
       endISO: params.endISO,
+      recurrenceRrule: params.recurrenceRrule,
     });
   } else if (params.actionType === 'update') {
     recordModifiedConversationEvent({

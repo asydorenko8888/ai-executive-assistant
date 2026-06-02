@@ -4,7 +4,12 @@ import {
 } from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
 
 const CONFLICT_SLOT_ACCEPTANCE = new RegExp(
-  `${CALENDAR_WORD_EDGE}(?:хорош(?:ий|ая|е)\\s+вариант|подходит|отлично|супер|ідеально|идеально|давай(?:те)?\\s+так)${CALENDAR_WORD_END}`,
+  `${CALENDAR_WORD_EDGE}(?:хорош(?:ий|ая|е)\\s+вариант|подходит|підходить|отлично|супер|ідеально|идеально|давай(?:те)?\\s+так|that\\s+works|sounds\\s+good|works|сойдёт|сойдет|підійде)${CALENDAR_WORD_END}`,
+  'giu',
+);
+
+const CONFLICT_SLOT_SHORT_ORDINAL = new RegExp(
+  `${CALENDAR_WORD_EDGE}(?:first|second|third|перв(?:ый|ый)|втор(?:ой|ий)|трет(?:ий|ій))(?:\\s+(?:one|option|вариант|варіант))?${CALENDAR_WORD_END}`,
   'giu',
 );
 
@@ -30,6 +35,7 @@ export function stripConflictSlotReplyNoise(text: string) {
   for (let pass = 0; pass < 3; pass += 1) {
     const next = cleaned
       .replace(CONFLICT_SLOT_ACCEPTANCE, ' ')
+      .replace(CONFLICT_SLOT_SHORT_ORDINAL, ' ')
       .replace(CONFLICT_SLOT_ORDINAL, ' ')
       .replace(CONFLICT_SLOT_NUMBERED, ' ')
       .replace(/\s+/g, ' ')
@@ -54,6 +60,7 @@ export function isConflictSlotSelectionReply(text: string) {
 
   if (
     CONFLICT_SLOT_ACCEPTANCE.test(normalized) ||
+    CONFLICT_SLOT_SHORT_ORDINAL.test(normalized) ||
     CONFLICT_SLOT_ORDINAL.test(normalized) ||
     CONFLICT_SLOT_NUMBERED.test(normalized) ||
     CONFLICT_SLOT_BARE_INDEX.test(normalized)
@@ -61,7 +68,9 @@ export function isConflictSlotSelectionReply(text: string) {
     return true;
   }
 
-  return /^(?:первый|перший|перша|второй|вторий|третий|третій|first|second|third)$/iu.test(normalized);
+  return /^(?:первый|перший|перша|второй|вторий|третий|третій|first|second|third)(?:\s+(?:one|option))?$/iu.test(
+    normalized,
+  );
 }
 
 export function isConflictSlotAcceptanceOnly(text: string) {
@@ -104,7 +113,7 @@ export function resolveConflictSlotOrdinalIndex(text: string) {
   };
 
   const phrase = normalized.match(
-    /^(первый|перший|перша|второй|вторий|третий|третій|first|second|third)(?:\s+вариант)?$/iu,
+    /^(первый|перший|перша|второй|вторий|третий|третій|first|second|third)(?:\s+(?:вариант|варіант|one|option))?$/iu,
   );
 
   if (phrase?.[1]) {

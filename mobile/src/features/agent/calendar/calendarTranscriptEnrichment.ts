@@ -7,7 +7,10 @@ import {
 import { extractCreateEventTitle } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
 import { extractUpdateEventTitle } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import { EVENT_PRONOUN_REFERENCE } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
-import { getActiveCalendarEventRecord } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import {
+  getActiveCalendarEventRecord,
+  resolveRecurringSeriesReference,
+} from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import {
   isOperationalCalendarCreateRequest,
@@ -88,6 +91,10 @@ function needsConversationEventContext(transcript: string) {
     return true;
   }
 
+  if (hasExplicitClockOrDay(transcript) && !hasExplicitNamedTarget(transcript)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -159,17 +166,30 @@ export function enrichCalendarCommandTranscript(params: {
     }
   }
 
+  const seriesRef = resolveRecurringSeriesReference(params.referenceNow);
   const memoryRef = getActiveCalendarEventRecord(params.referenceNow);
+  const contextRef = memoryRef ?? (seriesRef
+    ? {
+        eventId: seriesRef.eventId,
+        title: seriesRef.title,
+        startISO: seriesRef.startISO,
+        endISO: seriesRef.endISO,
+        dateKey: '',
+        savedAtMs: seriesRef.savedAtMs,
+        source: 'create' as const,
+        activeSource: 'last_created' as const,
+      }
+    : null);
 
-  if (memoryRef && needsConversationEventContext(normalized)) {
-    const enriched = buildEnrichedTranscript(normalized, memoryRef.title, memoryRef.eventId);
+  if (contextRef && needsConversationEventContext(normalized)) {
+    const enriched = buildEnrichedTranscript(normalized, contextRef.title, contextRef.eventId);
 
     console.log('[CONVERSATION EVENT MEMORY USED]');
     console.log(
       JSON.stringify({
-        eventId: memoryRef.eventId,
-        title: memoryRef.title,
-        source: memoryRef.source,
+        eventId: contextRef.eventId,
+        title: contextRef.title,
+        source: contextRef.source,
         from: normalized.slice(0, 100),
         to: enriched.slice(0, 140),
       }),
@@ -186,9 +206,9 @@ export function enrichCalendarCommandTranscript(params: {
     return normalized;
   }
 
-  if (!memoryRef) {
+  if (!contextRef) {
     return normalized;
   }
 
-  return buildEnrichedTranscript(normalized, memoryRef.title, memoryRef.eventId);
+  return buildEnrichedTranscript(normalized, contextRef.title, contextRef.eventId);
 }

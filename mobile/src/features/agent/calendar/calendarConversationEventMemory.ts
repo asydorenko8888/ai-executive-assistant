@@ -31,11 +31,21 @@ export type ConversationEventRecord = {
   activeSource: ActiveCalendarEventSource;
 };
 
+export type ConversationRecurringSeriesRecord = {
+  eventId: string;
+  title: string;
+  startISO: string;
+  endISO: string;
+  rrule: string;
+  savedAtMs: number;
+};
+
 export type CalendarConversationEventMemory = {
   pendingEvent: ConversationEventRecord | null;
   lastCreatedEvent: ConversationEventRecord | null;
   lastModifiedEvent: ConversationEventRecord | null;
   lastReferencedEvent: ConversationEventRecord | null;
+  lastReferencedRecurringSeries: ConversationRecurringSeriesRecord | null;
 };
 
 export const CONVERSATION_EVENT_MEMORY_TTL_MS = 30 * 60 * 1000;
@@ -69,6 +79,7 @@ const EMPTY_MEMORY: CalendarConversationEventMemory = {
   lastCreatedEvent: null,
   lastModifiedEvent: null,
   lastReferencedEvent: null,
+  lastReferencedRecurringSeries: null,
 };
 
 let memory: CalendarConversationEventMemory = { ...EMPTY_MEMORY };
@@ -143,7 +154,7 @@ export function getActiveCalendarEventRecord(referenceNow: Date): ConversationEv
 }
 
 /**
- * MOVE resolution: pendingIntent event → lastReferencedEvent (not older created/modified).
+ * MOVE resolution: pendingIntent → pendingEvent → lastReferenced → lastModified → lastCreated.
  */
 export function resolveMoveEventReference(_referenceNow: Date): ConversationEventRecord | null {
   const intent = getPendingIntent();
@@ -152,13 +163,21 @@ export function resolveMoveEventReference(_referenceNow: Date): ConversationEven
     return pendingIntentToRecord(intent);
   }
 
-  const lastReferenced = memory.lastReferencedEvent;
+  return resolveConversationEventReference(_referenceNow);
+}
 
-  if (lastReferenced && isRecordFresh(lastReferenced)) {
-    return lastReferenced;
+export function resolveRecurringSeriesReference(_referenceNow: Date): ConversationRecurringSeriesRecord | null {
+  const series = memory.lastReferencedRecurringSeries;
+
+  if (!series || !isCalendarConversationContextFresh()) {
+    return null;
   }
 
-  return null;
+  if (Date.now() - series.savedAtMs > CONVERSATION_EVENT_MEMORY_TTL_MS) {
+    return null;
+  }
+
+  return series;
 }
 
 function touchReferenced(record: ConversationEventRecord) {
@@ -217,8 +236,20 @@ export function recordCreatedConversationEvent(params: {
   title: string;
   startISO: string;
   endISO: string;
+  recurrenceRrule?: string | null;
 }) {
   const record = buildRecord({ ...params, source: 'create' });
+  const series =
+    params.recurrenceRrule?.trim()
+      ? {
+          eventId: params.eventId,
+          title: params.title,
+          startISO: params.startISO,
+          endISO: params.endISO,
+          rrule: params.recurrenceRrule.trim(),
+          savedAtMs: Date.now(),
+        }
+      : null;
 
   touchCalendarConversationContext();
   memory = {
@@ -226,10 +257,17 @@ export function recordCreatedConversationEvent(params: {
     pendingEvent: null,
     lastCreatedEvent: record,
     lastReferencedEvent: record,
+    lastReferencedRecurringSeries: series,
   };
 
   console.log('[CONVERSATION EVENT MEMORY] lastCreatedEvent + lastReferencedEvent');
-  console.log(JSON.stringify({ eventId: record.eventId, title: record.title }));
+  console.log(
+    JSON.stringify({
+      eventId: record.eventId,
+      title: record.title,
+      recurring: Boolean(series),
+    }),
+  );
 }
 
 export function recordModifiedConversationEvent(params: {

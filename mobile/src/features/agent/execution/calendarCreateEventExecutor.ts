@@ -414,6 +414,7 @@ export async function executeCalendarCreateEvent(
           startISO: tool.event.startsAt,
           endISO: tool.event.endsAt,
           actionType: 'create',
+          recurrenceRrule: payloadResult.payload.recurrence?.[0] ?? null,
           clearPendingReason: 'create_completed',
         });
       }

@@ -6,6 +6,7 @@ import {
 } from '@/src/features/agent/calendar/calendarConversationState';
 import { extractCreateEventTitle } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
 import { CREATE_COMMAND_PREFIX } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
+import { EVENT_PRONOUN_REFERENCE } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { isTemporalOnlyTitle } from '@/src/features/agent/calendar/calendarTemporalWords';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import {
@@ -14,10 +15,10 @@ import {
   isOperationalCalendarUpdateRequest,
 } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 
-const PENDING_EVENT_PRONOUN =
-  /(?:^|[\s,.;:!?—-])(?:его|её|ее|их)(?=[\s,.;:!?—-]|$)|\b(?:it|this|that|them|him|her)\b|(?:эту\s+встречу|эту\s+запись|это\s+событие|this\s+event|that\s+event|the\s+event)/iu;
+const PENDING_EVENT_PRONOUN = EVENT_PRONOUN_REFERENCE;
 
-const CYRILLIC_PRONOUN_TOKEN = /^(?:его|её|ее|их)$/iu;
+const CYRILLIC_PRONOUN_TOKEN =
+  /^(?:его|её|ее|их|її|їх|його|неї|нею|цю|цей|це|той|та|те)$/iu;
 
 export function getActivePendingConflictAction(): CalendarPendingAction | null {
   const snapshot = getCalendarConversationSnapshot();
