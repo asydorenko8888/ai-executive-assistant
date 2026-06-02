@@ -1,5 +1,6 @@
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
+import { buildCalendarOperationInProgressReply } from '@/src/features/agent/calendar/calendarOperationUserReplies';
 import { buildNaturalCalendarCreateSuccessReply } from '@/src/features/agent/execution/calendarCreateSuccessReply';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -47,6 +48,15 @@ export function buildFactualCalendarToolReplies(
     return {
       reply: tool.error,
       spokenReply: tool.error,
+    };
+  }
+
+  if (tool.errorCode === 'CALENDAR_OPERATION_IN_PROGRESS') {
+    const text = buildCalendarOperationInProgressReply(options.languageCode);
+
+    return {
+      reply: text,
+      spokenReply: text,
     };
   }
 

@@ -3,6 +3,7 @@ import {
   buildFailureTerminalReply,
   isVerifiedCalendarUpdateSuccess,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
+import { buildCalendarOperationInProgressReply } from '@/src/features/agent/calendar/calendarOperationUserReplies';
 import {
   buildCalendarUpdateAmbiguousReply,
   buildCalendarUpdateNotFoundReply,
@@ -108,6 +109,18 @@ export function buildCalendarUpdateToolReplyBundle(
       spokenReply: text,
       executionState: mapToolStatusToExecutionState(tool),
       requiresCalendarAuth: tool.errorCode === 'CALENDAR_AUTH_REQUIRED',
+    };
+  }
+
+  if (tool.errorCode === 'CALENDAR_OPERATION_IN_PROGRESS') {
+    const text = buildCalendarOperationInProgressReply(languageCode);
+
+    return {
+      tool,
+      reply: text,
+      spokenReply: text,
+      executionState: 'failed',
+      requiresCalendarAuth: false,
     };
   }
 

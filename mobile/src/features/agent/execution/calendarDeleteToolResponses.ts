@@ -5,6 +5,7 @@ import {
   buildCalendarDeleteNotFoundReply,
   buildCalendarDeleteRecurringNotSupportedReply,
 } from '@/src/features/agent/calendar/calendarDeleteNaturalReplies';
+import { buildCalendarOperationInProgressReply } from '@/src/features/agent/calendar/calendarOperationUserReplies';
 import { buildNaturalCalendarDeleteSuccessReply } from '@/src/features/agent/execution/calendarDeleteSuccessReply';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -98,6 +99,18 @@ export function buildCalendarDeleteToolReplyBundle(
       spokenReply: text,
       executionState: mapToolStatusToExecutionState(tool),
       requiresCalendarAuth: tool.errorCode === 'CALENDAR_AUTH_REQUIRED',
+    };
+  }
+
+  if (tool.errorCode === 'CALENDAR_OPERATION_IN_PROGRESS') {
+    const text = buildCalendarOperationInProgressReply(languageCode);
+
+    return {
+      tool,
+      reply: text,
+      spokenReply: text,
+      executionState: 'failed',
+      requiresCalendarAuth: false,
     };
   }
 

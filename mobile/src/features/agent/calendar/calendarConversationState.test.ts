@@ -12,6 +12,7 @@ import {
   resetCalendarConversationState,
   transitionCalendarConversationState,
 } from '@/src/features/agent/calendar/calendarConversationState';
+import { clearPendingCalendarStateAfterVerifiedMutation } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 
 describe('calendar conversation state', () => {
   beforeEach(() => {
@@ -116,5 +117,33 @@ describe('calendar conversation state', () => {
     });
 
     assert.equal(isAwaitingCalendarConflictResolution(), true);
+  });
+
+  it('does not clear conflict pending state when mutation verification fails', () => {
+    const pending = buildCalendarPendingAction({
+      actionType: 'update',
+      originalIntent: 'Move it 2 hours earlier',
+      eventTitle: 'Meditation',
+      sourceTranscript: 'Move it 2 hours earlier',
+      languageCode: 'en-US',
+      proposedStartMs: Date.parse('2026-05-28T15:00:00-05:00'),
+      proposedEndMs: Date.parse('2026-05-28T16:00:00-05:00'),
+      updateEventId: 'meditation',
+    });
+
+    transitionCalendarConversationState({
+      toState: 'WAITING_CONFLICT_DECISION',
+      pendingAction: pending,
+      reason: 'test_conflict',
+    });
+
+    clearPendingCalendarStateAfterVerifiedMutation({
+      verified: false,
+      reason: 'update_completed',
+      transcript: 'yes',
+    });
+
+    assert.equal(getCalendarConversationSnapshot().state, 'WAITING_CONFLICT_DECISION');
+    assert.equal(getCalendarConversationSnapshot().pendingAction?.eventTitle, 'Meditation');
   });
 });

@@ -35,6 +35,19 @@ export function logPendingStateCreated(pending: CalendarPendingAction) {
   );
 }
 
+/** Clears conversation pending state only after a verified Google Calendar mutation. */
+export function clearPendingCalendarStateAfterVerifiedMutation(params: {
+  verified: boolean;
+  reason: string;
+  transcript?: string;
+}) {
+  if (!params.verified) {
+    return;
+  }
+
+  clearPendingCalendarState(params.reason, params.transcript);
+}
+
 export function clearPendingCalendarState(reason: string, incomingMessage?: string) {
   if (!isCalendarConversationAwaitingInput()) {
     clearPendingCalendarConflictContext();

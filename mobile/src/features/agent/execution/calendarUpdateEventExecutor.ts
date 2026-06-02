@@ -323,7 +323,6 @@ export async function executeCalendarUpdateEvent(
 
     if (tool.status === 'SUCCESS' && !tool.verified) {
       endCalendarOperation({ failed: true });
-      clearPendingCalendarUpdateIntent();
       const unverified = createCalendarToolFailure(
         'VERIFY_FAILED',
         'Google Calendar did not confirm the update.',
@@ -349,7 +348,6 @@ export async function executeCalendarUpdateEvent(
       errorCode: tool.errorCode ?? null,
       error: tool.error ?? null,
     });
-    clearPendingCalendarUpdateIntent();
     return {
       ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
         referenceNow: params.referenceNow,
@@ -358,7 +356,6 @@ export async function executeCalendarUpdateEvent(
     };
   } catch (error) {
     endCalendarOperation({ failed: true });
-    clearPendingCalendarUpdateIntent();
     logCalendarUpdateFailed({
       reason: 'executor_exception',
       message: error instanceof Error ? error.message : 'Calendar update error',

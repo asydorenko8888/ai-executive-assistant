@@ -24,7 +24,7 @@ import {
   classifyPendingCalendarReply,
   logPendingReplyClassified,
 } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
-import { clearPendingCalendarState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
+import { clearPendingCalendarStateAfterVerifiedMutation } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import {
   getCalendarConversationSnapshot,
@@ -232,14 +232,20 @@ async function executePendingMutation(params: {
       referenceNow: params.referenceNow,
     });
 
-    clearPendingCalendarState('delete_completed', transcript);
+    const verified = isVerifiedCalendarDeleteSuccess(outcome.tool);
+
+    clearPendingCalendarStateAfterVerifiedMutation({
+      verified,
+      reason: 'delete_completed',
+      transcript,
+    });
 
     return mapOutcome({
       intent,
       tool: outcome.tool,
       reply: outcome.reply,
       spokenReply: outcome.spokenReply,
-      verified: isVerifiedCalendarDeleteSuccess(outcome.tool),
+      verified,
       requiresCalendarAuth: outcome.requiresCalendarAuth,
       eventId: outcome.tool.eventId ?? null,
     });
@@ -253,14 +259,20 @@ async function executePendingMutation(params: {
       skipScheduleConflictCheck: params.skipScheduleConflictCheck,
     });
 
-    clearPendingCalendarState('update_completed', transcript);
+    const verified = isVerifiedCalendarUpdateSuccess(outcome.tool);
+
+    clearPendingCalendarStateAfterVerifiedMutation({
+      verified,
+      reason: 'update_completed',
+      transcript,
+    });
 
     return mapOutcome({
       intent,
       tool: outcome.tool,
       reply: outcome.reply,
       spokenReply: outcome.spokenReply,
-      verified: isVerifiedCalendarUpdateSuccess(outcome.tool),
+      verified,
       requiresCalendarAuth: outcome.requiresCalendarAuth,
       eventId: outcome.tool.eventId ?? null,
     });
@@ -276,14 +288,20 @@ async function executePendingMutation(params: {
     scheduleOverride: params.scheduleOverride,
   });
 
-  clearPendingCalendarState('create_completed', transcript);
+  const verified = isVerifiedCalendarCreateSuccess(outcome.tool);
+
+  clearPendingCalendarStateAfterVerifiedMutation({
+    verified,
+    reason: 'create_completed',
+    transcript,
+  });
 
   return mapOutcome({
     intent,
     tool: outcome.tool,
     reply: outcome.reply,
     spokenReply: outcome.spokenReply,
-    verified: isVerifiedCalendarCreateSuccess(outcome.tool),
+    verified,
     requiresCalendarAuth: outcome.requiresCalendarAuth,
     eventId: outcome.tool.eventId ?? null,
   });

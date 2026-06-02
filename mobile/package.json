@@ -18,7 +18,7 @@
     "test:calendar-create-past-time": "npx tsx --test src/features/agent/calendar/calendarCreatePastTime.test.ts",
     "test:calendar-reliability": "npx tsx --test src/features/agent/calendar/calendarReliabilityAcceptance.test.ts",
     "test:calendar-date-parser": "npx tsx --test src/features/agent/calendarIntelligence/calendarNaturalDateParser.test.ts",
-    "test:calendar-mutation-reliability": "npx tsx --test src/features/agent/calendar/calendarMutationReliability.test.ts",
+    "test:calendar-mutation-reliability": "npx tsx --test src/features/agent/calendar/calendarMutationReliability.test.ts src/features/agent/calendar/calendarExecutionHonesty.test.ts",
     "test:calendar-reschedule": "npx tsx --test src/features/agent/calendar/calendarReschedule.test.ts",
     "test:calendar-ru-uk-schedule": "npx tsx --test src/features/agent/calendar/calendarRuUkSchedule.test.ts",
     "test:calendar-conflict": "npx tsx --test src/features/agent/calendar/calendarScheduleConflict.test.ts src/features/agent/calendar/calendarCreateConflictDetection.test.ts src/features/agent/calendar/calendarConflictConfirmation.test.ts src/features/agent/calendar/calendarConflictRejectionFlow.test.ts src/features/agent/calendar/calendarConflictAlternativeSlots.test.ts",
