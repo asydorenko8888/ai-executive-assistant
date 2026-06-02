@@ -24,7 +24,10 @@ import {
   classifyPendingCalendarReply,
   logPendingReplyClassified,
 } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
-import { clearPendingCalendarStateAfterVerifiedMutation } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
+import {
+  clearPendingCalendarStateAfterVerifiedMutation,
+  dismissCalendarConflictConfirmationState,
+} from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import {
   getCalendarConversationSnapshot,
@@ -50,6 +53,7 @@ import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calen
 import { executeCalendarUpdateEvent } from '@/src/features/agent/execution/calendarUpdateEventExecutor';
 import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
 import {
+  acknowledgeCalendarConflictConfirmation,
   getPendingCalendarConflictContext,
   getPendingCalendarDeleteContext,
   getPendingCalendarUpdateContext,
@@ -209,7 +213,7 @@ function conflictAwaitingReminder(languageCode: VoiceLanguageCode) {
   return 'Say "yes", "no", or ask for another time.';
 }
 
-async function executePendingMutation(params: {
+type ExecutePendingMutationParams = {
   pending: CalendarPendingAction;
   referenceNow: Date;
   calendarConnected: boolean;
@@ -220,7 +224,16 @@ async function executePendingMutation(params: {
     endMs: number;
     explicitDayOffset: number;
   };
-}) {
+};
+
+function beginConfirmedConflictMutation(params: ExecutePendingMutationParams) {
+  const transcript = params.transcriptOverride ?? params.pending.sourceTranscript;
+
+  dismissCalendarConflictConfirmationState('conflict_confirmed', transcript);
+  acknowledgeCalendarConflictConfirmation();
+}
+
+async function executePendingMutation(params: ExecutePendingMutationParams) {
   const transcript = params.transcriptOverride ?? params.pending.sourceTranscript;
   const titleSourceTranscript = params.pending.titleSourceTranscript ?? params.pending.sourceTranscript;
   const intent = mapPendingActionTypeToCommandIntent(params.pending.action);
@@ -479,26 +492,34 @@ async function handleConflictDecisionState(params: {
   }
 
   if (resolution.kind === 'pick_alternative') {
-    return executePendingMutation({
+    const mutationParams: ExecutePendingMutationParams = {
       pending: params.pending,
       referenceNow: params.referenceNow,
       calendarConnected: params.calendarConnected,
       transcriptOverride: buildRetriedTranscriptFromStartMs(params.pending, resolution.startMs),
       skipScheduleConflictCheck: true,
-    });
+    };
+
+    beginConfirmedConflictMutation(mutationParams);
+
+    return executePendingMutation(mutationParams);
   }
 
   if (resolution.kind === 'execute_original') {
-    return executePendingMutation({
+    const mutationParams: ExecutePendingMutationParams = {
       pending: params.pending,
       referenceNow: params.referenceNow,
       calendarConnected: params.calendarConnected,
       skipScheduleConflictCheck: resolution.skipScheduleConflictCheck,
-    });
+    };
+
+    beginConfirmedConflictMutation(mutationParams);
+
+    return executePendingMutation(mutationParams);
   }
 
   if (resolution.kind === 'execute_with_schedule') {
-    return executePendingMutation({
+    const mutationParams: ExecutePendingMutationParams = {
       pending: params.pending,
       referenceNow: params.referenceNow,
       calendarConnected: params.calendarConnected,
@@ -509,17 +530,25 @@ async function handleConflictDecisionState(params: {
         explicitDayOffset: resolution.explicitDayOffset,
       },
       skipScheduleConflictCheck: true,
-    });
+    };
+
+    beginConfirmedConflictMutation(mutationParams);
+
+    return executePendingMutation(mutationParams);
   }
 
   if (resolution.kind === 'execute_with_time') {
-    return executePendingMutation({
+    const mutationParams: ExecutePendingMutationParams = {
       pending: params.pending,
       referenceNow: params.referenceNow,
       calendarConnected: params.calendarConnected,
       transcriptOverride: resolution.transcript,
       skipScheduleConflictCheck: true,
-    });
+    };
+
+    beginConfirmedConflictMutation(mutationParams);
+
+    return executePendingMutation(mutationParams);
   }
 
   const reminder = conflictAwaitingReminder(params.pending.languageCode);

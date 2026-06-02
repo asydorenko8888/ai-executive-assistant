@@ -119,7 +119,7 @@ describe('calendar conversation state', () => {
     assert.equal(isAwaitingCalendarConflictResolution(), true);
   });
 
-  it('does not clear conflict pending state when mutation verification fails', () => {
+  it('does not clear conversation state on failed verified mutation after confirmation was dismissed', () => {
     const pending = buildCalendarPendingAction({
       actionType: 'update',
       originalIntent: 'Move it 2 hours earlier',
@@ -132,9 +132,9 @@ describe('calendar conversation state', () => {
     });
 
     transitionCalendarConversationState({
-      toState: 'WAITING_CONFLICT_DECISION',
-      pendingAction: pending,
-      reason: 'test_conflict',
+      toState: 'IDLE',
+      pendingAction: null,
+      reason: 'conflict_confirmed',
     });
 
     clearPendingCalendarStateAfterVerifiedMutation({
@@ -143,7 +143,7 @@ describe('calendar conversation state', () => {
       transcript: 'yes',
     });
 
-    assert.equal(getCalendarConversationSnapshot().state, 'WAITING_CONFLICT_DECISION');
-    assert.equal(getCalendarConversationSnapshot().pendingAction?.eventTitle, 'Meditation');
+    assert.equal(getCalendarConversationSnapshot().state, 'IDLE');
+    assert.equal(getCalendarConversationSnapshot().pendingAction, null);
   });
 });

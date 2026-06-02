@@ -4,6 +4,7 @@ import { beforeEach, describe, it } from 'node:test';
 import {
   buildCalendarPendingAction,
   getCalendarConversationSnapshot,
+  isCalendarConversationAwaitingInput,
   resetCalendarConversationState,
   transitionCalendarConversationState,
 } from '@/src/features/agent/calendar/calendarConversationState';
@@ -13,6 +14,15 @@ import {
   mergeTranscriptWithPendingIntent,
   setPendingIntentFromAction,
 } from '@/src/features/agent/calendar/calendarPendingIntent';
+import { dismissCalendarConflictConfirmationState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
+import { createCalendarToolFailure } from '@/src/features/agent/execution/calendarToolContract';
+import {
+  acknowledgeCalendarConflictConfirmation,
+  endCalendarOperation,
+  resetCalendarExecutionSession,
+  setLastCalendarToolResponse,
+  tryBeginCalendarOperation,
+} from '@/src/features/agent/execution/calendarExecutionSession';
 
 const referenceNow = new Date('2026-05-27T10:00:00-05:00');
 const conflictStartMs = Date.parse('2026-05-28T14:00:00-05:00');
@@ -110,5 +120,38 @@ describe('conflict confirmation reply handling', () => {
 
     assert.equal(getCalendarConversationSnapshot().state, 'WAITING_CONFLICT_DECISION');
     assert.equal(getCalendarConversationSnapshot().pendingAction?.eventTitle, 'Встреча B');
+  });
+
+  it('exits conflict confirmation immediately when user approves execution', () => {
+    const pending = buildPendingCreateB();
+
+    transitionCalendarConversationState({
+      toState: 'WAITING_CONFLICT_DECISION',
+      pendingAction: pending,
+      reason: 'test_conflict',
+    });
+
+    dismissCalendarConflictConfirmationState('conflict_confirmed', 'yes');
+
+    assert.equal(getCalendarConversationSnapshot().state, 'IDLE');
+    assert.equal(getCalendarConversationSnapshot().pendingAction, null);
+    assert.equal(isCalendarConversationAwaitingInput(), false);
+  });
+
+  it('allows the confirmed mutation to run after a conflict-blocked attempt', () => {
+    resetCalendarExecutionSession();
+    const transcript = 'Move it 2 hours earlier';
+
+    assert.equal(tryBeginCalendarOperation(transcript), true);
+    endCalendarOperation({ failed: true });
+    setLastCalendarToolResponse(
+      createCalendarToolFailure('CALENDAR_SCHEDULE_CONFLICT', 'Schedule conflict awaiting confirmation'),
+    );
+    assert.equal(tryBeginCalendarOperation(transcript), false);
+
+    acknowledgeCalendarConflictConfirmation();
+
+    assert.equal(tryBeginCalendarOperation(transcript), true);
+    endCalendarOperation({ failed: false });
   });
 });

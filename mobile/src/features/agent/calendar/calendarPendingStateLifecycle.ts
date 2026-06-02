@@ -1,5 +1,6 @@
 import {
   getCalendarConversationSnapshot,
+  isCalendarConflictDecisionState,
   isCalendarConversationAwaitingInput,
   resetCalendarConversationState,
   type CalendarPendingAction,
@@ -33,6 +34,22 @@ export function logPendingStateCreated(pending: CalendarPendingAction) {
       createdAt: new Date(pending.createdAtMs).toISOString(),
     }),
   );
+}
+
+/**
+ * Exits conflict yes/no workflow immediately after the user confirms execution.
+ * The in-flight mutation still uses the captured pending action object.
+ */
+export function dismissCalendarConflictConfirmationState(reason: string, incomingMessage?: string) {
+  const snapshot = getCalendarConversationSnapshot();
+
+  if (!isCalendarConflictDecisionState(snapshot.state)) {
+    return;
+  }
+
+  resetCalendarConversationState(reason, incomingMessage);
+  clearPendingIntent(reason);
+  clearPendingCalendarConflictContext();
 }
 
 /** Clears conversation pending state only after a verified Google Calendar mutation. */

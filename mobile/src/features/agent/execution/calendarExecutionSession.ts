@@ -206,6 +206,13 @@ export function tryBeginCalendarOperation(transcript: string) {
   return true;
 }
 
+/** User approved a schedule-conflict override — allow the same mutation to run once more. */
+export function acknowledgeCalendarConflictConfirmation() {
+  calendarRetryCount = 0;
+  calendarOperationInProgress = false;
+  clearPendingCalendarConflictContext();
+}
+
 export function endCalendarOperation(params: { failed: boolean; createdEventId?: string | null }) {
   calendarOperationInProgress = false;
 
