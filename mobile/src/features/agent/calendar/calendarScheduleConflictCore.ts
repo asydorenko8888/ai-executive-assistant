@@ -8,14 +8,24 @@ export type CalendarScheduleConflict = {
   endsAtMs: number;
 };
 
-/** Half-open interval overlap: [start, end) */
+/** Interval overlap: newStart < existingEnd && newEnd > existingStart (instant ms, any timezone). */
+export function scheduleIntervalsOverlap(
+  newStartMs: number,
+  newEndMs: number,
+  existingStartMs: number,
+  existingEndMs: number,
+) {
+  return newStartMs < existingEndMs && newEndMs > existingStartMs;
+}
+
+/** @deprecated Use scheduleIntervalsOverlap — kept for existing call sites. */
 export function scheduleWindowsOverlap(
   startA: number,
   endA: number,
   startB: number,
   endB: number,
 ) {
-  return startA < endB && startB < endA;
+  return scheduleIntervalsOverlap(startA, endA, startB, endB);
 }
 
 function isTimedEventForConflict(event: CalendarEvent) {
@@ -54,7 +64,7 @@ export function findConflictingTimedEvents(params: {
     const endsAtMs = parseGoogleCalendarInstant(event.endsAt)!;
 
     if (
-      scheduleWindowsOverlap(
+      scheduleIntervalsOverlap(
         params.proposedStartMs,
         params.proposedEndMs,
         startsAtMs,
@@ -70,4 +80,26 @@ export function findConflictingTimedEvents(params: {
   }
 
   return conflicts.sort((left, right) => left.startsAtMs - right.startsAtMs);
+}
+
+/**
+ * Events to skip when checking conflicts.
+ * Create must never ignore conversation-memory events — only fresh Google list + explicit self id.
+ */
+export function resolveScheduleConflictIgnoreEventId(params: {
+  operation: 'create' | 'update';
+  updateEventId?: string | null;
+  selfCreatedEventId?: string | null;
+  currentOperationEventId?: string | null;
+}): string | null {
+  if (params.operation === 'create') {
+    return params.selfCreatedEventId ?? null;
+  }
+
+  return (
+    params.updateEventId ??
+    params.selfCreatedEventId ??
+    params.currentOperationEventId ??
+    null
+  );
 }

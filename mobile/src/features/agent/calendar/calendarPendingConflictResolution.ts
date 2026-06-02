@@ -124,6 +124,9 @@ export function resolvePickedAlternativeStartMs(
   const normalized = reply.trim();
   const bareIndex = normalized.match(/^([1-9])$/);
   const labeledIndex = normalized.match(/^(?:вариант|option|варіант)\s+([1-9])$/iu);
+  const ordinalIndex = normalized.match(
+    /^(?:первый|перший|перша|first|второй|second|третий|третій|third|другой|другий|another)$/iu,
+  );
 
   const indexRaw = labeledIndex?.[1] ?? bareIndex?.[1];
 
@@ -131,6 +134,30 @@ export function resolvePickedAlternativeStartMs(
     const index = Number(indexRaw) - 1;
 
     if (index >= 0 && index < alternatives.length) {
+      return alternatives[index];
+    }
+  }
+
+  if (ordinalIndex) {
+    const word = ordinalIndex[0].toLowerCase();
+    const ordinalMap: Record<string, number> = {
+      первый: 0,
+      перша: 0,
+      перший: 0,
+      first: 0,
+      второй: 1,
+      second: 1,
+      другой: 1,
+      другий: 1,
+      another: 1,
+      третий: 2,
+      третій: 2,
+      third: 2,
+    };
+
+    const index = ordinalMap[word];
+
+    if (index !== undefined && index >= 0 && index < alternatives.length) {
       return alternatives[index];
     }
   }
@@ -238,7 +265,11 @@ export function resolvePendingConflictResolution(params: {
 
   if (
     pickedStartMs &&
-    (/^[1-9]$/u.test(normalized) || /^(?:вариант|option|варіант)\s+[1-9]$/iu.test(normalized))
+    (/^[1-9]$/u.test(normalized) ||
+      /^(?:вариант|option|варіант)\s+[1-9]$/iu.test(normalized) ||
+      /^(?:первый|перший|перша|first|второй|second|третий|третій|third|другой|другий|another)$/iu.test(
+        normalized,
+      ))
   ) {
     return { kind: 'pick_alternative', startMs: pickedStartMs };
   }

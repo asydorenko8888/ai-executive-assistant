@@ -118,7 +118,7 @@ describe('pending conflict resolution', () => {
     }
   });
 
-  it('resolves нет as suggest alternatives (not cancel)', () => {
+  it('resolves нет as suggest alternatives without creating', () => {
     assert.equal(resolveWithReply('нет').kind, 'suggest_alternatives');
   });
 

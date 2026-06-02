@@ -1,9 +1,14 @@
 import type { CalendarPendingAction } from '@/src/features/agent/calendar/calendarConversationState';
 import {
+  getCalendarConversationSnapshot,
+  isCalendarConflictDecisionState,
+} from '@/src/features/agent/calendar/calendarConversationState';
+import {
   CONVERSATION_CONTEXT_MAX_TURNS,
   isCalendarConversationContextFresh,
   touchCalendarConversationContext,
 } from '@/src/features/agent/calendar/calendarConversationContext';
+import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 
 export type PendingIntentType = 'CREATE_EVENT' | 'MOVE_EVENT' | 'DELETE_EVENT';
 
@@ -112,6 +117,17 @@ export function mergeTranscriptWithPendingIntent(transcript: string) {
 
   if (!normalized) {
     return pending.sourceTranscript;
+  }
+
+  // Never merge yes/no/cancel replies — that reconstitutes a create command and triggers createEvent().
+  if (isBareCalendarShortReply(normalized)) {
+    return normalized;
+  }
+
+  const snapshot = getCalendarConversationSnapshot();
+
+  if (isCalendarConflictDecisionState(snapshot.state)) {
+    return normalized;
   }
 
   return `${pending.sourceTranscript} ${normalized}`.replace(/\s+/g, ' ').trim();

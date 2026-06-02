@@ -8,7 +8,7 @@ const CONFLICT_DECLINE =
   /^(?:please\s+)?(?:no|nope|ні|нет|не)(?:[,.!\s]|$)/iu;
 
 const CONFLICT_CANCEL =
-  /^(?:please\s+)?(?:cancel|don't|do\s+not|не\s+надо|не\s+треба|скасуй|отмена|отмени|отменить)(?:[,.!\s]|$)/iu;
+  /^(?:please\s+)?(?:cancel|don't|do\s+not|не\s+надо|не\s+треба|скасуй|скасувати|отмена|отмени|отменить)(?:[,.!\s]|$)/iu;
 
 const CONFLICT_SUGGEST_SLOTS =
   /(?:suggest|another\s+time|free\s+slot|available\s+time|вільн|свободн|подбери\s+время|запропонуй\s+час|предложи\s+другое\s+время|другое\s+время|другой\s+время|інший\s+час)/iu;

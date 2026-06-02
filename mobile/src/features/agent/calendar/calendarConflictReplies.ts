@@ -148,14 +148,14 @@ export function buildCalendarConflictAlternativesOnlyReply(params: {
   const numbered = params.optionLabels.slice(0, 3).map((label, index) => `${index + 1}. ${label}`);
 
   if (params.locale === 'uk') {
-    return `Добре. Можу запропонувати:\n${numbered.join('\n')}\nАбо назвіть свій час.`;
+    return `Гаразд, не створюю поверх конфлікту. Можу запропонувати:\n${numbered.join('\n')}\nАбо назвіть свій час.`;
   }
 
   if (params.locale === 'ru') {
-    return `Хорошо. Могу предложить:\n${numbered.join('\n')}\nИли назовите своё время.`;
+    return `Ок, не создаю поверх конфликта. Могу предложить:\n${numbered.join('\n')}\nИли назовите своё время.`;
   }
 
-  return `Okay. I can suggest:\n${numbered.join('\n')}\nOr name your own time.`;
+  return `Okay, I won't create over the conflict. I can suggest:\n${numbered.join('\n')}\nOr name your own time.`;
 }
 
 export function formatConflictSlotLabelWithDay(params: {

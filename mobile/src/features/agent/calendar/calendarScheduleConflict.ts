@@ -2,7 +2,7 @@ import type { CalendarEvent } from '@/src/entities/calendar/types';
 import {
   fetchGoogleCalendarEventsFromBackend,
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
-import { findConflictingTimedEvents } from '@/src/features/agent/calendar/calendarScheduleConflictCore';
+import { findConflictingTimedEvents, scheduleIntervalsOverlap } from '@/src/features/agent/calendar/calendarScheduleConflictCore';
 import {
   getExecutiveCalendarTimezone,
   getZonedDayRange,
@@ -13,6 +13,8 @@ import { parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calend
 export type { CalendarScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflictCore';
 export {
   findConflictingTimedEvents,
+  resolveScheduleConflictIgnoreEventId,
+  scheduleIntervalsOverlap,
   scheduleWindowsOverlap,
 } from '@/src/features/agent/calendar/calendarScheduleConflictCore';
 
@@ -92,8 +94,7 @@ export async function fetchTimedEventsNearScheduleWindow(params: {
       const endMs = parseGoogleCalendarInstant(event.endsAt)!;
 
       if (
-        params.proposedStartMs < endMs &&
-        startMs < params.proposedEndMs
+        scheduleIntervalsOverlap(params.proposedStartMs, params.proposedEndMs, startMs, endMs)
       ) {
         collected.set(event.id, event);
       }

@@ -157,10 +157,6 @@ export function classifyPendingCalendarReply(transcript: string): PendingReplyCl
     return 'alternate_time';
   }
 
-  if (isCalendarConflictDecisionState(snapshot.state) && snapshot.pendingAction) {
-    return 'alternate_time';
-  }
-
   return 'unrelated';
 }
 

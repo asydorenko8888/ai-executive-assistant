@@ -10,11 +10,11 @@ import {
 } from '@/src/features/agent/calendar/calendarConversationSync';
 import { pendingConflictContextFromCheck } from '@/src/features/agent/calendar/calendarConflictPendingContext';
 import { checkCalendarScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflict';
+import { resolveScheduleConflictIgnoreEventId } from '@/src/features/agent/calendar/calendarScheduleConflictCore';
 import {
   createCalendarToolFailure,
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
-import { getConversationEventMemory } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { getCurrentCalendarOperationEventId, setPendingCalendarConflictContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -40,12 +40,12 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
   /** When true, offer numbered alternatives immediately (after user declined force-create). */
   offerAlternativesImmediately?: boolean;
 }): Promise<CalendarScheduleConflictBlock | null> {
-  const ignoreEventId =
-    params.updateEventId ??
-    params.selfCreatedEventId ??
-    getCurrentCalendarOperationEventId() ??
-    getConversationEventMemory().lastCreatedEvent?.eventId ??
-    null;
+  const ignoreEventId = resolveScheduleConflictIgnoreEventId({
+    operation: params.operation,
+    updateEventId: params.updateEventId,
+    selfCreatedEventId: params.selfCreatedEventId,
+    currentOperationEventId: getCurrentCalendarOperationEventId(),
+  });
 
   const check = await checkCalendarScheduleConflict({
     referenceNow: params.referenceNow,

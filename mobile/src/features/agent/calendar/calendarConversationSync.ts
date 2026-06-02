@@ -145,7 +145,7 @@ export function syncConversationStateForConflictAlternatives(
   };
 
   transitionCalendarConversationState({
-    toState: 'WAITING_CONFLICT_RESOLUTION',
+    toState: 'WAITING_ALTERNATIVE_SLOT',
     pendingAction,
     reason: 'conflict_alternatives_offered',
   });

@@ -30,8 +30,10 @@ import {
   logCalendarConversationEvent,
   mapPendingActionTypeToCommandIntent,
   transitionCalendarConversationState,
+  type CalendarConversationState,
   type CalendarPendingAction,
 } from '@/src/features/agent/calendar/calendarConversationState';
+import { getConversationEventMemory } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import {
   buildConflictFollowUpTranscript,
   buildRetriedTranscriptFromStartMs,
@@ -271,12 +273,32 @@ async function executePendingMutation(params: {
   });
 }
 
+function logWaitingConflictConfirmation(params: {
+  conversationState: CalendarConversationState;
+  userText: string;
+  decision: 'approve' | 'reject' | 'cancel' | 'suggest_alternatives' | 'alternate_time' | 'remind' | 'other';
+  pending: CalendarPendingAction;
+}) {
+  if (
+    params.conversationState !== 'WAITING_CONFLICT_CONFIRMATION' &&
+    params.conversationState !== 'WAITING_CONFLICT_DECISION'
+  ) {
+    return;
+  }
+
+  console.log('WAITING_CONFLICT_CONFIRMATION');
+  console.log('User response:', params.userText);
+  console.log('Decision:', params.decision);
+  console.log('pendingEvent:', getConversationEventMemory().pendingEvent);
+}
+
 async function handleConflictDecisionState(params: {
   pending: CalendarPendingAction;
   transcript: string;
   referenceNow: Date;
   calendarConnected: boolean;
   classification: ReturnType<typeof classifyPendingCalendarReply>;
+  conversationState: CalendarConversationState;
 }) {
   const intent = mapPendingActionTypeToCommandIntent(params.pending.action);
   const resolution = resolvePendingConflictResolution({
@@ -284,6 +306,25 @@ async function handleConflictDecisionState(params: {
     transcript: params.transcript,
     classification: params.classification,
     referenceNow: params.referenceNow,
+  });
+
+  logWaitingConflictConfirmation({
+    conversationState: params.conversationState,
+    userText: params.transcript,
+    decision:
+      resolution.kind === 'execute_original' ||
+      resolution.kind === 'execute_with_schedule' ||
+      resolution.kind === 'execute_with_time' ||
+      resolution.kind === 'pick_alternative'
+        ? 'approve'
+        : resolution.kind === 'cancel'
+          ? 'reject'
+          : resolution.kind === 'suggest_alternatives'
+            ? 'reject'
+            : resolution.kind === 'remind'
+              ? 'remind'
+              : 'other',
+    pending: params.pending,
   });
 
   console.log('[PENDING CONFLICT RESOLUTION]');
@@ -341,7 +382,7 @@ async function handleConflictDecisionState(params: {
         syncConversationStateForConflictAlternatives(conflictLegacy, alternativeStartMs);
       } else {
         transitionCalendarConversationState({
-          toState: 'WAITING_CONFLICT_RESOLUTION',
+          toState: 'WAITING_ALTERNATIVE_SLOT',
           pendingAction: {
             ...params.pending,
             alternativeStartMs,
@@ -545,6 +586,7 @@ async function handleMoveConfirmation(params: {
     referenceNow: params.referenceNow,
     calendarConnected: params.calendarConnected,
     classification: params.classification,
+    conversationState: getCalendarConversationSnapshot().state,
   });
 }
 
@@ -599,6 +641,7 @@ export async function handleCalendarConversationTurn(params: {
     case 'WAITING_CONFLICT_DECISION':
     case 'WAITING_CONFLICT_CONFIRMATION':
     case 'WAITING_ALTERNATIVE_SELECTION':
+    case 'WAITING_ALTERNATIVE_SLOT':
     case 'WAITING_EVENT_CONFIRMATION':
     case 'WAITING_NEW_TIME':
       result = await handleConflictDecisionState({
@@ -607,6 +650,7 @@ export async function handleCalendarConversationTurn(params: {
         referenceNow: params.referenceNow,
         calendarConnected: params.calendarConnected,
         classification,
+        conversationState: snapshot.state,
       });
       break;
     case 'WAITING_DELETE_CONFIRMATION':

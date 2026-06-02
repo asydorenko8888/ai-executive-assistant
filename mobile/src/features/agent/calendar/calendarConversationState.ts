@@ -14,6 +14,7 @@ export type CalendarConversationState =
   | 'WAITING_CONFLICT_DECISION'
   | 'WAITING_CONFLICT_CONFIRMATION'
   | 'WAITING_ALTERNATIVE_SELECTION'
+  | 'WAITING_ALTERNATIVE_SLOT'
   | 'WAITING_EVENT_CONFIRMATION'
   | 'WAITING_EVENT_SELECTION'
   | 'WAITING_NEW_TIME'
@@ -26,6 +27,7 @@ export function isCalendarConflictDecisionState(state: CalendarConversationState
     state === 'WAITING_CONFLICT_DECISION' ||
     state === 'WAITING_CONFLICT_CONFIRMATION' ||
     state === 'WAITING_ALTERNATIVE_SELECTION' ||
+    state === 'WAITING_ALTERNATIVE_SLOT' ||
     state === 'WAITING_NEW_TIME'
   );
 }

@@ -57,7 +57,7 @@ export async function buildCreateConflictAlternativesBundle(params: {
     const normalized = normalizeCalendarEvents(events, timeZone);
     const slots = getFreeWindows(normalized, day, params.referenceNow, durationMinutes);
     optionLabels = slots
-      .slice(0, 2)
+      .slice(0, 3)
       .map((slot) =>
         formatConflictSlotLabelWithDay({
           slot,
