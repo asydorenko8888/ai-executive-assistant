@@ -44,5 +44,9 @@ export function isPendingConflictTimeFollowUp(transcript: string) {
     return true;
   }
 
+  if (/(?:хорош(?:ий|ая|е)\s+вариант|подходит|отлично)/iu.test(normalized)) {
+    return true;
+  }
+
   return false;
 }

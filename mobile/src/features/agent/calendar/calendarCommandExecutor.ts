@@ -113,7 +113,7 @@ export async function executeCalendarCommand(params: {
 
     if (inConflictDecision) {
       const conversationTurn = await handleCalendarConversationTurn({
-        transcript: enrichedTranscript,
+        transcript: params.transcript,
         languageCode: params.languageCode,
         referenceNow: params.referenceNow,
         titleSourceTranscript: params.titleSourceTranscript,

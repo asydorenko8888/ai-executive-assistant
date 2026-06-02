@@ -24,8 +24,9 @@
     "test:calendar-conflict": "npx tsx --test src/features/agent/calendar/calendarScheduleConflict.test.ts src/features/agent/calendar/calendarCreateConflictDetection.test.ts src/features/agent/calendar/calendarConflictConfirmation.test.ts src/features/agent/calendar/calendarConflictRejectionFlow.test.ts src/features/agent/calendar/calendarConflictAlternativeSlots.test.ts",
     "test:calendar-conversation": "npx tsx --test src/features/agent/calendar/calendarConversationState.test.ts src/features/agent/calendar/calendarPendingReplyClassifier.test.ts",
     "test:calendar-create-intent": "npx tsx --test src/features/agent/calendar/calendarCreateByTitleTime.test.ts",
+    "test:calendar-create-recurrence": "npx tsx --test src/features/agent/calendar/calendarCreateRecurrence.test.ts",
     "test:calendar-spoken-time": "npx tsx --test src/features/agent/calendar/calendarSpokenTime.test.ts",
-    "test:calendar-conflict-resolution": "npx tsx --test src/features/agent/calendar/calendarConflictResolution.test.ts",
+    "test:calendar-conflict-resolution": "npx tsx --test src/features/agent/calendar/calendarConflictResolution.test.ts src/features/agent/calendar/calendarConversationState.test.ts",
     "test:calendar-event-memory": "npx tsx --test src/features/agent/calendar/calendarConversationEventMemory.test.ts src/features/agent/calendar/calendarEventReferenceTokens.test.ts src/features/agent/calendar/calendarConversationMemorySchedule.test.ts src/features/agent/calendar/calendarPendingIntent.test.ts src/features/agent/calendar/calendarConversationContextRetention.test.ts",
     "test:calendar-conflict-ux": "npx tsx --test src/features/agent/calendar/calendarConflictUx.test.ts",
     "test:calendar-time-range": "npx tsx --test src/features/agent/calendar/calendarTimeRange.test.ts"

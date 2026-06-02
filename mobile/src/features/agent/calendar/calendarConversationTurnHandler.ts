@@ -665,14 +665,15 @@ export async function handleCalendarConversationTurn(params: {
   const inConflictWorkflow = isCalendarConflictDecisionState(snapshot.state);
   let effectiveTranscript = params.transcript;
 
+  const classification = classifyPendingCalendarReply(params.transcript);
+
   if (
     inConflictWorkflow &&
-    !isExplicitDifferentCalendarCommand(params.transcript, pending)
+    !isExplicitDifferentCalendarCommand(params.transcript, pending) &&
+    classification === 'alternate_time'
   ) {
     effectiveTranscript = enrichTranscriptForActivePendingConflict(params.transcript, pending);
   }
-
-  const classification = classifyPendingCalendarReply(effectiveTranscript);
 
   logPendingReplyClassified({
     transcript: effectiveTranscript,

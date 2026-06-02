@@ -1,7 +1,11 @@
 import { applyCalendarCreatePastTimeGuard } from '@/src/features/agent/calendar/calendarCreatePastTimeGuard';
 import type { CalendarConflictLocale } from '@/src/features/agent/calendar/calendarConflictReplies';
+import {
+  applyRecurrenceToCreateSchedule,
+  parseCalendarCreateScheduleWithRecurrence,
+  type ParsedCalendarRecurrence,
+} from '@/src/features/agent/calendar/calendarCreateRecurrenceParser';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
-import { parseCalendarPointSchedule } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 
 export type CalendarCreateScheduleResult =
   | {
@@ -10,6 +14,7 @@ export type CalendarCreateScheduleResult =
       endMs: number;
       hasExplicitTime: true;
       explicitDayOffset: number;
+      recurrence?: ParsedCalendarRecurrence;
     }
   | {
       ok: false;
@@ -23,17 +28,36 @@ export function parseCalendarCreateSchedule(
   timeZone = getExecutiveCalendarTimezone(),
   locale?: CalendarConflictLocale,
 ): CalendarCreateScheduleResult {
-  const parsed = parseCalendarPointSchedule(transcript, referenceNow, timeZone);
-
-  if (!parsed.ok) {
-    return parsed;
-  }
-
-  return applyCalendarCreatePastTimeGuard({
+  const { recurrence, scheduleText, pointSchedule } = parseCalendarCreateScheduleWithRecurrence(
     transcript,
     referenceNow,
-    schedule: parsed,
+    timeZone,
+  );
+
+  if (!pointSchedule.ok) {
+    return pointSchedule;
+  }
+
+  const schedule = recurrence
+    ? applyRecurrenceToCreateSchedule({
+        schedule: pointSchedule,
+        recurrence,
+        referenceNow,
+        timeZone,
+      })
+    : pointSchedule;
+
+  const guarded = applyCalendarCreatePastTimeGuard({
+    transcript: scheduleText,
+    referenceNow,
+    schedule,
     timeZone,
     locale,
   });
+
+  if (!guarded.ok) {
+    return guarded;
+  }
+
+  return recurrence ? { ...guarded, recurrence } : guarded;
 }

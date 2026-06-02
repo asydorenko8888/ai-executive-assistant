@@ -1,6 +1,7 @@
 import type { CalendarCreateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import { extractCreateEventTitle } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
 import { applyCalendarCreatePastTimeGuard } from '@/src/features/agent/calendar/calendarCreatePastTimeGuard';
+import { extractCalendarCreateRecurrence } from '@/src/features/agent/calendar/calendarCreateRecurrenceParser';
 import { parseCalendarCreateSchedule } from '@/src/features/agent/calendar/calendarCreateScheduleParser';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import {
@@ -115,6 +116,7 @@ export function buildCalendarCreateEventPayload(params: {
   const location = extractCalendarEventLocation(params.transcript);
   const summary = extraction.title;
   const durationMs = schedule.endMs - schedule.startMs;
+  const recurrenceRrule = extractCalendarCreateRecurrence(params.transcript)?.recurrence.rrule;
 
   const payload: CalendarCreateEventPayload = {
     summary,
@@ -127,6 +129,7 @@ export function buildCalendarCreateEventPayload(params: {
       dateTime: formatGoogleDateTimeFromUtcMs(schedule.endMs, timeZone),
       timeZone,
     },
+    recurrence: recurrenceRrule ? [recurrenceRrule] : undefined,
   };
 
   const parsedForLog = {

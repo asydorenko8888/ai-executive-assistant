@@ -1,3 +1,10 @@
+import {
+  isBareConflictProceedReply,
+  isConflictSlotAcceptanceOnly,
+  isConflictSlotSelectionReply,
+  resolveConflictSlotOrdinalIndex,
+  stripConflictSlotReplyNoise,
+} from '@/src/features/agent/calendar/calendarConflictSlotReply';
 import { parseCalendarCreateSchedule } from '@/src/features/agent/calendar/calendarCreateScheduleParser';
 import type { CalendarPendingAction } from '@/src/features/agent/calendar/calendarConversationState';
 import type { PendingReplyClassification } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
@@ -124,50 +131,16 @@ export function resolvePickedAlternativeStartMs(
   alternatives: number[],
   referenceNow = new Date(),
 ) {
-  const normalized = reply.trim();
-  const bareIndex = normalized.match(/^([1-9])$/);
-  const labeledIndex = normalized.match(/^(?:вариант|option|варіант)\s+([1-9])$/iu);
-  const ordinalIndex = normalized.match(
-    /^(?:первый|перший|перша|first|второй|second|третий|третій|third|другой|другий|another)$/iu,
-  );
+  const normalized = stripConflictSlotReplyNoise(reply.trim());
+  const ordinalIndex = resolveConflictSlotOrdinalIndex(reply.trim());
 
-  const indexRaw = labeledIndex?.[1] ?? bareIndex?.[1];
-
-  if (indexRaw) {
-    const index = Number(indexRaw) - 1;
-
-    if (index >= 0 && index < alternatives.length) {
-      return alternatives[index];
-    }
-  }
-
-  if (ordinalIndex) {
-    const word = ordinalIndex[0].toLowerCase();
-    const ordinalMap: Record<string, number> = {
-      первый: 0,
-      перша: 0,
-      перший: 0,
-      first: 0,
-      второй: 1,
-      second: 1,
-      другой: 1,
-      другий: 1,
-      another: 1,
-      третий: 2,
-      третій: 2,
-      third: 2,
-    };
-
-    const index = ordinalMap[word];
-
-    if (index !== undefined && index >= 0 && index < alternatives.length) {
-      return alternatives[index];
-    }
+  if (ordinalIndex !== null && ordinalIndex >= 0 && ordinalIndex < alternatives.length) {
+    return alternatives[ordinalIndex];
   }
 
   const timeZone = getExecutiveCalendarTimezone();
 
-  if (!hasSchedulableTimeReply(normalized)) {
+  if (!normalized || !hasSchedulableTimeReply(normalized)) {
     return null;
   }
 
@@ -240,8 +213,10 @@ export function resolvePendingConflictResolution(params: {
   referenceNow: Date;
 }): PendingConflictResolution {
   const normalized = params.transcript.trim();
+  const scheduleFragment = stripConflictSlotReplyNoise(normalized) || normalized;
   const short = classifyCalendarShortReply(normalized);
   const alternatives = params.pending.alternativeStartMs ?? [];
+  const hasSuggestedSlots = alternatives.length > 0;
 
   if (params.classification === 'rejection' || short === 'cancel_abort') {
     return { kind: 'cancel' };
@@ -260,8 +235,46 @@ export function resolvePendingConflictResolution(params: {
     return { kind: 'suggest_alternatives' };
   }
 
-  if (params.classification === 'confirmation' || short === 'proceed') {
+  const bareProceed =
+    (params.classification === 'confirmation' || short === 'proceed') &&
+    isBareConflictProceedReply(normalized);
+
+  if (bareProceed) {
     return { kind: 'execute_original', skipScheduleConflictCheck: true };
+  }
+
+  if (
+    params.classification === 'alternate_time' ||
+    hasSchedulableTimeReply(scheduleFragment) ||
+    isConflictSlotSelectionReply(normalized)
+  ) {
+    const transcript = buildConflictFollowUpTranscript(params.pending, scheduleFragment);
+    const schedule = parseFollowUpSchedule(transcript, params.referenceNow);
+
+    if (schedule.ok) {
+      if (hasSuggestedSlots) {
+        const matchedSlot = resolvePickedAlternativeStartMs(
+          scheduleFragment,
+          alternatives,
+          params.referenceNow,
+        );
+
+        if (matchedSlot !== null) {
+          return { kind: 'pick_alternative', startMs: matchedSlot };
+        }
+      }
+
+      if (params.pending.action === 'CREATE_EVENT') {
+        return {
+          kind: 'execute_with_schedule',
+          startMs: schedule.startMs,
+          endMs: schedule.endMs,
+          explicitDayOffset: schedule.explicitDayOffset,
+        };
+      }
+
+      return { kind: 'execute_with_time', transcript };
+    }
   }
 
   const vaguePeriod = detectVagueConflictTimePeriod(normalized);
@@ -274,41 +287,16 @@ export function resolvePendingConflictResolution(params: {
     return { kind: 'suggest_alternatives', preferredRange: vaguePeriod };
   }
 
-  const pickedStartMs = resolvePickedAlternativeStartMs(normalized, alternatives, params.referenceNow);
+  const pickedStartMs = hasSuggestedSlots
+    ? resolvePickedAlternativeStartMs(normalized, alternatives, params.referenceNow)
+    : null;
 
-  if (
-    pickedStartMs &&
-    (/^[1-9]$/u.test(normalized) ||
-      /^(?:вариант|option|варіант)\s+[1-9]$/iu.test(normalized) ||
-      /^(?:первый|перший|перша|first|второй|second|третий|третій|third|другой|другий|another)$/iu.test(
-        normalized,
-      ))
-  ) {
+  if (pickedStartMs !== null && hasSuggestedSlots) {
     return { kind: 'pick_alternative', startMs: pickedStartMs };
   }
 
-  if (params.classification === 'alternate_time' || hasSchedulableTimeReply(normalized)) {
-    const transcript = buildConflictFollowUpTranscript(params.pending, normalized);
-    const schedule = parseFollowUpSchedule(transcript, params.referenceNow);
-
-    if (!schedule.ok) {
-      return { kind: 'remind' };
-    }
-
-    if (params.pending.action === 'CREATE_EVENT') {
-      return {
-        kind: 'execute_with_schedule',
-        startMs: schedule.startMs,
-        endMs: schedule.endMs,
-        explicitDayOffset: schedule.explicitDayOffset,
-      };
-    }
-
-    return { kind: 'execute_with_time', transcript };
-  }
-
-  if (pickedStartMs) {
-    return { kind: 'pick_alternative', startMs: pickedStartMs };
+  if (hasSuggestedSlots && isConflictSlotAcceptanceOnly(normalized)) {
+    return { kind: 'pick_alternative', startMs: alternatives[0] };
   }
 
   return { kind: 'remind' };

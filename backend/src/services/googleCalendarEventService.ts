@@ -14,6 +14,7 @@ export type CreateGoogleCalendarEventBody = {
   location?: string;
   start: { dateTime: string; timeZone: string };
   end: { dateTime: string; timeZone: string };
+  recurrence?: string[];
 };
 
 export type UpdateGoogleCalendarEventBody = {
@@ -308,6 +309,7 @@ export async function createGoogleCalendarEventForDevice(
         location: payload.location,
         start: payload.start,
         end: payload.end,
+        recurrence: payload.recurrence,
       }),
     },
     'events.insert',

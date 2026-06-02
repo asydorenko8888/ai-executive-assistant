@@ -92,6 +92,12 @@ export function isCalendarConversationAwaitingInput() {
   return snapshot.state !== 'IDLE' && snapshot.pendingAction !== null;
 }
 
+export function isAwaitingCalendarConflictResolution() {
+  return (
+    isCalendarConversationAwaitingInput() && isCalendarConflictDecisionState(snapshot.state)
+  );
+}
+
 export function logCalendarConversationEvent(payload: {
   event: 'incoming' | 'transition' | 'handled' | 'reset';
   incomingMessage?: string;

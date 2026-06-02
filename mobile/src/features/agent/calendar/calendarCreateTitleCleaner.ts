@@ -1,3 +1,4 @@
+import { CALENDAR_RECURRENCE_TITLE_STRIP_PATTERN } from '@/src/features/agent/calendar/calendarCreateRecurrenceParser';
 import { stripSpokenTimePhrases } from '@/src/features/agent/calendar/calendarSpokenTime';
 import { stripCalendarClockPhrases } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import { stripNaturalDatePhrases } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
@@ -46,6 +47,12 @@ const LEADING_ARTICLE = /^(?:a|an|the)\s+/iu;
 const TRAILING_SCHEDULE_PREP = /\s+(?:at|on|in|by|after|before|within|@|о|в|на)$/iu;
 
 const LEADING_SCHEDULE_PREP = /^(?:at|on|in|by|after|before|within|@|о|в|на)\s+/iu;
+
+/** Colloquial lead-ins and create verbs that must not appear in event titles. */
+const TITLE_CONVERSATIONAL_FILLER = new RegExp(
+  `${CALENDAR_WORD_EDGE}(?:совсем\\s+забыл|чуть\\s+не\\s+забыл|кстати|ой|добав(?:ь|ьте|ить)|додай|додати|постав(?:ь|ить)?|створи|создай|создать|запланируй|заплануй)${CALENDAR_WORD_END}`,
+  'giu',
+);
 
 const TITLE_MINOR_WORDS = new Set([
   'a',
@@ -138,6 +145,10 @@ function normalizeAccusativeWord(word: string) {
     return `${word.slice(0, -1)}а`;
   }
 
+  if (/^[A-Za-zА-Яа-яЁёІіЇїЄє'-]+ю$/u.test(word)) {
+    return `${word.slice(0, -1)}я`;
+  }
+
   return word;
 }
 
@@ -187,8 +198,14 @@ function stripLeadingArticles(text: string) {
   return cleaned;
 }
 
+function stripTitleConversationalFillers(text: string) {
+  return text.replace(TITLE_CONVERSATIONAL_FILLER, ' ').replace(/\s+/g, ' ').trim();
+}
+
 export function cleanCreateEventTitleText(text: string) {
   let cleaned = text.trim();
+  cleaned = stripTitleConversationalFillers(cleaned);
+  cleaned = cleaned.replace(CALENDAR_RECURRENCE_TITLE_STRIP_PATTERN, ' ');
   cleaned = stripSpokenTimePhrases(cleaned);
   cleaned = stripCalendarClockPhrases(cleaned);
   cleaned = stripNaturalDatePhrases(cleaned);
@@ -210,6 +227,7 @@ export function cleanCreateEventTitleText(text: string) {
   cleaned = stripOrphanSchedulePrepositions(cleaned);
   cleaned = cleaned.replace(/^[\s,.:;!\-—]+|[\s,.:;!\-—]+$/gu, '');
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  cleaned = stripTitleConversationalFillers(cleaned);
   cleaned = normalizeAccusativeTitle(cleaned);
 
   if (cleaned.length < 2) {

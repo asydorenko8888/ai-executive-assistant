@@ -127,6 +127,21 @@ describe('calendar create integration', () => {
     }
   });
 
+  it('strips conversational filler and create verbs from title', () => {
+    assert.equal(
+      extractCreateEventTitle('Совсем забыл, добавь звонок Николаю сегодня на 5 вечера'),
+      'Звонок Николаю',
+    );
+    assert.equal(
+      extractCreateEventTitle('Ой, кстати, поставь встречу с Анной завтра в 10 утра'),
+      'Встреча с Анной',
+    );
+    assert.equal(
+      extractCreateEventTitle('Чуть не забыл, створи каву завтра о 9:00'),
+      'Кава',
+    );
+  });
+
   it('does not leak previous user message into title when titleSource is current message only', () => {
     const previousCommand = 'Добавь прогулку сегодня в 20:00';
     const currentCommand = 'додай каву завтра в 9:30 ранку';

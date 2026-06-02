@@ -10,7 +10,10 @@ import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntel
 import { mergeActionContextFromHistory, isActionContinuation } from '@/src/features/agent/intent/actionContextMerge';
 import type { AssistantIntentAnalysis } from '@/src/features/agent/intent/assistantIntentRouter';
 import { requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
-import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calendar/calendarConversationState';
+import {
+  isAwaitingCalendarConflictResolution,
+  isCalendarConversationAwaitingInput,
+} from '@/src/features/agent/calendar/calendarConversationState';
 import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import { getPendingCalendarConflictContext } from '@/src/features/agent/execution/calendarExecutionSession';
@@ -183,7 +186,11 @@ export function resolveAssistantBehavior(params: {
   };
 
   if (explicitAction || fieldValidation.actionKind !== 'none') {
-    if (!fieldValidation.readyToExecute && fieldValidation.actionKind !== 'none') {
+    if (
+      !fieldValidation.readyToExecute &&
+      fieldValidation.actionKind !== 'none' &&
+      !isAwaitingCalendarConflictResolution()
+    ) {
       const clarificationReply = buildClarificationQuestion({
         missingFields: fieldValidation.missingFields,
         languageCode: params.languageCode,

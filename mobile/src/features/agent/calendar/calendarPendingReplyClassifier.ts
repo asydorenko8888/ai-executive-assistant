@@ -3,6 +3,7 @@ import {
   isExplicitDifferentCalendarCommand,
   referencesPendingEventTitle,
 } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
+import { isConflictSlotSelectionReply } from '@/src/features/agent/calendar/calendarConflictSlotReply';
 import { isPendingConflictTimeFollowUp } from '@/src/features/agent/calendar/calendarTemporalWords';
 import {
   getCalendarConversationSnapshot,
@@ -148,6 +149,7 @@ export function classifyPendingCalendarReply(transcript: string): PendingReplyCl
     snapshot.pendingAction &&
     (looksLikeAlternateTimeReply(normalized) ||
       isConflictTimeFollowUp(normalized) ||
+      isConflictSlotSelectionReply(normalized) ||
       referencesPendingEventTitle(normalized, snapshot.pendingAction.eventTitle))
   ) {
     return 'alternate_time';

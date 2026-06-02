@@ -64,6 +64,7 @@ type CreateCalendarEventRequest = {
   location?: string;
   start: { dateTime: string; timeZone: string };
   end: { dateTime: string; timeZone: string };
+  recurrence?: string[];
 };
 
 type UpdateCalendarEventRequest = {
@@ -180,6 +181,10 @@ function parseCreateEventRequest(body: unknown): CreateCalendarEventRequest | nu
     return null;
   }
 
+  const recurrence = Array.isArray(candidate.recurrence)
+    ? candidate.recurrence.filter((rule): rule is string => isNonEmptyString(rule))
+    : undefined;
+
   return {
     summary: candidate.summary.trim(),
     location: candidate.location?.trim() || undefined,
@@ -191,6 +196,7 @@ function parseCreateEventRequest(body: unknown): CreateCalendarEventRequest | nu
       dateTime: candidate.end.dateTime,
       timeZone: candidate.end.timeZone,
     },
+    recurrence: recurrence?.length ? recurrence : undefined,
   };
 }
 

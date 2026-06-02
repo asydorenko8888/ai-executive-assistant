@@ -1,5 +1,6 @@
 import { parseOperationalScheduleHint } from '@/src/features/agent/calendar/operationalScheduleParser';
 import { extractCreateEventTitle } from '@/src/features/agent/calendar/calendarCreateIntentExtractor';
+import { extractCalendarCreateRecurrence } from '@/src/features/agent/calendar/calendarCreateRecurrenceParser';
 import { parseCalendarCreateSchedule } from '@/src/features/agent/calendar/calendarCreateScheduleParser';
 import {
   isOperationalCalendarCreateRequest,
@@ -349,6 +350,8 @@ export function extractCalendarCommand(params: {
   let explicitDayOffset: number | null = null;
 
   if (intent === 'calendar_create') {
+    const recurrenceExtraction = extractCalendarCreateRecurrence(titleSource);
+    const titleScheduleSource = recurrenceExtraction?.transcriptWithoutRecurrence ?? titleSource;
     const schedule = parseCalendarCreateSchedule(rawInput, params.referenceNow);
     const detectedDate =
       schedule.ok && schedule.explicitDayOffset === 0
@@ -362,7 +365,7 @@ export function extractCalendarCommand(params: {
       ? new Date(schedule.startMs).toISOString().slice(11, 16)
       : null;
 
-    title = extractCreateEventTitle(titleSource, {
+    title = extractCreateEventTitle(titleScheduleSource, {
       detectedDate,
       detectedTime,
     }) ?? '';

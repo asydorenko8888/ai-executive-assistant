@@ -8,6 +8,7 @@ import {
 import {
   buildCalendarPendingAction,
   getCalendarConversationSnapshot,
+  isAwaitingCalendarConflictResolution,
   resetCalendarConversationState,
   transitionCalendarConversationState,
 } from '@/src/features/agent/calendar/calendarConversationState';
@@ -94,5 +95,26 @@ describe('calendar conversation state', () => {
 
     assert.deepEqual(getCalendarConversationSnapshot().pendingAction?.alternativeStartMs, alternatives);
     assert.equal(getCalendarConversationSnapshot().state, 'WAITING_NEW_TIME');
+  });
+
+  it('detects awaiting conflict resolution for alternative slot state', () => {
+    assert.equal(isAwaitingCalendarConflictResolution(), false);
+
+    transitionCalendarConversationState({
+      toState: 'WAITING_ALTERNATIVE_SLOT',
+      pendingAction: buildCalendarPendingAction({
+        actionType: 'create',
+        originalIntent: 'Добавь поход к Николаю 16:00',
+        eventTitle: 'Поход к Николаю',
+        sourceTranscript: 'Добавь поход к Николаю 16:00',
+        languageCode: 'ru-RU',
+        proposedStartMs: Date.parse('2026-06-01T16:00:00-05:00'),
+        proposedEndMs: Date.parse('2026-06-01T17:00:00-05:00'),
+        alternativeStartMs: [Date.parse('2026-06-01T17:00:00-05:00')],
+      }),
+      reason: 'test',
+    });
+
+    assert.equal(isAwaitingCalendarConflictResolution(), true);
   });
 });

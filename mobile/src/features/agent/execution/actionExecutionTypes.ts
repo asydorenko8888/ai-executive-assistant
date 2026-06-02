@@ -29,6 +29,7 @@ export type CalendarCreateEventPayload = {
   location?: string;
   start: { dateTime: string; timeZone: string };
   end: { dateTime: string; timeZone: string };
+  recurrence?: string[];
 };
 
 export type CalendarUpdateEventPayload = {

@@ -11,6 +11,7 @@ import { classifyPendingCalendarReply } from '@/src/features/agent/calendar/cale
 import { normalizeCalendarEventTitle } from '@/src/features/agent/calendar/calendarEventTitleNormalization';
 import {
   buildConflictFollowUpTranscript,
+  buildRetriedTranscriptFromStartMs,
   resolvePendingConflictResolution,
 } from '@/src/features/agent/calendar/calendarPendingConflictResolution';
 import {
@@ -122,17 +123,19 @@ describe('pending conflict resolution', () => {
     assert.equal(resolveWithReply('нет').kind, 'suggest_alternatives');
   });
 
-  it('resolves 21:00 as execute with new time preserving title', () => {
+  it('resolves 21:00 to matching suggested slot preserving title', () => {
     const resolution = resolveWithReply('21:00');
 
-    assert.equal(resolution.kind, 'execute_with_schedule');
+    assert.equal(resolution.kind, 'pick_alternative');
 
-    if (resolution.kind === 'execute_with_schedule') {
-      const minutes = (resolution.startMs - referenceNow.getTime()) / 60_000;
-      assert.ok(minutes > 0);
+    if (resolution.kind === 'pick_alternative') {
+      assert.equal(resolution.startMs, Date.parse('2026-06-01T21:00:00-05:00'));
     }
 
-    const transcript = buildConflictFollowUpTranscript(buildWalkPending(), '21:00');
+    const transcript = buildRetriedTranscriptFromStartMs(
+      buildWalkPending(),
+      Date.parse('2026-06-01T21:00:00-05:00'),
+    );
     assert.match(transcript, /прогулк/i);
   });
 
@@ -212,7 +215,7 @@ describe('pending conflict resolution', () => {
     assert.notEqual(resolveWithReply('да').kind, 'remind');
     assert.notEqual(resolveWithReply('21:00').kind, 'remind');
     assert.equal(resolveWithReply('да').kind, 'execute_original');
-    assert.equal(resolveWithReply('21:00').kind, 'execute_with_schedule');
+    assert.equal(resolveWithReply('21:00').kind, 'pick_alternative');
   });
 
   it('stores conflict decision state with title and alternatives', () => {
@@ -228,6 +231,65 @@ describe('pending conflict resolution', () => {
   it('normalizes accusative event titles', () => {
     assert.equal(normalizeCalendarEventTitle('стоматолога'), 'Стоматолог');
     assert.equal(normalizeCalendarEventTitle('тренировку'), 'Тренировка');
+  });
+
+  it('resolves acceptance phrase with evening time to nearest suggested slot', () => {
+    const pending = buildCalendarPendingAction({
+      actionType: 'create',
+      originalIntent: 'Добавь поход к Николаю 16:00',
+      eventTitle: 'Поход к Николаю',
+      sourceTranscript: 'Добавь поход к Николаю 16:00',
+      titleSourceTranscript: 'Добавь поход к Николаю 16:00',
+      languageCode: 'ru-RU',
+      proposedStartMs: conflictStartMs,
+      proposedEndMs: conflictEndMs,
+      alternativeStartMs: [
+        Date.parse('2026-06-01T17:00:00-05:00'),
+        Date.parse('2026-06-01T17:30:00-05:00'),
+        Date.parse('2026-06-01T18:00:00-05:00'),
+      ],
+      conflictEvents: [
+        {
+          eventId: 'busy',
+          title: 'Busy',
+          startsAt: '2026-06-01T16:00:00-05:00',
+          endsAt: '2026-06-01T17:00:00-05:00',
+        },
+      ],
+    });
+
+    transitionCalendarConversationState({
+      toState: 'WAITING_ALTERNATIVE_SLOT',
+      pendingAction: pending,
+      reason: 'test_slot_pick',
+    });
+
+    const reply = 'Хороший вариант сегодня 5:00 вечера';
+    const resolution = resolvePendingConflictResolution({
+      pending,
+      transcript: reply,
+      classification: classifyPendingCalendarReply(reply),
+      referenceNow,
+    });
+
+    assert.equal(resolution.kind, 'pick_alternative');
+
+    if (resolution.kind === 'pick_alternative') {
+      assert.equal(resolution.startMs, Date.parse('2026-06-01T17:00:00-05:00'));
+    }
+
+    assert.equal(classifyPendingCalendarReply(reply), 'alternate_time');
+  });
+
+  it('resolves второй вариант to second suggested slot', () => {
+    const pending = buildWalkPending();
+    const resolution = resolveWithReply('второй вариант');
+
+    assert.equal(resolution.kind, 'pick_alternative');
+
+    if (resolution.kind === 'pick_alternative') {
+      assert.equal(resolution.startMs, Date.parse('2026-06-01T21:00:00-05:00'));
+    }
   });
 
   it('keeps pending conflict context for title and pronoun follow-ups', () => {
