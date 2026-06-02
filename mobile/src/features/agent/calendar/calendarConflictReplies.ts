@@ -158,6 +158,23 @@ export function buildCalendarConflictAlternativesOnlyReply(params: {
   return `Okay, I won't create over the conflict. I can suggest:\n${numbered.join('\n')}\nOr name your own time.`;
 }
 
+export function buildVagueConflictTimeClarificationReply(params: {
+  locale: CalendarConflictLocale;
+  optionLabels: string[];
+}) {
+  const numbered = params.optionLabels.slice(0, 3).map((label, index) => `${index + 1}. ${label}`);
+
+  if (params.locale === 'uk') {
+    return `Це не точний час. Назвіть конкретний час (наприклад, 14:00) або оберіть вікно:\n${numbered.join('\n')}`;
+  }
+
+  if (params.locale === 'ru') {
+    return `Это не точное время. Назовите конкретное время (например, 14:00) или выберите окно:\n${numbered.join('\n')}`;
+  }
+
+  return `That is not a specific time. Name an exact time (for example, 2:00 PM) or pick a slot:\n${numbered.join('\n')}`;
+}
+
 export function formatConflictSlotLabelWithDay(params: {
   slot: CalendarFreeSlot;
   referenceNow: Date;

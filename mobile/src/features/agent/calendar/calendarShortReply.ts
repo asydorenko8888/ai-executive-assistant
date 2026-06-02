@@ -1,5 +1,5 @@
 const PROCEED_REPLY =
-  /^(?:please\s+)?(?:yes|yeah|yep|ok|okay|sure|да|так|ага|конечно|создай|створи|пусть\s+будет|go\s+ahead|do\s+it|still\s+(?:move|create|schedule|book)|move\s+it\s+anyway|create\s+it\s+anyway|schedule\s+it\s+anyway|все\s+равно|все\s+одно|всё\s+равно)(?:[,.!\s]|$)/iu;
+  /^(?:please\s+)?(?:yes|yeah|yep|ok|okay|sure|да|так|ага|конечно|создай|создавай|створи|пусть\s+будет|go\s+ahead|do\s+it|still\s+(?:move|create|schedule|book)|move\s+it\s+anyway|create\s+it\s+anyway|create\s+anyway|schedule\s+it\s+anyway|все\s+равно|все\s+одно|всё\s+равно)(?:[,.!\s]|$)/iu;
 
 const CANCEL_ABORT_REPLY =
   /^(?:please\s+)?(?:cancel|don't|do\s+not|не\s+надо|не\s+треба|скасуй|скасувати|отмена|отмени|отменить)(?:[,.!\s]|$)/iu;

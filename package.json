@@ -1,0 +1,13 @@
+{
+  "name": "ai-executive-assistant",
+  "private": true,
+  "scripts": {
+    "dev:backend": "npm run dev --prefix backend",
+    "start:backend": "npm run dev --prefix backend",
+    "check:backend": "node scripts/check-backend-health.mjs",
+    "dev": "concurrently --names backend,mobile --prefix-colors blue,green \"npm run dev:backend\" \"npm run start --prefix mobile\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

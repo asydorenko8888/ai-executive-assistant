@@ -3,22 +3,20 @@ import {
   formatConflictSlotLabelWithDay,
   resolveConflictDayOffset,
 } from '@/src/features/agent/calendar/calendarConflictReplies';
+import { buildConflictAlternativeOptionSlots } from '@/src/features/agent/calendar/calendarConflictAlternativeSlots';
 import type { CalendarScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflictCore';
 import { fetchTimedEventsNearScheduleWindow } from '@/src/features/agent/calendar/calendarScheduleConflict';
 import { formatDateKey } from '@/src/features/agent/calendarIntelligence/zonedEventTime';
 import { normalizeCalendarEvents } from '@/src/features/agent/calendarIntelligence/normalizeEvents';
-import { getFreeWindows } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import {
   addDaysToZonedYmd,
   getExecutiveCalendarTimezone,
   getZonedDayRange,
-  getZonedTimeParts,
   getZonedYmd,
-  zonedLocalToUtcMs,
 } from '@/src/features/agent/calendar/calendarTimezone';
 import { parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
 import type { CalendarConflictLocale } from '@/src/features/agent/calendar/calendarConflictReplies';
-import type { CalendarFreeSlot } from '@/src/features/agent/calendarIntelligence/types';
+import type { PreferredTimeRange } from '@/src/features/agent/calendarIntelligence/types';
 
 export async function buildCreateConflictAlternativesBundle(params: {
   locale: CalendarConflictLocale;
@@ -27,6 +25,7 @@ export async function buildCreateConflictAlternativesBundle(params: {
   proposedStartMs: number;
   proposedEndMs: number;
   referenceNow: Date;
+  preferredRange?: PreferredTimeRange;
 }) {
   const timeZone = getExecutiveCalendarTimezone();
   const dayOffset = resolveConflictDayOffset(params.proposedStartMs, params.referenceNow);
@@ -55,56 +54,28 @@ export async function buildCreateConflictAlternativesBundle(params: {
 
   if (fetchOk) {
     const normalized = normalizeCalendarEvents(events, timeZone);
-    const slots = getFreeWindows(normalized, day, params.referenceNow, durationMinutes);
-    optionLabels = slots
-      .slice(0, 3)
-      .map((slot) =>
-        formatConflictSlotLabelWithDay({
-          slot,
-          referenceNow: params.referenceNow,
-          locale: params.locale,
-          timeZone,
-        }),
-      );
+    const slots = buildConflictAlternativeOptionSlots({
+      events: normalized,
+      day,
+      referenceNow: params.referenceNow,
+      durationMinutes,
+      excludeStartMs: params.proposedStartMs,
+      excludeEndMs: params.proposedEndMs,
+      preferredRange: params.preferredRange,
+      conflictEndMs: params.conflict.endsAtMs,
+    });
+
+    optionLabels = slots.map((slot) =>
+      formatConflictSlotLabelWithDay({
+        slot,
+        referenceNow: params.referenceNow,
+        locale: params.locale,
+        timeZone,
+      }),
+    );
     alternativeStartMs = slots
-      .slice(0, 3)
       .map((slot) => parseGoogleCalendarInstant(slot.startISO) ?? 0)
       .filter((value) => value > 0);
-  }
-
-  const tomorrowParts = getZonedTimeParts(new Date(params.proposedStartMs), timeZone);
-  const tomorrowYmd = addDaysToZonedYmd(getZonedYmd(params.referenceNow, timeZone), 1);
-  const tomorrowStartMs = zonedLocalToUtcMs(
-    {
-      ...tomorrowYmd,
-      hour: tomorrowParts.hour,
-      minute: tomorrowParts.minute,
-      second: 0,
-    },
-    timeZone,
-  );
-  const tomorrowEndMs = tomorrowStartMs + durationMinutes * 60_000;
-  const tomorrowStartMinutes = tomorrowParts.hour * 60 + tomorrowParts.minute;
-  const tomorrowSlot: CalendarFreeSlot = {
-    startISO: new Date(tomorrowStartMs).toISOString(),
-    endISO: new Date(tomorrowEndMs).toISOString(),
-    startMinutes: tomorrowStartMinutes,
-    endMinutes: tomorrowStartMinutes + durationMinutes,
-    durationMinutes,
-  };
-  const tomorrowLabel = formatConflictSlotLabelWithDay({
-    slot: tomorrowSlot,
-    referenceNow: params.referenceNow,
-    locale: params.locale,
-    timeZone,
-  });
-
-  if (!optionLabels.includes(tomorrowLabel)) {
-    optionLabels.push(tomorrowLabel);
-  }
-
-  if (!alternativeStartMs.includes(tomorrowStartMs)) {
-    alternativeStartMs.push(tomorrowStartMs);
   }
 
   const reply = buildCalendarConflictAlternativesOnlyReply({

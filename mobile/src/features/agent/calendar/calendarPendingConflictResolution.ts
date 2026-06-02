@@ -2,10 +2,12 @@ import { parseCalendarCreateSchedule } from '@/src/features/agent/calendar/calen
 import type { CalendarPendingAction } from '@/src/features/agent/calendar/calendarConversationState';
 import type { PendingReplyClassification } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
+import { detectVagueConflictTimePeriod } from '@/src/features/agent/calendar/calendarConflictAlternativeSlots';
 import {
   extractCalendarClockFragment,
   parseCalendarPointSchedule,
 } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
+import type { PreferredTimeRange } from '@/src/features/agent/calendarIntelligence/types';
 import {
   getExecutiveCalendarTimezone,
   getZonedTimeParts,
@@ -21,7 +23,8 @@ export type PendingConflictResolution =
       explicitDayOffset: number;
     }
   | { kind: 'cancel' }
-  | { kind: 'suggest_alternatives' }
+  | { kind: 'suggest_alternatives'; preferredRange?: PreferredTimeRange }
+  | { kind: 'suggest_vague_time'; preferredRange?: PreferredTimeRange }
   | { kind: 'pick_alternative'; startMs: number }
   | { kind: 'remind' };
 
@@ -259,6 +262,16 @@ export function resolvePendingConflictResolution(params: {
 
   if (params.classification === 'confirmation' || short === 'proceed') {
     return { kind: 'execute_original', skipScheduleConflictCheck: true };
+  }
+
+  const vaguePeriod = detectVagueConflictTimePeriod(normalized);
+
+  if (vaguePeriod === 'needs_clarification') {
+    return { kind: 'suggest_vague_time' };
+  }
+
+  if (vaguePeriod) {
+    return { kind: 'suggest_alternatives', preferredRange: vaguePeriod };
   }
 
   const pickedStartMs = resolvePickedAlternativeStartMs(normalized, alternatives, params.referenceNow);

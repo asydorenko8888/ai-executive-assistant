@@ -23,11 +23,17 @@ import {
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import { apiClient } from '@/src/shared/api';
 import { env } from '@/src/shared/config';
+import {
+  GOOGLE_CALENDAR_WEB_CALLBACK_PATH,
+} from '@/src/features/agent/calendar/googleCalendarOAuthRoutes';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export const GOOGLE_CALENDAR_DISCOVERY_ISSUER = 'https://accounts.google.com';
-export const GOOGLE_CALENDAR_WEB_CALLBACK_PATH = 'google-calendar-callback';
+export {
+  GOOGLE_CALENDAR_WEB_CALLBACK_PATH,
+  GOOGLE_CALENDAR_WEB_CALLBACK_ROUTE,
+} from '@/src/features/agent/calendar/googleCalendarOAuthRoutes';
 
 export {
   CALENDAR_EVENTS_WRITE_SCOPE,
@@ -48,7 +54,14 @@ type PendingGoogleCalendarWebAuth = {
   clientId: string;
   redirectUri: string;
   codeVerifier: string;
+  state?: string;
   createdAt: string;
+};
+
+export type GoogleCalendarWebOAuthCallbackParams = {
+  code?: string | null;
+  state?: string | null;
+  error?: string | null;
 };
 
 let pendingGoogleCalendarWebRedirectPromise: Promise<GoogleCalendarSession | null> | null = null;
@@ -100,10 +113,24 @@ export function getGoogleCalendarClientId() {
 
 function buildGoogleCalendarRedirectUri() {
   if (Platform.OS === 'web') {
-    return AuthSession.makeRedirectUri({
+    const uri = AuthSession.makeRedirectUri({
       path: GOOGLE_CALENDAR_WEB_CALLBACK_PATH,
       preferLocalhost: true,
     });
+
+    try {
+      const parsed = new URL(uri);
+      const normalizedPathname = `/${GOOGLE_CALENDAR_WEB_CALLBACK_PATH}`;
+
+      if (parsed.pathname.replace(/\/+$/, '') !== normalizedPathname) {
+        parsed.pathname = normalizedPathname;
+        return parsed.toString();
+      }
+    } catch {
+      // Fall through to AuthSession value.
+    }
+
+    return uri;
   }
 
   return AuthSession.makeRedirectUri({
@@ -199,6 +226,28 @@ function savePendingGoogleCalendarWebAuth(auth: PendingGoogleCalendarWebAuth) {
   );
 }
 
+/** Persist PKCE verifier before any web OAuth redirect (popup or full-page). */
+export function saveGoogleCalendarWebOAuthPendingState(params: {
+  clientId: string;
+  redirectUri: string;
+  codeVerifier: string;
+  state?: string;
+}) {
+  savePendingGoogleCalendarWebAuth({
+    clientId: params.clientId,
+    redirectUri: params.redirectUri,
+    codeVerifier: params.codeVerifier,
+    state: params.state,
+    createdAt: new Date().toISOString(),
+  });
+
+  console.log('[GoogleCalendar OAuth] pending web auth saved', {
+    redirectUri: params.redirectUri,
+    hasState: Boolean(params.state),
+    hasCodeVerifier: Boolean(params.codeVerifier),
+  });
+}
+
 function clearPendingGoogleCalendarWebAuth() {
   if (Platform.OS !== 'web' || typeof window === 'undefined') {
     return;
@@ -254,10 +303,26 @@ async function exchangeGoogleCalendarCodeOnBackend(params: {
   redirectUri: string;
   codeVerifier: string;
 }) {
-  return apiClient.post<GoogleCalendarBackendTokenResponse, typeof params>({
-    path: '/google-calendar/exchange',
-    body: params,
+  console.log('[GoogleCalendar OAuth] token exchange started', {
+    redirectUri: params.redirectUri,
+    hasCode: Boolean(params.code),
   });
+
+  try {
+    const response = await apiClient.post<GoogleCalendarBackendTokenResponse, typeof params>({
+      path: '/google-calendar/exchange',
+      body: params,
+    });
+    console.log('[GoogleCalendar OAuth] token exchange success', {
+      hasAccessToken: Boolean(response.accessToken),
+      hasRefreshToken: Boolean(response.refreshToken),
+      connectedEmail: response.connectedEmail ?? null,
+    });
+    return response;
+  } catch (error) {
+    console.log('[GoogleCalendar OAuth] token exchange failure', error);
+    throw error;
+  }
 }
 
 async function refreshGoogleCalendarTokenOnBackend(params: {
@@ -274,6 +339,24 @@ async function clearGoogleCalendarAuthState() {
   await disconnectGoogleCalendarOnBackend().catch((error) => {
     console.log('[GoogleCalendar] backend disconnect during auth reset failed', error);
   });
+}
+
+export async function refreshGoogleCalendarConnectionState() {
+  const { invalidateCalendarAuthCache, refreshCalendarAuthCapabilities } = await import(
+    '@/src/features/agent/calendar/calendarAuthCapabilities'
+  );
+  invalidateCalendarAuthCache();
+  const capabilities = await refreshCalendarAuthCapabilities({ heal: true });
+
+  console.log('[GoogleCalendar OAuth] connected state updated', {
+    status: capabilities.connection.status,
+    connectedEmail: capabilities.connection.connectedEmail ?? null,
+    canReadCalendar: capabilities.canReadCalendar,
+    canWriteCalendar: capabilities.canWriteCalendar,
+    inSync: capabilities.inSync,
+  });
+
+  return capabilities;
 }
 
 export async function finalizeGoogleCalendarAuthCode(params: {
@@ -490,7 +573,9 @@ export function isLikelyPopupBlockedError(error: unknown) {
   );
 }
 
-async function resolveGoogleCalendarWebRedirectIfNeeded() {
+async function resolveGoogleCalendarWebRedirectIfNeeded(
+  callbackParams?: GoogleCalendarWebOAuthCallbackParams,
+) {
   if (Platform.OS !== 'web' || typeof window === 'undefined') {
     return null;
   }
@@ -502,20 +587,49 @@ async function resolveGoogleCalendarWebRedirectIfNeeded() {
   pendingGoogleCalendarWebRedirectPromise = (async () => {
     const pendingAuth = loadPendingGoogleCalendarWebAuth();
     const currentUrl = new URL(window.location.href);
-    const code = currentUrl.searchParams.get('code');
-    const error = currentUrl.searchParams.get('error');
+    const code = callbackParams?.code?.trim() || currentUrl.searchParams.get('code');
+    const error = callbackParams?.error?.trim() || currentUrl.searchParams.get('error');
+    const returnedState =
+      callbackParams?.state?.trim() || currentUrl.searchParams.get('state');
+
+    console.log('[GoogleCalendar OAuth] resolving web redirect', {
+      hasPendingAuth: Boolean(pendingAuth),
+      hasCode: Boolean(code),
+      hasError: Boolean(error),
+      hasState: Boolean(returnedState),
+    });
 
     if (!pendingAuth || (!code && !error)) {
+      console.log('[GoogleCalendar OAuth] skipping redirect resolve', {
+        reason: !pendingAuth ? 'missing_pending_auth' : 'missing_code_and_error',
+      });
       pendingGoogleCalendarWebRedirectPromise = null;
       return null;
     }
 
+    if (
+      pendingAuth.state &&
+      returnedState &&
+      pendingAuth.state !== returnedState
+    ) {
+      clearPendingGoogleCalendarWebAuth();
+      throw new Error('OAuth state mismatch. Connect Google Calendar again from Home.');
+    }
+
     try {
       if (!code) {
-        throw new Error(error || 'Google OAuth redirect did not return a code.');
+        console.log('[GoogleCalendar OAuth] OAuth error param from redirect', error ?? null);
+        throw new Error(
+          error === 'access_denied'
+            ? GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE
+            : error || 'Google OAuth redirect did not return a code.',
+        );
       }
 
-      console.log('[Calendar] Authorization code received:', Boolean(code));
+      console.log('[GoogleCalendar OAuth] received code/state', {
+        hasCode: Boolean(code),
+        hasState: Boolean(returnedState),
+      });
 
       const nextSession = await finalizeGoogleCalendarAuthCode({
         clientId: pendingAuth.clientId,
@@ -524,16 +638,13 @@ async function resolveGoogleCalendarWebRedirectIfNeeded() {
         codeVerifier: pendingAuth.codeVerifier,
       });
 
-      console.log('[Calendar] Exchange success');
-      console.log('[Calendar] OAuth response', {
-        type: 'success',
-        source: 'redirect',
-        connectedEmail: nextSession.connectedEmail,
+      console.log('[GoogleCalendar OAuth] token exchange success', {
+        connectedEmail: nextSession.connectedEmail ?? null,
       });
+      await refreshGoogleCalendarConnectionState();
       return nextSession;
     } catch (oauthError) {
-      console.log('[Calendar] Exchange error', oauthError);
-      console.log('[Calendar] OAuth error', oauthError);
+      console.log('[GoogleCalendar OAuth] token exchange failure', oauthError);
 
       if (
         oauthError instanceof Error &&
@@ -542,7 +653,9 @@ async function resolveGoogleCalendarWebRedirectIfNeeded() {
         throw oauthError;
       }
 
-      return null;
+      throw oauthError instanceof Error
+        ? oauthError
+        : new Error('Google Calendar token exchange failed.');
     } finally {
       clearPendingGoogleCalendarWebAuth();
       currentUrl.searchParams.delete('code');
@@ -563,15 +676,24 @@ async function resolveGoogleCalendarWebRedirectIfNeeded() {
   return pendingGoogleCalendarWebRedirectPromise;
 }
 
-export async function completeGoogleCalendarWebOAuthRedirect(): Promise<{
+export async function completeGoogleCalendarWebOAuthRedirect(
+  callbackParams?: GoogleCalendarWebOAuthCallbackParams,
+): Promise<{
   success: boolean;
   errorMessage?: string;
+  connectedEmail?: string;
 }> {
+  console.log('[GoogleCalendar OAuth] callback completion started', {
+    hasCode: Boolean(callbackParams?.code),
+    hasState: Boolean(callbackParams?.state),
+    hasError: Boolean(callbackParams?.error),
+  });
+
   try {
-    const session = await resolveGoogleCalendarWebRedirectIfNeeded();
+    const session = await resolveGoogleCalendarWebRedirectIfNeeded(callbackParams);
 
     if (session) {
-      return { success: true };
+      return { success: true, connectedEmail: session.connectedEmail };
     }
   } catch (oauthError) {
     if (
@@ -592,7 +714,10 @@ export async function completeGoogleCalendarWebOAuthRedirect(): Promise<{
   }
 
   const callbackUrl = new URL(window.location.href);
-  const oauthError = callbackUrl.searchParams.get('error');
+  const oauthError =
+    callbackParams?.error?.trim() || callbackUrl.searchParams.get('error');
+  const callbackCode =
+    callbackParams?.code?.trim() || callbackUrl.searchParams.get('code');
 
   if (oauthError) {
     return {
@@ -604,7 +729,7 @@ export async function completeGoogleCalendarWebOAuthRedirect(): Promise<{
     };
   }
 
-  if (callbackUrl.searchParams.get('code')) {
+  if (callbackCode) {
     return {
       success: false,
       errorMessage:
@@ -634,11 +759,11 @@ export async function startGoogleCalendarWebRedirectFallback(
     throw new Error('Google Calendar auth request is missing a PKCE code verifier.');
   }
 
-  savePendingGoogleCalendarWebAuth({
+  saveGoogleCalendarWebOAuthPendingState({
     clientId,
     redirectUri,
     codeVerifier: authRequest.codeVerifier,
-    createdAt: new Date().toISOString(),
+    state: authRequest.state,
   });
 
   window.location.assign(normalizedAuthUrl);
@@ -757,6 +882,27 @@ export async function connectGoogleCalendarAccount() {
 
   try {
     const discovery = await getGoogleCalendarDiscoveryDocument();
+
+    if (Platform.OS === 'web') {
+      if (!authRequest.codeVerifier) {
+        return {
+          success: false,
+          connection: {
+            provider: 'google',
+            status: 'not_connected',
+          } satisfies CalendarConnection,
+          errorMessage: 'Google Calendar auth request is missing a PKCE code verifier.',
+        };
+      }
+
+      saveGoogleCalendarWebOAuthPendingState({
+        clientId,
+        redirectUri,
+        codeVerifier: authRequest.codeVerifier,
+        state: authRequest.state,
+      });
+    }
+
     console.log('[Calendar] Starting OAuth');
     const authResult = await authRequest.promptAsync(
       discovery,

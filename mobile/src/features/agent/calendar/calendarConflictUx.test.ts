@@ -47,7 +47,8 @@ describe('calendar conflict UX replies', () => {
       optionLabels: ['Today 5:00 PM–6:00 PM', 'Tomorrow 4:00 PM–5:00 PM'],
     });
 
-    assert.match(reply, /^Okay\. I can suggest:/i);
+    assert.match(reply, /won't create over the conflict/i);
+    assert.match(reply, /I can suggest:/i);
     assert.match(reply, /1\. Today 5:00 PM–6:00 PM/);
     assert.match(reply, /Or name your own time/i);
     assert.doesNotMatch(reply, /already/i);

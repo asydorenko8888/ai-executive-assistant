@@ -22,8 +22,8 @@ import {
 } from '@/src/features/agent/calendar/calendarPendingConflictResolution';
 import { parseCalendarCreateSchedule } from '@/src/features/agent/calendar/calendarCreateScheduleParser';
 import { formatDateKey } from '@/src/features/agent/calendarIntelligence/zonedEventTime';
+import { buildConflictAlternativeOptionSlots } from '@/src/features/agent/calendar/calendarConflictAlternativeSlots';
 import { normalizeCalendarEvents } from '@/src/features/agent/calendarIntelligence/normalizeEvents';
-import { getFreeWindows } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import {
   addDaysToZonedYmd,
   getExecutiveCalendarTimezone,
@@ -82,9 +82,17 @@ function buildAlternativeLabels(events: CalendarEvent[], proposedStartMs: number
   };
   const durationMinutes = Math.max(15, Math.round((proposedEndMs - proposedStartMs) / 60_000));
   const normalized = normalizeCalendarEvents(events, timeZone);
-  const slots = getFreeWindows(normalized, day, referenceNow, durationMinutes);
+  const slots = buildConflictAlternativeOptionSlots({
+    events: normalized,
+    day,
+    referenceNow,
+    durationMinutes,
+    excludeStartMs: proposedStartMs,
+    excludeEndMs: proposedEndMs,
+    conflictEndMs: existingEndMs,
+  });
 
-  return slots.slice(0, 3).map((slot) =>
+  return slots.map((slot) =>
     formatConflictSlotLabelWithDay({
       slot,
       referenceNow,
@@ -111,7 +119,6 @@ describe('conflict rejection offers alternative slots', () => {
 
   it('resolves нет as suggest_alternatives without creating', () => {
     const pending = buildMassagePending();
-    let createCalls = 0;
 
     const resolution = resolvePendingConflictResolution({
       pending,
@@ -121,12 +128,7 @@ describe('conflict rejection offers alternative slots', () => {
     });
 
     assert.equal(resolution.kind, 'suggest_alternatives');
-
-    if (resolution.kind === 'execute_original') {
-      createCalls += 1;
-    }
-
-    assert.equal(createCalls, 0);
+    assert.notEqual(resolution.kind, 'execute_original');
   });
 
   it('builds rejection reply with free slots on the same day', () => {

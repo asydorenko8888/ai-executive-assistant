@@ -22,19 +22,23 @@ function pass(message) {
 if (!fs.existsSync(callbackFile)) {
   fail(`missing ${path.relative(projectRoot, callbackFile)}`);
 }
-pass(`found app/google-calendar-callback.tsx`);
+pass('found app/google-calendar-callback.tsx');
+
+const callbackDir = path.join(projectRoot, 'app', 'google-calendar-callback');
+if (fs.existsSync(callbackDir)) {
+  fail(
+    'remove app/google-calendar-callback/ directory — use app/google-calendar-callback.tsx only',
+  );
+}
 
 const layoutSource = fs.readFileSync(layoutFile, 'utf8');
 if (
   /<Stack\.Screen\b[^>]*>/m.test(layoutSource) &&
-  !layoutSource.includes('name="google-calendar-callback"') &&
-  !layoutSource.includes("name='google-calendar-callback'")
+  !layoutSource.includes('name="google-calendar-callback"')
 ) {
-  fail(
-    'app/_layout.tsx declares explicit Stack.Screen children but omits google-calendar-callback',
-  );
+  fail('app/_layout.tsx must declare Stack.Screen name="google-calendar-callback"');
 }
-pass('root Stack will register file-based routes (no blocking explicit screen list)');
+pass('root Stack registers google-calendar-callback');
 
 if (fs.existsSync(routerTypesFile)) {
   const routerTypes = fs.readFileSync(routerTypesFile, 'utf8');
@@ -56,10 +60,17 @@ if (runFullExport) {
     stdio: 'inherit',
   });
   const htmlPath = path.join(outputDir, 'google-calendar-callback.html');
-  if (!fs.existsSync(htmlPath)) {
+  const folderHtmlPath = path.join(outputDir, 'google-calendar-callback', 'index.html');
+  const resolvedHtmlPath = fs.existsSync(htmlPath)
+    ? htmlPath
+    : fs.existsSync(folderHtmlPath)
+      ? folderHtmlPath
+      : null;
+
+  if (!resolvedHtmlPath) {
     fail(`static export did not generate ${expectedPath}`);
   }
-  const html = fs.readFileSync(htmlPath, 'utf8');
+  const html = fs.readFileSync(resolvedHtmlPath, 'utf8');
   if (!html.includes('Connecting Google Calendar')) {
     fail(`${expectedPath} export does not render the callback screen`);
   }

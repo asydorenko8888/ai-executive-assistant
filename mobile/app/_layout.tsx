@@ -17,7 +17,6 @@ export default function RootLayout() {
 
   return (
     <AppProviders>
-      {/* File-based routes under app/ are auto-registered (including google-calendar-callback). */}
       <Stack screenOptions={{ headerShown: false }} />
       <StatusBar style="light" />
     </AppProviders>

@@ -38,10 +38,24 @@ APP_API_KEY=optional_shared_key_for_mobile_clients
 Speech transcription (iOS voice input) uses Whisper at `POST /api/speech/transcribe`.
 See [docs/PHASE1-VOICE-MVP.md](docs/PHASE1-VOICE-MVP.md) for the full voice MVP checklist.
 
-Start the backend:
+Start the backend (**required** for Google Calendar token exchange and chat):
 
 ```bash
 cd backend
+npm install
+npm run dev
+```
+
+Or from the **repo root** (recommended):
+
+```bash
+npm install          # installs root dev tools (once)
+npm run dev:backend  # API on http://localhost:3001
+```
+
+Run **backend + Expo together**:
+
+```bash
 npm install
 npm run dev
 ```
@@ -67,9 +81,28 @@ npm install
 npm start
 ```
 
+## Backend must be running
+
+The mobile app calls `EXPO_PUBLIC_API_BASE_URL` (default `http://localhost:3001/api`). Google Calendar token exchange uses `POST /api/google-calendar/exchange` on that host. If the backend is stopped, the browser shows `ERR_CONNECTION_REFUSED` and OAuth fails after redirect.
+
+From the repo root:
+
+```bash
+npm run dev:backend
+```
+
+Verify connectivity:
+
+```bash
+npm run check:backend
+# or from mobile/: npm run check:api
+```
+
+Expo Web does **not** proxy `/api` to the backend — the client calls port **3001** directly. There is no `metro.config.js` API proxy in this project.
+
 ## Testing notes
 
-- For Expo Web on the same machine, `http://localhost:3001/api` works directly.
+- For Expo Web on the same machine, `http://localhost:3001/api` works directly when `npm run dev:backend` is running.
 - For a physical device in Expo Go, replace `localhost` in `mobile/.env` with your computer’s LAN IP, for example:
 
 ```env

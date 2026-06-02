@@ -3,9 +3,11 @@ import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendar
 import { cancelCalendarConversation } from '@/src/features/agent/calendar/calendarConversationCancel';
 import {
   buildCalendarConflictAlternativesOnlyReply,
+  buildVagueConflictTimeClarificationReply,
   formatConflictSlotLabelWithDay,
   resolveConflictDayOffset,
 } from '@/src/features/agent/calendar/calendarConflictReplies';
+import { buildConflictAlternativeOptionSlots } from '@/src/features/agent/calendar/calendarConflictAlternativeSlots';
 import {
   buildTranscriptFromPendingDeleteContext,
   tryMergePendingCalendarDeleteReply,
@@ -66,7 +68,7 @@ import {
   isVerifiedCalendarUpdateSuccess,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { normalizeCalendarEvents } from '@/src/features/agent/calendarIntelligence/normalizeEvents';
-import { getFreeWindows } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
+import type { PreferredTimeRange } from '@/src/features/agent/calendarIntelligence/types';
 import { formatDateKey } from '@/src/features/agent/calendarIntelligence/zonedEventTime';
 import {
   addDaysToZonedYmd,
@@ -122,7 +124,10 @@ function cancelPendingOperation(pending: CalendarPendingAction, incomingMessage?
   return mapOutcome(cancelCalendarConversation(pending, incomingMessage));
 }
 
-async function buildAlternativeSlotsReply(pending: CalendarPendingAction) {
+async function buildAlternativeSlotsReply(
+  pending: CalendarPendingAction,
+  preferredRange?: PreferredTimeRange,
+) {
   const locale = getChatLocaleFromVoiceLanguage(pending.languageCode);
   const timeZone = getExecutiveCalendarTimezone();
   const referenceNow = new Date();
@@ -146,6 +151,7 @@ async function buildAlternativeSlotsReply(pending: CalendarPendingAction) {
     return {
       reply: 'Could not refresh the calendar to suggest free slots.',
       alternativeStartMs: [] as number[],
+      optionLabels: [] as string[],
     };
   }
 
@@ -154,21 +160,30 @@ async function buildAlternativeSlotsReply(pending: CalendarPendingAction) {
     15,
     Math.round((pending.requestedEndMs - pending.requestedStartMs) / 60_000),
   );
-  const slots = getFreeWindows(normalized, day, referenceNow, durationMinutes);
+  const conflictEndMs = pending.conflictEvents[0]
+    ? Date.parse(pending.conflictEvents[0].endsAt)
+    : pending.requestedEndMs;
+  const slots = buildConflictAlternativeOptionSlots({
+    events: normalized,
+    day,
+    referenceNow,
+    durationMinutes,
+    excludeStartMs: pending.requestedStartMs,
+    excludeEndMs: pending.requestedEndMs,
+    preferredRange,
+    conflictEndMs,
+  });
   const alternativeStartMs = slots
-    .slice(0, 3)
     .map((slot) => parseGoogleCalendarInstant(slot.startISO) ?? 0)
     .filter((value) => value > 0);
-  const optionLabels = slots
-    .slice(0, 3)
-    .map((slot) =>
-      formatConflictSlotLabelWithDay({
-        slot,
-        referenceNow,
-        locale,
-        timeZone,
-      }),
-    );
+  const optionLabels = slots.map((slot) =>
+    formatConflictSlotLabelWithDay({
+      slot,
+      referenceNow,
+      locale,
+      timeZone,
+    }),
+  );
 
   return {
     reply: buildCalendarConflictAlternativesOnlyReply({
@@ -176,6 +191,7 @@ async function buildAlternativeSlotsReply(pending: CalendarPendingAction) {
       optionLabels,
     }),
     alternativeStartMs,
+    optionLabels,
   };
 }
 
@@ -334,6 +350,41 @@ async function handleConflictDecisionState(params: {
     return cancelPendingOperation(params.pending, params.transcript);
   }
 
+  if (resolution.kind === 'suggest_vague_time') {
+    const locale = getChatLocaleFromVoiceLanguage(params.pending.languageCode);
+    const conflictLegacy = getPendingCalendarConflictContext();
+    const slotResult = await buildAlternativeSlotsReply(
+      params.pending,
+      resolution.preferredRange,
+    );
+    const reply = buildVagueConflictTimeClarificationReply({
+      locale,
+      optionLabels: slotResult.optionLabels,
+    });
+
+    if (conflictLegacy) {
+      syncConversationStateForConflictAlternatives(conflictLegacy, slotResult.alternativeStartMs);
+    } else {
+      transitionCalendarConversationState({
+        toState: 'WAITING_ALTERNATIVE_SLOT',
+        pendingAction: {
+          ...params.pending,
+          alternativeStartMs: slotResult.alternativeStartMs,
+        },
+        reason: 'vague_time_follow_up',
+        incomingMessage: params.transcript,
+      });
+    }
+
+    return mapOutcome({
+      intent,
+      tool: createCalendarToolFailure('CALENDAR_SCHEDULE_CONFLICT', 'Awaiting specific time selection'),
+      reply,
+      spokenReply: reply,
+      verified: false,
+    });
+  }
+
   if (resolution.kind === 'suggest_alternatives') {
     const locale = getChatLocaleFromVoiceLanguage(params.pending.languageCode);
     const conflictLegacy = getPendingCalendarConflictContext();
@@ -361,19 +412,26 @@ async function handleConflictDecisionState(params: {
           proposedStartMs: params.pending.requestedStartMs,
           proposedEndMs: params.pending.requestedEndMs,
           referenceNow: params.referenceNow,
+          preferredRange: resolution.preferredRange,
         });
 
         reply = bundle.reply;
         alternativeStartMs = bundle.alternativeStartMs;
         syncConversationStateForConflictAlternatives(conflictLegacy, alternativeStartMs);
       } else {
-        const slotResult = await buildAlternativeSlotsReply(params.pending);
+        const slotResult = await buildAlternativeSlotsReply(
+          params.pending,
+          resolution.preferredRange,
+        );
         reply = slotResult.reply;
         alternativeStartMs = slotResult.alternativeStartMs;
         syncConversationStateForConflictAlternatives(conflictLegacy, alternativeStartMs);
       }
     } else {
-      const slotResult = await buildAlternativeSlotsReply(params.pending);
+      const slotResult = await buildAlternativeSlotsReply(
+        params.pending,
+        resolution.preferredRange,
+      );
 
       reply = slotResult.reply;
       alternativeStartMs = slotResult.alternativeStartMs;

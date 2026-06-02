@@ -64,11 +64,17 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     web: {
       bundler: 'metro',
-      output: 'static',
+      // SPA mode: direct URLs like /google-calendar-callback are handled client-side (required for OAuth).
+      output: 'single',
       favicon: './assets/images/favicon.png',
     },
     plugins: [
-      'expo-router',
+      [
+        'expo-router',
+        {
+          origin: process.env.EXPO_PUBLIC_WEB_ORIGIN ?? 'http://localhost:8081',
+        },
+      ],
       'expo-av',
       'expo-secure-store',
       [

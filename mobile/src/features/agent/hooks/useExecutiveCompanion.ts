@@ -18,6 +18,7 @@ import {
   GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
   googleCalendarOAuthScopes,
   isLikelyPopupBlockedError,
+  saveGoogleCalendarWebOAuthPendingState,
   startGoogleCalendarWebRedirectFallback,
 } from '@/src/features/agent/calendar';
 import { loadExecutiveCompanionHomeData } from '@/src/features/agent/services/dailySummaryService';
@@ -136,6 +137,18 @@ export function useExecutiveCompanion() {
     setIsCalendarSubmitting(true);
 
     try {
+      if (!googleCalendarAuthRequest.codeVerifier) {
+        setIsCalendarSubmitting(false);
+        return null;
+      }
+
+      saveGoogleCalendarWebOAuthPendingState({
+        clientId: googleCalendarClientId,
+        redirectUri: googleCalendarRedirectUri,
+        codeVerifier: googleCalendarAuthRequest.codeVerifier,
+        state: googleCalendarAuthRequest.state,
+      });
+
       console.log('[Calendar] Starting OAuth');
       const response = await promptGoogleCalendarAuthAsync({
         windowFeatures: {

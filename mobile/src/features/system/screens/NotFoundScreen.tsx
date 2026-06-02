@@ -1,5 +1,6 @@
-import { Stack, useRouter } from 'expo-router';
 import { StyleSheet } from 'react-native';
+
+import { Stack, useRouter } from 'expo-router';
 
 import { ErrorState, ScreenContainer } from '@/src/shared/ui';
 
@@ -14,7 +15,7 @@ export default function NotFoundScreen() {
           title="Page not found"
           description="The screen you opened does not exist or has already been moved inside the app flow."
           actionLabel="Return to dashboard"
-          onActionPress={() => router.replace('/')}
+          onActionPress={() => router.replace('/(tabs)')}
         />
       </ScreenContainer>
     </>
