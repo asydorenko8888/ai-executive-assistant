@@ -1,6 +1,5 @@
 import { ensureCalendarAuthForTool } from '@/src/features/agent/calendar/calendarAuthCapabilities';
-import { logCalendarApiError } from '@/src/features/agent/calendar/calendarAuthDiagnostics';
-import { getActiveGoogleCalendarSession } from '@/src/features/agent/calendar/googleCalendarAuth';
+import { mapCaughtCalendarApiError } from '@/src/features/agent/calendar/calendarApiToolErrorMapper';
 import { deleteGoogleCalendarEventOnBackend } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import {
   createCalendarToolFailure,
@@ -12,9 +11,12 @@ import {
   logDeleteVerificationResult,
 } from '@/src/features/agent/calendar/calendarDeleteDiagnostics';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
-import { ApiError } from '@/src/shared/api/api-error';
+import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
-export async function deleteGoogleCalendarEvent(eventId: string): Promise<CalendarToolResponse> {
+export async function deleteGoogleCalendarEvent(
+  eventId: string,
+  languageCode: VoiceLanguageCode = 'en-US',
+): Promise<CalendarToolResponse> {
   const auth = await ensureCalendarAuthForTool('google_calendar_delete_event');
 
   if (!auth.canWriteCalendar) {
@@ -67,65 +69,11 @@ export async function deleteGoogleCalendarEvent(eventId: string): Promise<Calend
       htmlLink: response.event.htmlLink,
     });
   } catch (error) {
-    const apiError = error instanceof ApiError ? error : null;
-    const code = apiError?.code;
-
-    if (apiError?.status === 401 || code === 'calendar_not_connected') {
-      logCalendarApiError({
-        operation: 'google_calendar_delete_event',
-        status: apiError?.status,
-        code,
-        message: apiError?.message,
-        willRetryRefresh: true,
-      });
-      const refreshed = await getActiveGoogleCalendarSession().catch(() => null);
-
-      if (refreshed?.accessToken) {
-        try {
-          const retryResponse = await deleteGoogleCalendarEventOnBackend(eventId);
-
-          if (
-            retryResponse.verified &&
-            retryResponse.verificationFetched &&
-            retryResponse.event?.id
-          ) {
-            return createCalendarToolSuccess({
-              id: retryResponse.event.id,
-              summary: retryResponse.event.summary,
-              location: retryResponse.event.location,
-              startsAt: retryResponse.event.startsAt,
-              endsAt: retryResponse.event.endsAt,
-              htmlLink: retryResponse.event.htmlLink,
-            });
-          }
-        } catch (retryError) {
-          logCalendarApiError({
-            operation: 'google_calendar_delete_event_retry',
-            message: retryError instanceof Error ? retryError.message : 'retry_failed',
-          });
-        }
-      }
-
-      return createCalendarToolFailure(
-        'CALENDAR_API_UNAVAILABLE',
-        apiError?.message || 'Google Calendar API unavailable.',
-      );
-    }
-
-    if (code === 'CALENDAR_EVENT_NOT_FOUND') {
-      return createCalendarToolFailure('CALENDAR_EVENT_NOT_FOUND', 'No matching calendar event was found.');
-    }
-
-    if (code === 'WRITE_SCOPE_MISSING' || code === 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED' || apiError?.status === 403) {
-      return createCalendarToolFailure(
-        'WRITE_SCOPE_MISSING',
-        'WRITE_SCOPE_MISSING: reconnect Google Calendar and grant event write access (calendar.events).',
-      );
-    }
-
-    return createCalendarToolFailure(
-      'CALENDAR_API_UNAVAILABLE',
-      apiError?.message || 'Google Calendar API unavailable.',
-    );
+    return await mapCaughtCalendarApiError({
+      error,
+      languageCode,
+      action: 'DELETE /google-calendar/events',
+      calendarChanged: false,
+    });
   }
 }

@@ -144,7 +144,7 @@ export async function executeCalendarDeleteEvent(
 
   try {
     if (params.selectedEventId) {
-      const tool = await deleteGoogleCalendarEvent(params.selectedEventId);
+      const tool = await deleteGoogleCalendarEvent(params.selectedEventId, params.languageCode);
 
       return finalizeVerifiedDelete({
         event: {
@@ -320,7 +320,7 @@ export async function executeCalendarDeleteEvent(
       startsAt: resolution.event.startsAt,
     });
 
-    const tool: CalendarToolResponse = await deleteGoogleCalendarEvent(resolution.event.id);
+    const tool: CalendarToolResponse = await deleteGoogleCalendarEvent(resolution.event.id, params.languageCode);
 
     return finalizeVerifiedDelete({
       event: resolution.event,

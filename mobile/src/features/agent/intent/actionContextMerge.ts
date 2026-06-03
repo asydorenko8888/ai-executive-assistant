@@ -52,24 +52,13 @@ export function mergeActionContextFromHistory(params: {
   referenceNow: Date;
 }) {
   const normalized = params.transcript.trim();
+  const pendingUpdateForGate = getPendingCalendarUpdateContext();
+  const pendingDeleteForGate = getPendingCalendarDeleteContext();
+  const awaitingMoveOrDeleteSelection = Boolean(
+    pendingUpdateForGate?.candidates?.length || pendingDeleteForGate?.candidates?.length,
+  );
 
-  if (isCalendarExactTimeReadQuery(normalized)) {
-    return {
-      mergedTranscript: normalized,
-      usedContext: false,
-      contextSource: null,
-    };
-  }
-
-  if (isCalendarConversationAwaitingInput()) {
-    if (isBareCalendarShortReply(normalized) || isNewCalendarCommandMessage(normalized)) {
-      return {
-        mergedTranscript: normalized,
-        usedContext: false,
-        contextSource: null,
-      };
-    }
-
+  if (!awaitingMoveOrDeleteSelection && isCalendarExactTimeReadQuery(normalized)) {
     return {
       mergedTranscript: normalized,
       usedContext: false,
@@ -114,6 +103,22 @@ export function mergeActionContextFromHistory(params: {
         contextSource: 'pending_update_clarification' as const,
       };
     }
+  }
+
+  if (isCalendarConversationAwaitingInput()) {
+    if (isBareCalendarShortReply(normalized) || isNewCalendarCommandMessage(normalized)) {
+      return {
+        mergedTranscript: normalized,
+        usedContext: false,
+        contextSource: null,
+      };
+    }
+
+    return {
+      mergedTranscript: normalized,
+      usedContext: false,
+      contextSource: null,
+    };
   }
 
   if (isActionContinuation(normalized)) {

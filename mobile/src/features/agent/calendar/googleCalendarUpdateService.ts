@@ -15,14 +15,16 @@ import {
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
 import { logCalendarGoogleApiResponse } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
+import { mapCaughtCalendarApiError } from '@/src/features/agent/calendar/calendarApiToolErrorMapper';
 import { logExecutionAudit } from '@/src/features/agent/execution/executionAuditLogger';
-import { ApiError } from '@/src/shared/api/api-error';
+import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
 export async function updateGoogleCalendarEvent(
   eventId: string,
   payload: CalendarUpdateEventPayload,
-  options?: { originalStartsAt?: string },
+  options?: { originalStartsAt?: string; languageCode?: VoiceLanguageCode },
 ): Promise<CalendarToolResponse> {
+  const languageCode = options?.languageCode ?? 'en-US';
   const auth = await ensureCalendarAuthForTool('google_calendar_update_event');
 
   if (!auth.canWriteCalendar) {
@@ -145,63 +147,17 @@ export async function updateGoogleCalendarEvent(
       htmlLink: response.event.htmlLink,
     });
   } catch (error) {
-    const apiError = error instanceof ApiError ? error : null;
-    const code = apiError?.code;
-
     logCalendarUpdateFailed({
       eventId,
       reason: 'api_error',
-      status: apiError?.status ?? null,
-      code: code ?? null,
-      message: apiError?.message ?? (error instanceof Error ? error.message : 'unknown error'),
+      message: error instanceof Error ? error.message : 'unknown error',
     });
 
-    logExecutionAudit('api_response', {
-      ok: false,
-      status: apiError?.status,
-      code,
-      message: apiError?.message,
+    return await mapCaughtCalendarApiError({
+      error,
+      languageCode,
+      action: 'PATCH /google-calendar/events',
+      calendarChanged: false,
     });
-
-    if (apiError?.status === 401 || code === 'calendar_not_connected') {
-      return createCalendarToolFailure('GOOGLE_CALENDAR_NOT_CONNECTED', 'Google Calendar is not connected.');
-    }
-
-    if (code === 'CALENDAR_EVENT_NOT_FOUND') {
-      return createCalendarToolFailure('CALENDAR_EVENT_NOT_FOUND', 'No matching calendar event was found.');
-    }
-
-    if (
-      code === 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED' ||
-      code === 'WRITE_SCOPE_MISSING' ||
-      apiError?.status === 403 ||
-      code === 'calendar_write_forbidden'
-    ) {
-      const detail =
-        code === 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED'
-          ? apiError?.message || 'Google Calendar write permission was not granted.'
-          : 'WRITE_SCOPE_MISSING: https://www.googleapis.com/auth/calendar.events';
-
-      return createCalendarToolFailure(
-        code === 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED' ? 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED' : 'WRITE_SCOPE_MISSING',
-        detail,
-      );
-    }
-
-    if (code === 'VERIFY_FAILED') {
-      return createCalendarToolFailure('VERIFY_FAILED', apiError?.message || 'VERIFY_FAILED');
-    }
-
-    if (code === 'calendar_confirmation_timeout') {
-      return createCalendarToolFailure(
-        'CALENDAR_CONFIRMATION_TIMEOUT',
-        'CALENDAR_CONFIRMATION_TIMEOUT: Google Calendar API timeout',
-      );
-    }
-
-    return createCalendarToolFailure(
-      'CALENDAR_API_UNAVAILABLE',
-      apiError?.message || 'Google Calendar API unavailable.',
-    );
   }
 }

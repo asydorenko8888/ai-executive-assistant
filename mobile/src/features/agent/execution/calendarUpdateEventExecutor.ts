@@ -1,5 +1,8 @@
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import { fetchCalendarEventsForMutationSearch } from '@/src/features/agent/calendar/calendarMutationEventSearch';
 import { findCalendarEventForUpdate } from '@/src/features/agent/calendar/calendarEventMatcher';
+import { getActiveCalendarEvent } from '@/src/features/agent/calendar/calendarActiveEventContext';
+import { resolveMoveEventReference } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import {
   pendingContextFromExtraction,
 } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
@@ -28,6 +31,7 @@ import {
 } from '@/src/features/agent/calendar/calendarUpdateLogger';
 import { assertResolvedTargetMatchesPayload } from '@/src/features/agent/calendar/calendarUpdateEventResolution';
 import {
+  buildCalendarUpdateEventPayload,
   buildCalendarUpdatePayloadFromResolution,
   buildCalendarUpdatePayloadFromStoredTarget,
   type CalendarUpdatePayloadBuildResult,
@@ -46,6 +50,7 @@ import {
   clearPendingCalendarConflictContext,
   clearPendingCalendarUpdateIntent,
   endCalendarOperation,
+  getPendingCalendarUpdateContext,
   setPendingCalendarUpdateContext,
   tryBeginCalendarOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
@@ -56,6 +61,7 @@ export type CalendarUpdateExecutionParams = {
   referenceNow: Date;
   skipScheduleConflictCheck?: boolean;
   storedUpdateTarget?: CalendarStoredUpdateTarget;
+  selectedEventId?: string | null;
 };
 
 async function guardUpdateScheduleConflict(params: {
@@ -123,7 +129,7 @@ async function executeVerifiedCalendarUpdate(params: {
   const tool: CalendarToolResponse = await updateGoogleCalendarEvent(
     params.payloadResult.eventId,
     params.payloadResult.payload,
-    { originalStartsAt: params.matchedStartsAt },
+    { originalStartsAt: params.matchedStartsAt, languageCode: params.languageCode },
   );
 
   if (tool.status === 'SUCCESS' && tool.verified) {
@@ -280,7 +286,9 @@ export async function executeCalendarUpdateEvent(
   if (!tryBeginCalendarOperation(
     params.storedUpdateTarget
       ? `confirmed-update:${params.storedUpdateTarget.eventId}`
-      : params.transcript,
+      : params.selectedEventId
+        ? `selected-update:${params.selectedEventId}`
+        : params.transcript,
   )) {
     const tool = createCalendarToolFailure(
       'CALENDAR_OPERATION_IN_PROGRESS',
@@ -348,6 +356,98 @@ export async function executeCalendarUpdateEvent(
       });
     }
 
+    if (params.selectedEventId) {
+      const pendingUpdate = getPendingCalendarUpdateContext();
+      const scheduleTranscript = pendingUpdate?.sourceTranscript.trim() || params.transcript;
+      const memoryRef = getActiveCalendarEvent(params.referenceNow) ?? resolveMoveEventReference(params.referenceNow);
+      const { events, fetchOk } = await fetchCalendarEventsForMutationSearch({
+        referenceNow: params.referenceNow,
+        transcript: scheduleTranscript,
+        memoryRef,
+      });
+
+      if (!fetchOk) {
+        endCalendarOperation({ failed: true });
+        const tool = createCalendarToolFailure(
+          'CALENDAR_READ_FAILED',
+          'Could not refresh Google Calendar before update.',
+        );
+        return {
+          ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
+            referenceNow: params.referenceNow,
+          }),
+          verified: false,
+        };
+      }
+
+      const matchedEvent = events.find((event) => event.id === params.selectedEventId) ?? null;
+
+      if (!matchedEvent) {
+        endCalendarOperation({ failed: true });
+        const tool = createCalendarToolFailure(
+          'CALENDAR_EVENT_NOT_FOUND',
+          'Could not find the selected calendar event to update.',
+        );
+        return {
+          ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
+            referenceNow: params.referenceNow,
+          }),
+          verified: false,
+        };
+      }
+
+      const payloadResult = buildCalendarUpdateEventPayload({
+        transcript: scheduleTranscript,
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+        matchedEvent,
+      });
+
+      if (!payloadResult.ok) {
+        endCalendarOperation({ failed: true });
+        const tool = createCalendarToolFailure(
+          payloadResult.reason === 'date_parse_failed'
+            ? 'CALENDAR_DATE_PARSE_FAILED'
+            : payloadResult.reason === 'no_time_change'
+              ? 'CALENDAR_NO_TIME_CHANGE'
+              : payloadResult.reason === 'title_parse_failed'
+                ? 'CALENDAR_DATE_PARSE_FAILED'
+                : 'CALENDAR_EVENT_NOT_FOUND',
+          payloadResult.detail,
+        );
+        return {
+          ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
+            referenceNow: params.referenceNow,
+            requestedEventTitle: matchedEvent.title,
+          }),
+          verified: false,
+        };
+      }
+
+      const conflictOutcome = await guardUpdateScheduleConflict({
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+        transcript: scheduleTranscript,
+        matchedTitle: matchedEvent.title,
+        matchedStartsAt: matchedEvent.startsAt,
+        matchedEndsAt: matchedEvent.endsAt,
+        payloadResult,
+        skipScheduleConflictCheck: params.skipScheduleConflictCheck,
+      });
+
+      if (conflictOutcome) {
+        return conflictOutcome;
+      }
+
+      return executeVerifiedCalendarUpdate({
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+        payloadResult,
+        matchedStartsAt: matchedEvent.startsAt,
+        matchedTitle: matchedEvent.title,
+      });
+    }
+
     const matchResult = await findCalendarEventForUpdate({
       transcript: params.transcript,
       referenceNow: params.referenceNow,
@@ -388,6 +488,7 @@ export async function executeCalendarUpdateEvent(
           ...pendingContextFromExtraction({
             sourceTranscript: params.transcript,
             extraction: extracted,
+            referenceNow: params.referenceNow,
           }),
           candidates,
         };

@@ -6,8 +6,9 @@ import {
   type StoredGoogleCalendarTokens,
 } from './googleCalendarTokenStore.js';
 
+import { fetchGoogleCalendarApiJson } from './googleCalendarApiClient.js';
+
 const GOOGLE_CALENDAR_EVENTS_ENDPOINT = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
-const CALENDAR_API_TIMEOUT_MS = 25_000;
 
 export type CreateGoogleCalendarEventBody = {
   summary: string;
@@ -68,6 +69,22 @@ function logCalendarPermissions(tokens: StoredGoogleCalendarTokens) {
   });
 }
 
+function resolveGoogleCalendarOperation(label: string): 'read' | 'create' | 'update' | 'delete' {
+  if (label.includes('insert')) {
+    return 'create';
+  }
+
+  if (label.includes('patch') || label.includes('update')) {
+    return 'update';
+  }
+
+  if (label.includes('delete')) {
+    return 'delete';
+  }
+
+  return 'read';
+}
+
 async function fetchGoogleCalendarJson(
   url: string,
   init: RequestInit,
@@ -76,58 +93,33 @@ async function fetchGoogleCalendarJson(
   | { ok: true; body: GoogleEventPayload; status: number }
   | { ok: false; timedOut: boolean; status?: number; message: string; rawBody?: unknown }
 > {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), CALENDAR_API_TIMEOUT_MS);
+  const operation = resolveGoogleCalendarOperation(label);
+  const result = await fetchGoogleCalendarApiJson<GoogleEventPayload>({
+    url,
+    init,
+    label,
+    operation,
+  });
 
-  try {
-    const response = await fetch(url, {
-      ...init,
-      signal: controller.signal,
-    });
-    const rawBody = await response.json().catch(() => ({}));
-    const body = rawBody as GoogleEventPayload & { error?: { message?: string; code?: number } };
+  logCalendarPipeline('api_response', {
+    label,
+    httpStatus: result.ok ? result.status : result.status ?? null,
+    ok: result.ok,
+    attempts: result.attempts,
+    authFailure: result.ok ? false : result.authFailure,
+  });
 
-    logCalendarPipeline('api_response', {
-      label,
-      httpStatus: response.status,
-      ok: response.ok,
-      body: rawBody,
-    });
-
-    if (!response.ok) {
-      const message =
-        typeof body.error === 'object' && body.error?.message
-          ? body.error.message
-          : response.statusText || `${label} failed`;
-
-      return {
-        ok: false,
-        timedOut: false,
-        status: response.status,
-        message,
-        rawBody,
-      };
-    }
-
-    return { ok: true, body, status: response.status };
-  } catch (error) {
-    const timedOut = error instanceof Error && error.name === 'AbortError';
-
-    logCalendarPipeline('api_response', {
-      label,
-      ok: false,
-      timedOut,
-      error: error instanceof Error ? error.message : error,
-    });
-
-    return {
-      ok: false,
-      timedOut,
-      message: timedOut ? 'Google Calendar API timeout' : 'Google Calendar network error',
-    };
-  } finally {
-    clearTimeout(timeoutId);
+  if (result.ok) {
+    return { ok: true, body: result.body, status: result.status };
   }
+
+  return {
+    ok: false,
+    timedOut: result.timedOut,
+    status: result.status,
+    message: result.message,
+    rawBody: result.rawBody,
+  };
 }
 
 function normalizeEvent(body: GoogleEventPayload, fallback: CreateGoogleCalendarEventBody): CreatedGoogleCalendarEvent | null {

@@ -10,12 +10,14 @@ import {
   createCalendarToolSuccess,
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
+import { buildCalendarCreateDedupeKey } from '@/src/features/agent/calendar/calendarCreateDedupeKey';
 import {
   clearPendingCalendarConflictContext,
+  endCalendarCreateOperation,
   endCalendarOperation,
   setLastCalendarToolResponse,
   shouldBlockCalendarRecreate,
-  tryBeginCalendarOperation,
+  tryBeginCalendarCreateOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 import { resolveAfterEventCreateSchedule } from '@/src/features/agent/calendar/calendarAfterEventSchedule';
 import { recordVerifiedCalendarEventContext } from '@/src/features/agent/calendar/calendarMutationEventContext';
@@ -127,17 +129,6 @@ export async function executeCalendarCreateEvent(
   });
   logExecutionAudit('request', { transcriptPreview: params.transcript.slice(0, 120) });
 
-  if (shouldBlockCalendarRecreate(params.transcript)) {
-    const blocked = createCalendarToolFailure(
-      'CALENDAR_MAX_RETRIES_EXCEEDED',
-      'Calendar create already attempted for this request.',
-    );
-    return finalizeOutcome(
-      buildCalendarToolReplyBundle(blocked, params.languageCode, { referenceNow: params.referenceNow }),
-      null,
-    );
-  }
-
   logExecutionAudit('parsed_intent', { stage: 'parsing' });
   logCalendarExecutionStateTransition({
     from: 'parsing',
@@ -199,6 +190,23 @@ export async function executeCalendarCreateEvent(
     );
   }
 
+  const dedupeKey = buildCalendarCreateDedupeKey({
+    title: payloadResult.payload.summary,
+    startMs: payloadResult.startMs,
+    timeZone,
+  });
+
+  if (shouldBlockCalendarRecreate(dedupeKey)) {
+    const blocked = createCalendarToolFailure(
+      'CALENDAR_MAX_RETRIES_EXCEEDED',
+      'Calendar create already attempted for this request.',
+    );
+    return finalizeOutcome(
+      buildCalendarToolReplyBundle(blocked, params.languageCode, { referenceNow: params.referenceNow }),
+      null,
+    );
+  }
+
   logCalendarToolPayload({
     summary: payloadResult.payload.summary,
     start: payloadResult.payload.start,
@@ -219,7 +227,7 @@ export async function executeCalendarCreateEvent(
   });
 
   if (conflictBlock) {
-    endCalendarOperation({ failed: true });
+    endCalendarCreateOperation({ dedupeKey, failed: true });
 
     return {
       ...buildCalendarToolReplyBundle(conflictBlock.tool, params.languageCode, {
@@ -260,7 +268,7 @@ export async function executeCalendarCreateEvent(
       });
 
       const tool = createCalendarToolPending('CALENDAR_AUTH_REQUIRED', 'CALENDAR_AUTH_REQUIRED');
-      endCalendarOperation({ failed: false });
+      endCalendarCreateOperation({ dedupeKey, failed: false });
       return finalizeOutcome(
         buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
         payloadResult.scheduleIso,
@@ -271,21 +279,22 @@ export async function executeCalendarCreateEvent(
       'WRITE_SCOPE_MISSING',
       'WRITE_SCOPE_MISSING: reconnect Google Calendar and grant event write access (calendar.events).',
     );
-    endCalendarOperation({ failed: true });
+    endCalendarCreateOperation({ dedupeKey, failed: true });
     return finalizeOutcome(
       buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
       payloadResult.scheduleIso,
     );
   }
 
-  if (!tryBeginCalendarOperation(params.transcript)) {
+  if (!tryBeginCalendarCreateOperation(dedupeKey)) {
     logCalendarDecision('reasonForRefusal', {
-      reason: 'operation_blocked_or_in_progress',
+      reason: 'create_dedupe_blocked',
+      dedupeKey,
     });
 
     const tool = createCalendarToolFailure(
-      'CALENDAR_OPERATION_IN_PROGRESS',
-      'Calendar operation already in progress.',
+      'CALENDAR_MAX_RETRIES_EXCEEDED',
+      'Calendar create already attempted for this request.',
     );
     return finalizeOutcome(
       buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
@@ -311,7 +320,7 @@ export async function executeCalendarCreateEvent(
       summary: payloadResult.payload.summary,
       start: payloadResult.payload.start,
     });
-    tool = await createGoogleCalendarEvent(payloadResult.payload);
+    tool = await createGoogleCalendarEvent(payloadResult.payload, params.languageCode);
     logCalendarCreate('insert result', {
       status: tool.status,
       errorCode: tool.errorCode ?? null,
@@ -331,7 +340,7 @@ export async function executeCalendarCreateEvent(
         languageCode: params.languageCode,
       });
       tool = createCalendarToolPending('CALENDAR_AUTH_REQUIRED', 'CALENDAR_AUTH_REQUIRED');
-      endCalendarOperation({ failed: false });
+      endCalendarCreateOperation({ dedupeKey, failed: false });
       return finalizeOutcome(
         buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
         payloadResult.scheduleIso,
@@ -339,7 +348,7 @@ export async function executeCalendarCreateEvent(
     }
 
     if (tool.status === 'FAILURE') {
-      endCalendarOperation({ failed: true });
+      endCalendarCreateOperation({ dedupeKey, failed: true });
       return finalizeOutcome(
         buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
         payloadResult.scheduleIso,
@@ -347,7 +356,7 @@ export async function executeCalendarCreateEvent(
     }
 
     if (tool.status === 'PENDING') {
-      endCalendarOperation({ failed: false });
+      endCalendarCreateOperation({ dedupeKey, failed: false });
       return finalizeOutcome(
         buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
         payloadResult.scheduleIso,
@@ -429,7 +438,7 @@ export async function executeCalendarCreateEvent(
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Calendar operation error';
     tool = createCalendarToolFailure('CALENDAR_OPERATION_ERROR', message);
-    endCalendarOperation({ failed: true });
+    endCalendarCreateOperation({ dedupeKey, failed: true });
     return finalizeOutcome(
       buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
       payloadResult.scheduleIso,

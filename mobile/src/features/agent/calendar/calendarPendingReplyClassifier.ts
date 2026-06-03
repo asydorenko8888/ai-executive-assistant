@@ -11,7 +11,12 @@ import {
   isCalendarConflictDecisionState,
 } from '@/src/features/agent/calendar/calendarConversationState';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
+import { resolveDisambiguationSelection } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
+import {
+  getPendingCalendarDeleteContext,
+  getPendingCalendarUpdateContext,
+} from '@/src/features/agent/execution/calendarExecutionSession';
 import {
   isOperationalCalendarCreateRequest,
   isOperationalCalendarDeleteRequest,
@@ -52,12 +57,40 @@ function isBareShortReply(transcript: string) {
   return BARE_SHORT_REPLY.test(normalized) || classifyCalendarShortReply(normalized) !== null;
 }
 
+function isPendingEventDisambiguationActive() {
+  const snapshot = getCalendarConversationSnapshot();
+
+  if (
+    snapshot.state !== 'WAITING_EVENT_SELECTION' &&
+    snapshot.state !== 'AWAITING_EVENT_SELECTION'
+  ) {
+    return false;
+  }
+
+  const updatePending = getPendingCalendarUpdateContext();
+  const deletePending = getPendingCalendarDeleteContext();
+
+  return Boolean(updatePending?.candidates?.length || deletePending?.candidates?.length);
+}
+
 export function isNewCalendarCommandMessage(transcript: string) {
   const normalized = transcript.trim();
   const snapshot = getCalendarConversationSnapshot();
 
   if (!normalized || isBareShortReply(normalized) || isConflictTimeFollowUp(normalized)) {
     return false;
+  }
+
+  if (isPendingEventDisambiguationActive()) {
+    if (isAwaitingEventDisambiguationSelectionReply(normalized)) {
+      return false;
+    }
+
+    const updatePending = getPendingCalendarUpdateContext();
+
+    if (updatePending?.sourceTranscript.trim() === normalized) {
+      return false;
+    }
   }
 
   if (isCalendarConflictDecisionState(snapshot.state) && snapshot.pendingAction) {
@@ -84,6 +117,10 @@ function looksLikeAlternateTimeReply(transcript: string) {
   const normalized = transcript.trim();
 
   if (!normalized || isNewCalendarCommandMessage(normalized)) {
+    return false;
+  }
+
+  if (isAwaitingEventDisambiguationSelectionReply(normalized)) {
     return false;
   }
 
@@ -122,6 +159,42 @@ function looksLikeAlternateTimeReply(transcript: string) {
   return /^[1-9]\d*$/.test(normalized) || /^(?:вариант|option|варіант)\s+[1-9]\d*$/iu.test(normalized);
 }
 
+function isAwaitingEventDisambiguationSelectionReply(transcript: string) {
+  const snapshot = getCalendarConversationSnapshot();
+
+  if (
+    snapshot.state !== 'WAITING_EVENT_SELECTION' &&
+    snapshot.state !== 'AWAITING_EVENT_SELECTION'
+  ) {
+    return false;
+  }
+
+  const updatePending = getPendingCalendarUpdateContext();
+  const deletePending = getPendingCalendarDeleteContext();
+  const candidates = updatePending?.candidates ?? deletePending?.candidates;
+
+  if (!candidates?.length) {
+    return false;
+  }
+
+  if (
+    resolveDisambiguationSelection({
+      reply: transcript,
+      candidates,
+      referenceNow: new Date(),
+    })
+  ) {
+    return true;
+  }
+
+  return (
+    /^(?:the\s+)?(first|second|third|fourth|1st|2nd|3rd|4th)(?:\s+one|\s+option|\s+event)?\.?$/iu.test(
+      transcript.trim(),
+    ) ||
+    /^(?:варіант|option|номер|number|#)?\s*\d+\s*\.?$/iu.test(transcript.trim())
+  );
+}
+
 export function classifyPendingCalendarReply(transcript: string): PendingReplyClassification {
   const normalized = transcript.trim();
 
@@ -147,6 +220,18 @@ export function classifyPendingCalendarReply(transcript: string): PendingReplyCl
     return 'alternate_time';
   }
 
+  if (isPendingEventDisambiguationActive()) {
+    if (isAwaitingEventDisambiguationSelectionReply(normalized)) {
+      return 'unrelated';
+    }
+
+    const updatePending = getPendingCalendarUpdateContext();
+
+    if (updatePending?.sourceTranscript.trim() === normalized) {
+      return 'confirmation';
+    }
+  }
+
   if (isNewCalendarCommandMessage(normalized)) {
     return 'new_calendar_command';
   }
@@ -163,6 +248,10 @@ export function classifyPendingCalendarReply(transcript: string): PendingReplyCl
       referencesPendingEventTitle(normalized, snapshot.pendingAction.eventTitle))
   ) {
     return 'alternate_time';
+  }
+
+  if (isAwaitingEventDisambiguationSelectionReply(normalized)) {
+    return 'unrelated';
   }
 
   if (looksLikeAlternateTimeReply(normalized) || isConflictTimeFollowUp(normalized)) {

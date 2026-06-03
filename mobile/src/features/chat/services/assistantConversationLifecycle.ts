@@ -10,6 +10,9 @@ export const ASSISTANT_INACTIVITY_TIMEOUT_MS = 8_000;
 /** Hard cap so a trickle stream cannot run forever. */
 export const ASSISTANT_MAX_REQUEST_MS = 120_000;
 
+/** Calendar mutations must not leave "Thinking with you..." hanging longer than this. */
+export const CALENDAR_ASSISTANT_MAX_REQUEST_MS = 20_000;
+
 export const ASSISTANT_TIMEOUT_FALLBACK =
   'I lost the thread for a second… try asking again.';
 

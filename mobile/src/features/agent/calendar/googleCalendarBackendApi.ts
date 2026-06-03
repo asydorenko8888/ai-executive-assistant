@@ -1,7 +1,7 @@
 import type { CalendarCreateEventPayload, CalendarUpdateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
 import type { GoogleCalendarSession } from '@/src/features/agent/calendar/googleCalendarStorage';
-import { apiClient } from '@/src/shared/api';
+import { calendarBackendRequest } from '@/src/features/agent/calendar/calendarBackendRequest';
 
 export type GoogleCalendarBackendStatus = {
   connected: boolean;
@@ -59,32 +59,41 @@ export type PendingCalendarCreateAction = {
 };
 
 export async function fetchGoogleCalendarBackendStatus() {
-  return apiClient.get<GoogleCalendarBackendStatus>({
+  return calendarBackendRequest<GoogleCalendarBackendStatus>({
+    operation: 'status',
+    action: 'GET /google-calendar/status',
+    method: 'GET',
     path: '/google-calendar/status',
   });
 }
 
 export async function fetchGoogleCalendarDebugSnapshot() {
-  return apiClient.get<GoogleCalendarDebugSnapshot>({
+  return calendarBackendRequest<GoogleCalendarDebugSnapshot>({
+    operation: 'status',
+    action: 'GET /google-calendar/debug',
+    method: 'GET',
     path: '/google-calendar/debug',
   });
 }
 
 export async function runGoogleCalendarTestInsert(timeZone?: string) {
-  return apiClient.post<{
+  return calendarBackendRequest<{
     status: string;
     code?: string;
     message?: string;
     eventId?: string;
     event?: GoogleCalendarBackendEvent;
   }>({
+    operation: 'create',
+    action: 'POST /google-calendar/debug/test-insert',
+    method: 'POST',
     path: '/google-calendar/debug/test-insert',
     body: timeZone ? { timeZone } : {},
   });
 }
 
 export async function syncGoogleCalendarSessionToBackend(session: GoogleCalendarSession) {
-  return apiClient.post<GoogleCalendarBackendStatus, {
+  return calendarBackendRequest<GoogleCalendarBackendStatus, {
     accessToken: string;
     refreshToken?: string;
     tokenType?: string;
@@ -92,6 +101,9 @@ export async function syncGoogleCalendarSessionToBackend(session: GoogleCalendar
     expiresAt?: string;
     connectedEmail?: string;
   }>({
+    operation: 'session',
+    action: 'POST /google-calendar/session',
+    method: 'POST',
     path: '/google-calendar/session',
     body: {
       accessToken: session.accessToken,
@@ -105,7 +117,10 @@ export async function syncGoogleCalendarSessionToBackend(session: GoogleCalendar
 }
 
 export async function createGoogleCalendarEventOnBackend(payload: CalendarCreateEventPayload) {
-  return apiClient.post<GoogleCalendarCreateApiResponse, CalendarCreateEventPayload>({
+  return calendarBackendRequest<GoogleCalendarCreateApiResponse, CalendarCreateEventPayload>({
+    operation: 'create',
+    action: 'POST /google-calendar/events',
+    method: 'POST',
     path: '/google-calendar/events',
     body: payload,
   });
@@ -120,23 +135,32 @@ export async function fetchGoogleCalendarEventsFromBackend(params: {
     timeMax: params.timeMax,
   });
 
-  return apiClient.get<{
+  return calendarBackendRequest<{
     events: GoogleCalendarBackendEvent[];
   }>({
+    operation: 'search',
+    action: 'GET /google-calendar/events',
+    method: 'GET',
     path: `/google-calendar/events?${query.toString()}`,
   });
 }
 
 export async function fetchGoogleCalendarEventByIdFromBackend(eventId: string) {
-  return apiClient.get<{
+  return calendarBackendRequest<{
     event: GoogleCalendarBackendEvent;
   }>({
+    operation: 'read',
+    action: 'GET /google-calendar/events/:id',
+    method: 'GET',
     path: `/google-calendar/events/${encodeURIComponent(eventId)}`,
   });
 }
 
 export async function deleteGoogleCalendarEventOnBackend(eventId: string) {
-  return apiClient.delete<GoogleCalendarCreateApiResponse>({
+  return calendarBackendRequest<GoogleCalendarCreateApiResponse>({
+    operation: 'delete',
+    action: 'DELETE /google-calendar/events/:id',
+    method: 'DELETE',
     path: `/google-calendar/events/${encodeURIComponent(eventId)}`,
   });
 }
@@ -145,7 +169,10 @@ export async function updateGoogleCalendarEventOnBackend(
   eventId: string,
   payload: CalendarUpdateEventPayload,
 ) {
-  return apiClient.patch<GoogleCalendarCreateApiResponse, CalendarUpdateEventPayload>({
+  return calendarBackendRequest<GoogleCalendarCreateApiResponse, CalendarUpdateEventPayload>({
+    operation: 'update',
+    action: 'PATCH /google-calendar/events/:id',
+    method: 'PATCH',
     path: `/google-calendar/events/${encodeURIComponent(eventId)}`,
     body: payload,
   });
@@ -156,7 +183,10 @@ export async function enqueueCalendarCreatePendingAction(params: {
   transcript: string;
   languageCode: string;
 }) {
-  return apiClient.post<{ action: PendingCalendarCreateAction }, typeof params & { type: 'calendar.create' }>({
+  return calendarBackendRequest<{ action: PendingCalendarCreateAction }, typeof params & { type: 'calendar.create' }>({
+    operation: 'create',
+    action: 'POST /google-calendar/pending-actions',
+    method: 'POST',
     path: '/google-calendar/pending-actions',
     body: {
       type: 'calendar.create',
@@ -166,7 +196,7 @@ export async function enqueueCalendarCreatePendingAction(params: {
 }
 
 export async function resumeGoogleCalendarPendingActions() {
-  const response = await apiClient.post<{
+  const response = await calendarBackendRequest<{
     resumed?: boolean;
     actionId?: string;
     transcript?: string;
@@ -176,6 +206,9 @@ export async function resumeGoogleCalendarPendingActions() {
     verificationFetched?: boolean;
     executionState?: CalendarExecutionState;
   }>({
+    operation: 'create',
+    action: 'POST /google-calendar/pending-actions/resume',
+    method: 'POST',
     path: '/google-calendar/pending-actions/resume',
   });
 
@@ -195,7 +228,10 @@ export async function resumeGoogleCalendarPendingActions() {
 }
 
 export async function disconnectGoogleCalendarOnBackend() {
-  return apiClient.delete<{ disconnected: boolean }>({
+  return calendarBackendRequest<{ disconnected: boolean }>({
+    operation: 'session',
+    action: 'DELETE /google-calendar/session',
+    method: 'DELETE',
     path: '/google-calendar/session',
   });
 }

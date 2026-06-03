@@ -63,6 +63,6 @@ export function createApiErrorFromResponse(status: number, payload: ApiErrorPayl
     message: payload?.message || 'Request failed',
     code: payload?.code,
     details: payload?.details,
-    retryable: status >= 500,
+    retryable: status === 0 || status === 408 || status === 429 || status >= 500,
   });
 }

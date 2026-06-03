@@ -206,10 +206,47 @@ describe('calendar update integration', () => {
     assert.deepEqual(extracted.missingFields, []);
   });
 
+  it('merges ambiguous update selection when user replies with day and time', () => {
+    const pending = {
+      operation: 'update' as const,
+      action: 'move' as const,
+      title: 'lunch',
+      fromStartISO: null,
+      toStartISO: null,
+      sourceTranscript: 'Move lunch 2 hours later',
+      candidates: [
+        {
+          eventId: 'lunch-1pm',
+          title: 'Lunch',
+          startsAt: '2026-05-28T13:00:00-05:00',
+          endsAt: '2026-05-28T14:00:00-05:00',
+        },
+        {
+          eventId: 'lunch-3pm',
+          title: 'Lunch',
+          startsAt: '2026-05-28T15:00:00-05:00',
+          endsAt: '2026-05-28T16:00:00-05:00',
+        },
+      ],
+    };
+
+    const merged = tryMergePendingCalendarUpdateReply({
+      pending,
+      reply: 'Today 3 PM',
+      referenceNow,
+    });
+
+    assert.ok(merged);
+    assert.equal(merged?.selectedEventId, 'lunch-3pm');
+    assert.equal(merged?.transcript, 'Move lunch 2 hours later');
+    assert.equal(merged?.context.title, 'Lunch');
+  });
+
   it('merges pending update clarification when user replies with only destination time', () => {
     const fromStartISO = '2026-05-28T17:30:00-05:00';
     const pending = {
       operation: 'update' as const,
+      action: 'move' as const,
       title: 'чаепитие',
       fromStartISO,
       toStartISO: null,
@@ -236,6 +273,7 @@ describe('calendar update integration', () => {
   it('builds a canonical Russian transcript from pending update context', () => {
     const transcript = buildTranscriptFromPendingContext({
       operation: 'update',
+      action: 'move',
       title: 'чаепитие',
       fromStartISO: '2026-05-28T17:30:00-05:00',
       toStartISO: '2026-05-28T18:30:00-05:00',
@@ -394,6 +432,7 @@ describe('calendar update integration', () => {
 
     const pending = {
       operation: 'update' as const,
+      action: 'move' as const,
       title: incomplete.title,
       fromStartISO: incomplete.fromStartISO,
       toStartISO: incomplete.toStartISO,

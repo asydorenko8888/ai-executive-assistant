@@ -1,7 +1,7 @@
+import { fetchGoogleCalendarApiJson } from './googleCalendarApiClient.js';
 import { getValidGoogleCalendarAccessToken } from './googleCalendarTokenStore.js';
 
 const GOOGLE_CALENDAR_EVENTS_ENDPOINT = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
-const CALENDAR_API_TIMEOUT_MS = 25_000;
 
 export type GoogleCalendarEventRecord = {
   id: string;
@@ -23,47 +23,31 @@ type GoogleEventPayload = {
 };
 
 async function fetchGoogleCalendarJson(url: string, accessToken: string, label: string) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), CALENDAR_API_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(url, {
+  const result = await fetchGoogleCalendarApiJson({
+    url,
+    init: {
       method: 'GET',
       headers: { Authorization: `Bearer ${accessToken}` },
-      signal: controller.signal,
-    });
-    const rawBody = await response.json().catch(() => ({}));
+    },
+    label,
+    operation: 'read',
+  });
 
-    console.log('[GoogleCalendarRead]', label, {
-      httpStatus: response.status,
-      ok: response.ok,
-    });
+  console.log('[GoogleCalendarRead]', label, {
+    httpStatus: result.ok ? result.status : result.status ?? null,
+    ok: result.ok,
+    attempts: result.attempts,
+  });
 
-    if (!response.ok) {
-      const body = rawBody as { error?: { message?: string } };
-      const message =
-        typeof body.error === 'object' && body.error?.message
-          ? body.error.message
-          : response.statusText || `${label} failed`;
-
-      return {
-        ok: false as const,
-        status: response.status,
-        message,
-      };
-    }
-
-    return { ok: true as const, body: rawBody };
-  } catch (error) {
-    const timedOut = error instanceof Error && error.name === 'AbortError';
-
-    return {
-      ok: false as const,
-      message: timedOut ? 'Google Calendar API timeout' : 'Google Calendar network error',
-    };
-  } finally {
-    clearTimeout(timeoutId);
+  if (result.ok) {
+    return { ok: true as const, body: result.body };
   }
+
+  return {
+    ok: false as const,
+    status: result.status,
+    message: result.message,
+  };
 }
 
 function normalizeGoogleEvent(body: GoogleEventPayload): GoogleCalendarEventRecord | null {

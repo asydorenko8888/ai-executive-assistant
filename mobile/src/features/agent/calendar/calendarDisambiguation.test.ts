@@ -59,6 +59,32 @@ describe('calendar disambiguation and reliability', () => {
     assert.match(reply, /2\./);
   });
 
+  it('resolves update selection by day and clock label', () => {
+    const candidates = [
+      {
+        eventId: 'lunch-1pm',
+        title: 'Lunch',
+        startsAt: '2026-05-28T13:00:00-05:00',
+        endsAt: '2026-05-28T14:00:00-05:00',
+      },
+      {
+        eventId: 'lunch-3pm',
+        title: 'Lunch',
+        startsAt: '2026-05-28T15:00:00-05:00',
+        endsAt: '2026-05-28T16:00:00-05:00',
+      },
+    ];
+
+    const selected = resolveDisambiguationSelection({
+      reply: 'Today 3 PM',
+      candidates,
+      referenceNow,
+      timeZone,
+    });
+
+    assert.equal(selected?.eventId, 'lunch-3pm');
+  });
+
   it('resolves delete selection by number', () => {
     const candidates = [
       {

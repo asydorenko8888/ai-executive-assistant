@@ -135,12 +135,34 @@ export function resolveDisambiguationSelection(params: {
     return null;
   }
 
-  const numericMatch = reply.match(/^(?:варіант|option|номер|#)?\s*(\d+)\s*\.?$/iu);
+  const numericMatch = reply.match(/^(?:варіант|option|варіант|номер|number|#)?\s*(\d+)\s*\.?$/iu);
 
   if (numericMatch) {
     const index = Number(numericMatch[1]) - 1;
 
     if (index >= 0 && index < params.candidates.length) {
+      return params.candidates[index] ?? null;
+    }
+  }
+
+  const ordinalMatch = reply.match(
+    /^(?:the\s+)?(first|second|third|fourth|1st|2nd|3rd|4th)(?:\s+one|\s+option|\s+event)?\.?$/iu,
+  );
+
+  if (ordinalMatch) {
+    const ordinalIndex: Record<string, number> = {
+      first: 0,
+      '1st': 0,
+      second: 1,
+      '2nd': 1,
+      third: 2,
+      '3rd': 2,
+      fourth: 3,
+      '4th': 3,
+    };
+    const index = ordinalIndex[ordinalMatch[1].toLowerCase()];
+
+    if (index !== undefined && index >= 0 && index < params.candidates.length) {
       return params.candidates[index] ?? null;
     }
   }

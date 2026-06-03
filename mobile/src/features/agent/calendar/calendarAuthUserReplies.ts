@@ -46,14 +46,14 @@ export function buildCalendarApiUnavailableReply(languageCode: string) {
   const locale = resolveCalendarUserReplyLocale(languageCode);
 
   if (locale === 'uk') {
-    return 'Зараз не вдається звернутися до Google Calendar. Спробуйте ще раз за хвилину.';
+    return 'Google Calendar тимчасово не відповів. Я не змінював ваш календар. Спробуйте ще раз.';
   }
 
   if (locale === 'ru') {
-    return 'Сейчас не удаётся обратиться к Google Calendar. Попробуйте ещё раз через минуту.';
+    return 'Google Calendar временно не ответил. Я не менял ваш календарь. Попробуйте ещё раз.';
   }
 
-  return 'Google Calendar is temporarily unavailable. Please try again in a moment.';
+  return 'Google Calendar temporarily did not respond. I did not change your calendar. Please try again.';
 }
 
 export function buildCalendarQueryUncertainReply(languageCode: string) {

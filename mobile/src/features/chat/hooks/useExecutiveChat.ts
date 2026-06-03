@@ -46,6 +46,7 @@ import {
 } from '@/src/features/chat/memory';
 import { buildShortTermMemory } from '@/src/features/chat/memory/shortTermMemory';
 import {
+  CALENDAR_ASSISTANT_MAX_REQUEST_MS,
   isAbortError,
   logAssistantConversation,
 } from '@/src/features/chat/services/assistantConversationLifecycle';
@@ -53,6 +54,7 @@ import {
   blockLlmForCalendarMutation,
   requiresCalendarToolExecution,
 } from '@/src/features/agent/calendar/calendarToolExecutionGate';
+import { buildCalendarApiUnavailableReply } from '@/src/features/agent/calendar/calendarAuthUserReplies';
 import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import { refreshHomeBriefing } from '@/src/features/home/services/refreshHomeBriefing';
@@ -201,10 +203,16 @@ export function useExecutiveChat() {
       request.terminalState = 'timeout';
       request.abortController.abort();
 
-      const recovery = assistantRequestCoordinatorRef.current.buildRecoveryForRequest(
-        request.assistantMessageId,
-        'timeout',
-      );
+      const lastUserMessage = [...useExecutiveConversationStore.getState().messages]
+        .reverse()
+        .find((message) => message.role === 'user');
+      const recovery =
+        lastUserMessage && requiresCalendarToolExecution(lastUserMessage.content)
+          ? buildCalendarApiUnavailableReply(voiceLanguage)
+          : assistantRequestCoordinatorRef.current.buildRecoveryForRequest(
+              request.assistantMessageId,
+              'timeout',
+            );
 
       finalizeAssistantMessage(request.assistantMessageId, recovery, 'timeout');
       assistantRequestCoordinatorRef.current.finalizeRequest(request.requestId);
@@ -213,7 +221,7 @@ export function useExecutiveChat() {
       chatMutationRef.current?.reset();
       void persistConversationSafe();
     },
-    [finalizeAssistantMessage, persistConversationSafe, resetStreamingState],
+    [finalizeAssistantMessage, persistConversationSafe, resetStreamingState, voiceLanguage],
   );
 
   const syncLongTermMemory = useCallback(async (conversationMessages: ChatMessage[]) => {
@@ -671,6 +679,12 @@ export function useExecutiveChat() {
       const request = assistantRequestCoordinatorRef.current.begin(
         assistantMessageId,
         handleAssistantInactivityTimeout,
+        requiresCalendarToolExecution(trimmedMessage)
+          ? {
+              inactivityMs: CALENDAR_ASSISTANT_MAX_REQUEST_MS,
+              maxMs: CALENDAR_ASSISTANT_MAX_REQUEST_MS,
+            }
+          : undefined,
       );
 
       hasReceivedStreamTokenRef.current = false;

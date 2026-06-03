@@ -45,6 +45,7 @@ import { executeCalendarUpdateEvent } from '@/src/features/agent/execution/calen
 import type { CalendarToolStatus } from '@/src/features/agent/execution/calendarToolContract';
 import {
   getLastCalendarCommandOutcome,
+  getPendingCalendarUpdateContext,
   setLastCalendarCommandOutcome,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 import {
@@ -259,10 +260,12 @@ export async function executeCalendarCommand(params: {
   logCalendarToolSelected({ intent, tool: toolName });
 
   if (intent === 'update_calendar_event') {
+    const pendingUpdateSelection = getPendingCalendarUpdateContext();
     const outcome = await executeCalendarUpdateEvent({
       transcript: enrichedTranscript,
       languageCode: params.languageCode,
       referenceNow: params.referenceNow,
+      selectedEventId: pendingUpdateSelection?.selectedEventId ?? null,
     });
 
     const contractOk = isVerifiedCalendarUpdateSuccess(outcome.tool);

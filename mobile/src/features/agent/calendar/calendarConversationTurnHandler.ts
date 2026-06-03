@@ -313,12 +313,15 @@ async function executePendingMutation(params: ExecutePendingMutationParams) {
       ? resolveStoredUpdateTargetFromPending(params.pending)
       : null;
 
+    const updatePending = getPendingCalendarUpdateContext();
+
     const outcome = await executeCalendarUpdateEvent({
       transcript,
       languageCode: params.pending.languageCode,
       referenceNow: params.referenceNow,
       skipScheduleConflictCheck: params.skipScheduleConflictCheck,
       storedUpdateTarget: storedUpdateTarget ?? undefined,
+      selectedEventId: params.selectedEventId ?? updatePending?.selectedEventId ?? null,
     });
 
     const verified = isVerifiedCalendarUpdateSuccess(outcome.tool);
@@ -643,6 +646,33 @@ async function handleDeleteOrSelectionState(params: {
     }
   }
 
+  const updatePending = getPendingCalendarUpdateContext();
+
+  if (updatePending) {
+    const merged = tryMergePendingCalendarUpdateReply({
+      pending: updatePending,
+      reply: params.transcript,
+      referenceNow: params.referenceNow,
+    });
+
+    if (merged) {
+      setPendingCalendarUpdateContext(merged.context);
+
+      const transcriptOverride =
+        merged.selectedEventId != null
+          ? merged.context.sourceTranscript
+          : merged.transcript;
+
+      return executePendingMutation({
+        pending: { ...params.pending, sourceTranscript: transcriptOverride },
+        referenceNow: params.referenceNow,
+        calendarConnected: true,
+        transcriptOverride,
+        selectedEventId: merged.selectedEventId ?? null,
+      });
+    }
+  }
+
   if (short === 'proceed' && deletePending) {
     return executePendingMutation({
       pending: params.pending,
@@ -705,11 +735,17 @@ async function handleMoveConfirmation(params: {
     if (merged) {
       setPendingCalendarUpdateContext(merged.context);
 
+      const transcriptOverride =
+        merged.selectedEventId != null
+          ? merged.context.sourceTranscript
+          : merged.transcript;
+
       return executePendingMutation({
-        pending: { ...params.pending, sourceTranscript: merged.transcript },
+        pending: { ...params.pending, sourceTranscript: transcriptOverride },
         referenceNow: params.referenceNow,
         calendarConnected: params.calendarConnected,
-        transcriptOverride: merged.transcript,
+        transcriptOverride,
+        selectedEventId: merged.selectedEventId ?? null,
       });
     }
   }
@@ -763,16 +799,17 @@ export async function handleCalendarConversationTurn(params: {
 
   const pending = snapshot.pendingAction;
   const inConflictWorkflow = isCalendarConflictDecisionState(snapshot.state);
-  let effectiveTranscript = params.transcript;
+  const selectionReply = params.titleSourceTranscript?.trim() || params.transcript;
+  let effectiveTranscript = selectionReply;
 
-  const classification = classifyPendingCalendarReply(params.transcript);
+  const classification = classifyPendingCalendarReply(selectionReply);
 
   if (
     inConflictWorkflow &&
-    !isExplicitDifferentCalendarCommand(params.transcript, pending) &&
+    !isExplicitDifferentCalendarCommand(selectionReply, pending) &&
     classification === 'alternate_time'
   ) {
-    effectiveTranscript = enrichTranscriptForActivePendingConflict(params.transcript, pending);
+    effectiveTranscript = enrichTranscriptForActivePendingConflict(selectionReply, pending);
   }
 
   logPendingReplyClassified({
@@ -782,7 +819,14 @@ export async function handleCalendarConversationTurn(params: {
   });
 
   if (classification === 'new_calendar_command' && !inConflictWorkflow) {
-    return null;
+    const updatePending = getPendingCalendarUpdateContext();
+    const repeatingOriginalMove =
+      updatePending?.candidates?.length &&
+      updatePending.sourceTranscript.trim() === selectionReply.trim();
+
+    if (!repeatingOriginalMove) {
+      return null;
+    }
   }
 
   logCalendarConversationEvent({
@@ -817,7 +861,7 @@ export async function handleCalendarConversationTurn(params: {
     case 'WAITING_EVENT_SELECTION':
       result = await handleDeleteOrSelectionState({
         pending,
-        transcript: params.transcript,
+        transcript: selectionReply,
         referenceNow: params.referenceNow,
         classification,
       });

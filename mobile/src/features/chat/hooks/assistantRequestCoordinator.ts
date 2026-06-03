@@ -1,6 +1,7 @@
 import type { AssistantRequestTerminalState } from '@/src/features/chat/services/assistantConversationLifecycle';
 import {
   ASSISTANT_INACTIVITY_TIMEOUT_MS,
+  ASSISTANT_MAX_REQUEST_MS,
   buildAssistantRecoveryMessage,
   createAssistantRequestAbortController,
   logAssistantConversation,
@@ -34,7 +35,11 @@ export function createAssistantRequestCoordinator() {
 
   const isCurrentRequest = (requestId: string) => activeRequest?.requestId === requestId;
 
-  const begin = (assistantMessageId: string, onInactivityTimeout: (request: ActiveAssistantRequest) => void) => {
+  const begin = (
+    assistantMessageId: string,
+    onInactivityTimeout: (request: ActiveAssistantRequest) => void,
+    timing?: { inactivityMs?: number; maxMs?: number },
+  ) => {
     if (activeRequest && !activeRequest.finalized) {
       logAssistantConversation('[Conversation]', 'Interrupting in-flight assistant request', {
         previousRequestId: activeRequest.requestId,
@@ -47,7 +52,8 @@ export function createAssistantRequestCoordinator() {
 
     const requestId = createRequestId();
     const abortController = createAssistantRequestAbortController({
-      inactivityMs: ASSISTANT_INACTIVITY_TIMEOUT_MS,
+      inactivityMs: timing?.inactivityMs ?? ASSISTANT_INACTIVITY_TIMEOUT_MS,
+      maxMs: timing?.maxMs ?? ASSISTANT_MAX_REQUEST_MS,
       onInactivity: () => {
         if (activeRequest?.requestId === requestId && !activeRequest.finalized) {
           onInactivityTimeout(activeRequest);

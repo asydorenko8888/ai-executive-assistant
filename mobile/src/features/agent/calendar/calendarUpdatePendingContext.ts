@@ -9,6 +9,7 @@ import {
   formatClockLabelFromInstantMs,
 } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
+import { parseCalendarUpdateSchedule } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import type { PendingCalendarUpdateContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import {
   buildTranscriptFromSelectedDisambiguationCandidate,
@@ -74,18 +75,53 @@ export function buildTranscriptFromPendingContext(context: PendingCalendarUpdate
   return fragments.join(' ').replace(/\s+/g, ' ').trim();
 }
 
+function resolveMoveDeltaMsFromSource(params: {
+  sourceTranscript: string;
+  extraction: CalendarUpdateExtractResult;
+  referenceNow: Date;
+}) {
+  const fromMs = params.extraction.fromStartISO ? Date.parse(params.extraction.fromStartISO) : NaN;
+  const toMs = params.extraction.toStartISO ? Date.parse(params.extraction.toStartISO) : NaN;
+
+  if (Number.isFinite(fromMs) && Number.isFinite(toMs)) {
+    return toMs - fromMs;
+  }
+
+  const timeZone = getExecutiveCalendarTimezone();
+  const schedule = parseCalendarUpdateSchedule(params.sourceTranscript, params.referenceNow, timeZone);
+
+  if (schedule.ok && schedule.kind === 'relative_offset') {
+    return schedule.direction === 'later' ? schedule.offsetMs : -schedule.offsetMs;
+  }
+
+  return null;
+}
+
 export function pendingContextFromExtraction(params: {
   sourceTranscript: string;
   extraction: CalendarUpdateExtractResult;
   candidates?: CalendarDisambiguationCandidate[];
+  referenceNow?: Date;
 }): PendingCalendarUpdateContext {
+  const referenceNow = params.referenceNow ?? new Date();
+  const moveDeltaMs = resolveMoveDeltaMsFromSource({
+    sourceTranscript: params.sourceTranscript,
+    extraction: params.extraction,
+    referenceNow,
+  });
+
   return {
     operation: 'update',
+    action: 'move',
     title: params.extraction.title,
     fromStartISO: params.extraction.fromStartISO,
     toStartISO: params.extraction.toStartISO,
     sourceTranscript: params.sourceTranscript.trim(),
     candidates: params.candidates,
+    candidateEventIds: params.candidates?.map((candidate) => candidate.eventId),
+    candidateStartTimes: params.candidates?.map((candidate) => candidate.startsAt),
+    moveDeltaMs,
+    requestedTargetStartISO: params.extraction.toStartISO,
   };
 }
 
@@ -144,7 +180,11 @@ export function tryMergePendingCalendarUpdateReply(params: {
 }) {
   const reply = params.reply.trim();
 
-  if (!reply || isCalendarExactTimeReadQuery(reply)) {
+  const awaitingMoveSelection =
+    params.pending.action === 'move' &&
+    Boolean(params.pending.candidates && params.pending.candidates.length > 0);
+
+  if (!reply || (!awaitingMoveSelection && isCalendarExactTimeReadQuery(reply))) {
     return null;
   }
 
@@ -156,18 +196,36 @@ export function tryMergePendingCalendarUpdateReply(params: {
     });
 
     if (selected) {
+      const anchorFromISO = params.pending.fromStartISO ?? selected.startsAt;
       const next: PendingCalendarUpdateContext = {
         ...params.pending,
         selectedEventId: selected.eventId,
         title: selected.title,
+        fromStartISO: anchorFromISO,
       };
+
+      if (
+        !next.toStartISO &&
+        next.moveDeltaMs != null &&
+        Number.isFinite(next.moveDeltaMs) &&
+        anchorFromISO
+      ) {
+        const fromMs = Date.parse(anchorFromISO);
+
+        if (Number.isFinite(fromMs)) {
+          next.toStartISO = new Date(fromMs + next.moveDeltaMs).toISOString();
+        }
+      }
 
       return {
         context: next,
-        transcript: `${params.pending.sourceTranscript} ${selected.title}`.replace(/\s+/g, ' ').trim(),
+        transcript: params.pending.sourceTranscript.trim(),
         selectedEventId: selected.eventId,
+        readyToExecute: Boolean(next.toStartISO && next.fromStartISO),
       };
     }
+
+    return null;
   }
 
   const isTimeOnly = TIME_ONLY_REPLY.test(reply) || BARE_HOUR_REPLY.test(reply);

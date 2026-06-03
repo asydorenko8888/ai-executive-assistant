@@ -1,6 +1,8 @@
 import { resetConversationEventMemory } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { clearPendingIntent } from '@/src/features/agent/calendar/calendarPendingIntent';
 import { clearPendingCalendarState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
+import { isTransientCalendarToolErrorCode } from '@/src/features/agent/calendar/calendarApiErrorClassification';
+import { logCalendarCreateDedupeDecision } from '@/src/features/agent/calendar/calendarCreateDedupeKey';
 import { MAX_CALENDAR_TOOL_RETRIES, type CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -13,15 +15,23 @@ let calendarOperationStartedAtMs: number | null = null;
 const CALENDAR_OPERATION_LOCK_MS = 45_000;
 let calendarRetryCount = 0;
 let lastOperationKey: string | null = null;
+let lastCreateDedupeKey: string | null = null;
+let createInFlightDedupeKey: string | null = null;
+let createRetryCount = 0;
 let lastToolResponse: CalendarToolResponse | null = null;
 let currentCalendarOperationEventId: string | null = null;
 export type PendingCalendarUpdateContext = {
   operation: 'update';
+  action: 'move';
   title: string | null;
   fromStartISO: string | null;
   toStartISO: string | null;
   sourceTranscript: string;
   candidates?: CalendarDisambiguationCandidate[];
+  candidateEventIds?: string[];
+  candidateStartTimes?: string[];
+  moveDeltaMs?: number | null;
+  requestedTargetStartISO?: string | null;
   selectedEventId?: string | null;
 };
 
@@ -133,6 +143,7 @@ export function getPendingCalendarUpdateIntent() {
 export function setPendingCalendarUpdateIntent(params: { sourceTranscript: string }) {
   pendingCalendarUpdateContext = {
     operation: 'update',
+    action: 'move',
     title: null,
     fromStartISO: null,
     toStartISO: null,
@@ -243,7 +254,13 @@ export function endCalendarOperation(params: { failed: boolean; createdEventId?:
   }
 
   if (params.failed) {
-    calendarRetryCount += 1;
+    const transientFailure = isTransientCalendarToolErrorCode(lastToolResponse?.errorCode);
+
+    if (!transientFailure) {
+      calendarRetryCount += 1;
+    } else {
+      calendarRetryCount = 0;
+    }
   } else {
     calendarRetryCount = 0;
   }
@@ -254,22 +271,122 @@ export function endCalendarOperation(params: { failed: boolean; createdEventId?:
   });
 }
 
-export function shouldBlockCalendarRecreate(transcript: string) {
-  const operationKey = normalizeOperationKey(transcript);
+function logCreateDedupeBlock(dedupeKey: string, reason: string) {
+  logCalendarCreateDedupeDecision({
+    dedupeKey,
+    allowed: false,
+    reason,
+    createInFlightDedupeKey,
+    lastCreateDedupeKey,
+    createRetryCount,
+  });
+}
 
-  if (lastToolResponse?.status === 'PENDING' && lastOperationKey === operationKey) {
+function logCreateDedupeAllow(dedupeKey: string, reason: string) {
+  logCalendarCreateDedupeDecision({
+    dedupeKey,
+    allowed: true,
+    reason,
+    createInFlightDedupeKey,
+    lastCreateDedupeKey,
+    createRetryCount,
+  });
+}
+
+export function shouldBlockCalendarRecreate(dedupeKey: string) {
+  if (createInFlightDedupeKey === dedupeKey) {
+    logCreateDedupeBlock(dedupeKey, 'same_create_in_flight');
     return true;
+  }
+
+  if (lastCreateDedupeKey === dedupeKey && lastToolResponse?.status === 'PENDING') {
+    logCreateDedupeBlock(dedupeKey, 'pending_auth_same_dedupe_key');
+    return true;
+  }
+
+  const lastFailureWasTransient =
+    lastToolResponse?.status === 'FAILURE' &&
+    isTransientCalendarToolErrorCode(lastToolResponse.errorCode);
+
+  if (
+    lastCreateDedupeKey === dedupeKey &&
+    lastToolResponse?.status === 'FAILURE' &&
+    createRetryCount >= MAX_CALENDAR_TOOL_RETRIES &&
+    !lastFailureWasTransient
+  ) {
+    logCreateDedupeBlock(dedupeKey, 'max_retries_same_dedupe_key');
+    return true;
+  }
+
+  logCreateDedupeAllow(dedupeKey, 'distinct_create_request');
+  return false;
+}
+
+export function tryBeginCalendarCreateOperation(dedupeKey: string) {
+  if (createInFlightDedupeKey === dedupeKey) {
+    logCreateDedupeBlock(dedupeKey, 'try_begin_same_in_flight');
+    return false;
   }
 
   if (
+    lastCreateDedupeKey === dedupeKey &&
+    createRetryCount >= MAX_CALENDAR_TOOL_RETRIES &&
     lastToolResponse?.status === 'FAILURE' &&
-    lastOperationKey === operationKey &&
-    calendarRetryCount >= MAX_CALENDAR_TOOL_RETRIES
+    !isTransientCalendarToolErrorCode(lastToolResponse.errorCode)
   ) {
-    return true;
+    logCreateDedupeBlock(dedupeKey, 'try_begin_max_retries');
+    return false;
   }
 
-  return calendarOperationInProgress;
+  if (lastCreateDedupeKey !== dedupeKey) {
+    createRetryCount = 0;
+    lastCreateDedupeKey = dedupeKey;
+  }
+
+  createInFlightDedupeKey = dedupeKey;
+  logCreateDedupeAllow(dedupeKey, 'try_begin_started');
+
+  logExecutionAudit('tool_call', {
+    started: true,
+    operation: 'create',
+    dedupeKey: dedupeKey.slice(0, 120),
+    createRetryCount,
+  });
+
+  return true;
+}
+
+export function endCalendarCreateOperation(params: {
+  dedupeKey: string;
+  failed: boolean;
+  createdEventId?: string | null;
+}) {
+  if (createInFlightDedupeKey === params.dedupeKey) {
+    createInFlightDedupeKey = null;
+  }
+
+  if (params.createdEventId) {
+    currentCalendarOperationEventId = params.createdEventId;
+  }
+
+  if (params.failed) {
+    const transientFailure = isTransientCalendarToolErrorCode(lastToolResponse?.errorCode);
+
+    if (!transientFailure) {
+      createRetryCount += 1;
+    } else {
+      createRetryCount = 0;
+    }
+  } else {
+    createRetryCount = 0;
+  }
+
+  logExecutionAudit('tool_call', {
+    ended: true,
+    operation: 'create',
+    dedupeKey: params.dedupeKey.slice(0, 120),
+    createRetryCount,
+  });
 }
 
 export function resetCalendarExecutionSession() {
@@ -277,6 +394,9 @@ export function resetCalendarExecutionSession() {
   calendarOperationStartedAtMs = null;
   calendarRetryCount = 0;
   lastOperationKey = null;
+  lastCreateDedupeKey = null;
+  createInFlightDedupeKey = null;
+  createRetryCount = 0;
   lastToolResponse = null;
   currentCalendarOperationEventId = null;
   lastCommandOutcome = null;
