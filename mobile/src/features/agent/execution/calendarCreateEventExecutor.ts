@@ -21,6 +21,7 @@ import {
 } from '@/src/features/agent/execution/calendarExecutionSession';
 import { resolveAfterEventCreateSchedule } from '@/src/features/agent/calendar/calendarAfterEventSchedule';
 import { recordVerifiedCalendarEventContext } from '@/src/features/agent/calendar/calendarMutationEventContext';
+import { appendCalendarCreateConflictCheckSkippedNotice } from '@/src/features/agent/calendar/calendarCreateConflictRefreshNotice';
 import { blockCalendarMutationOnScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflictGuard';
 import { computeDayOffsetFromInstant } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
@@ -214,7 +215,7 @@ export async function executeCalendarCreateEvent(
     scheduleIso: payloadResult.scheduleIso ?? null,
   });
 
-  const conflictBlock = await blockCalendarMutationOnScheduleConflict({
+  const conflictGate = await blockCalendarMutationOnScheduleConflict({
     operation: 'create',
     sourceTranscript: params.transcript,
     titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
@@ -225,19 +226,28 @@ export async function executeCalendarCreateEvent(
     referenceNow: params.referenceNow,
     skipScheduleConflictCheck: params.skipScheduleConflictCheck,
   });
+  const conflictCheckSkippedDueToRefreshFailure =
+    conflictGate.skippedConflictCheckDueToRefreshFailure ?? false;
 
-  if (conflictBlock) {
+  if (conflictCheckSkippedDueToRefreshFailure) {
+    console.log('[Calendar Conflict Refresh]', {
+      stage: 'pre_create_conflict_check_skipped',
+      reason: 'calendar_refresh_failed',
+    });
+  }
+
+  if (conflictGate.block) {
     endCalendarCreateOperation({ dedupeKey, failed: true });
 
     return {
-      ...buildCalendarToolReplyBundle(conflictBlock.tool, params.languageCode, {
+      ...buildCalendarToolReplyBundle(conflictGate.block.tool, params.languageCode, {
         referenceNow: params.referenceNow,
       }),
-      result: mapToolToActionResult(conflictBlock.tool),
+      result: mapToolToActionResult(conflictGate.block.tool),
       scheduleIso: payloadResult.scheduleIso,
       verified: false,
-      reply: conflictBlock.reply,
-      spokenReply: conflictBlock.spokenReply,
+      reply: conflictGate.block.reply,
+      spokenReply: conflictGate.block.spokenReply,
       executionState: 'failed',
     };
   }
@@ -431,10 +441,28 @@ export async function executeCalendarCreateEvent(
       }
     }
 
-    return finalizeOutcome(
-      buildCalendarToolReplyBundle(tool, params.languageCode, { referenceNow: params.referenceNow }),
-      payloadResult.scheduleIso,
-    );
+    const bundle = buildCalendarToolReplyBundle(tool, params.languageCode, {
+      referenceNow: params.referenceNow,
+    });
+
+    if (conflictCheckSkippedDueToRefreshFailure && tool.status === 'SUCCESS') {
+      const withNotice = appendCalendarCreateConflictCheckSkippedNotice({
+        reply: bundle.reply,
+        spokenReply: bundle.spokenReply,
+        languageCode: params.languageCode,
+      });
+
+      return finalizeOutcome(
+        {
+          ...bundle,
+          reply: withNotice.reply,
+          spokenReply: withNotice.spokenReply,
+        },
+        payloadResult.scheduleIso,
+      );
+    }
+
+    return finalizeOutcome(bundle, payloadResult.scheduleIso);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Calendar operation error';
     tool = createCalendarToolFailure('CALENDAR_OPERATION_ERROR', message);

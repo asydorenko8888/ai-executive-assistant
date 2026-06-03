@@ -80,7 +80,7 @@ async function guardUpdateScheduleConflict(params: {
   const durationMs = Math.max(matchedEndMs - matchedStartMs, 30 * 60_000);
   const proposedEndMs = params.payloadResult.toMs + durationMs;
 
-  const conflictBlock = await blockCalendarMutationOnScheduleConflict({
+  const conflictGate = await blockCalendarMutationOnScheduleConflict({
     operation: 'update',
     sourceTranscript: params.transcript,
     titleSourceTranscript: params.titleSourceTranscript,
@@ -95,18 +95,18 @@ async function guardUpdateScheduleConflict(params: {
     skipScheduleConflictCheck: params.skipScheduleConflictCheck,
   });
 
-  if (!conflictBlock) {
+  if (!conflictGate.block) {
     return null;
   }
 
   endCalendarOperation({ failed: true });
 
   return {
-    ...buildCalendarUpdateToolReplyBundle(conflictBlock.tool, params.languageCode, {
+    ...buildCalendarUpdateToolReplyBundle(conflictGate.block.tool, params.languageCode, {
       referenceNow: params.referenceNow,
     }),
-    reply: conflictBlock.reply,
-    spokenReply: conflictBlock.spokenReply,
+    reply: conflictGate.block.reply,
+    spokenReply: conflictGate.block.spokenReply,
     verified: false,
   };
 }

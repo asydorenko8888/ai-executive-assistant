@@ -24,6 +24,11 @@ export type CalendarScheduleConflictBlock = {
   spokenReply: string;
 };
 
+export type CalendarScheduleConflictGateResult = {
+  block: CalendarScheduleConflictBlock | null;
+  skippedConflictCheckDueToRefreshFailure?: boolean;
+};
+
 export async function blockCalendarMutationOnScheduleConflict(params: {
   operation: 'create' | 'update';
   sourceTranscript: string;
@@ -40,7 +45,7 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
   skipScheduleConflictCheck?: boolean;
   /** When true, offer numbered alternatives immediately (after user declined force-create). */
   offerAlternativesImmediately?: boolean;
-}): Promise<CalendarScheduleConflictBlock | null> {
+}): Promise<CalendarScheduleConflictGateResult> {
   const ignoreEventId = resolveScheduleConflictIgnoreEventId({
     operation: params.operation,
     updateEventId: params.updateEventId,
@@ -57,7 +62,7 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
   });
 
   if (check.status === 'clear') {
-    return null;
+    return { block: null };
   }
 
   if (check.status === 'error') {
@@ -67,22 +72,39 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
     );
 
     return {
-      tool,
-      reply: tool.error ?? 'Calendar conflict validation failed',
-      spokenReply: tool.error ?? 'Calendar conflict validation failed',
+      block: {
+        tool,
+        reply: tool.error ?? 'Calendar conflict validation failed',
+        spokenReply: tool.error ?? 'Calendar conflict validation failed',
+      },
     };
   }
 
   if (check.status === 'fetch_failed') {
+    console.log('[Calendar Conflict Refresh]', {
+      operation: params.operation,
+      refreshAttempts: check.refreshAttempts ?? null,
+      proceedingWithoutConflictCheck: params.operation === 'create',
+    });
+
+    if (params.operation === 'create') {
+      return {
+        block: null,
+        skippedConflictCheckDueToRefreshFailure: true,
+      };
+    }
+
     const tool = createCalendarToolFailure(
       'CALENDAR_READ_FAILED',
       'Could not refresh Google Calendar before checking schedule conflicts.',
     );
 
     return {
-      tool,
-      reply: tool.error ?? 'Calendar read failed',
-      spokenReply: tool.error ?? 'Calendar read failed',
+      block: {
+        tool,
+        reply: tool.error ?? 'Calendar read failed',
+        spokenReply: tool.error ?? 'Calendar read failed',
+      },
     };
   }
 
@@ -149,8 +171,10 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
   const tool = createCalendarToolFailure('CALENDAR_SCHEDULE_CONFLICT', reply);
 
   return {
-    tool,
-    reply,
-    spokenReply: reply,
+    block: {
+      tool,
+      reply,
+      spokenReply: reply,
+    },
   };
 }

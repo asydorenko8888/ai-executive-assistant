@@ -10,6 +10,10 @@ import {
 } from '@/src/features/agent/calendar/calendarTimezone';
 import { parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
 
+import { CALENDAR_CONFLICT_REFRESH_MAX_ATTEMPTS } from '@/src/features/agent/calendar/calendarConflictRefreshPolicy';
+
+const CONFLICT_REFRESH_BACKOFF_MS = [400, 800, 1600];
+
 export type { CalendarScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflictCore';
 export {
   findConflictingTimedEvents,
@@ -29,10 +33,30 @@ function isTimedEventForConflictCheck(event: CalendarEvent) {
   return startsAt !== null && endsAt !== null && endsAt > startsAt;
 }
 
-export async function fetchTimedEventsNearScheduleWindow(params: {
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function logCalendarConflictRefreshFailure(params: {
+  attempt: number;
+  dayOffset: number;
+  message?: string;
+}) {
+  console.log('[Calendar Conflict Refresh]', {
+    attempt: params.attempt,
+    dayOffset: params.dayOffset,
+    message: params.message ?? 'fetch_failed',
+    at: new Date().toISOString(),
+  });
+}
+
+async function fetchTimedEventsNearScheduleWindowOnce(params: {
   referenceNow: Date;
   proposedStartMs: number;
   proposedEndMs: number;
+  attempt: number;
 }): Promise<{ events: CalendarEvent[]; fetchOk: boolean }> {
   const timezone = getExecutiveCalendarTimezone();
   const startOffset =
@@ -61,18 +85,23 @@ export async function fetchTimedEventsNearScheduleWindow(params: {
   }
 
   const collected = new Map<string, CalendarEvent>();
-  let fetchOk = true;
 
   for (const dayOffset of dayOffsets) {
     const range = getZonedDayRange(params.referenceNow, dayOffset, timezone);
     const listed = await fetchGoogleCalendarEventsFromBackend({
       timeMin: range.timeMin,
       timeMax: range.timeMax,
-    }).catch(() => null);
+    }).catch((error) => {
+      logCalendarConflictRefreshFailure({
+        attempt: params.attempt,
+        dayOffset,
+        message: error instanceof Error ? error.message : 'fetch_failed',
+      });
+      return null;
+    });
 
     if (!listed) {
-      fetchOk = false;
-      continue;
+      return { events: [], fetchOk: false };
     }
 
     for (const raw of listed.events ?? []) {
@@ -103,7 +132,47 @@ export async function fetchTimedEventsNearScheduleWindow(params: {
 
   return {
     events: [...collected.values()],
-    fetchOk,
+    fetchOk: true,
+  };
+}
+
+export async function fetchTimedEventsNearScheduleWindow(params: {
+  referenceNow: Date;
+  proposedStartMs: number;
+  proposedEndMs: number;
+}): Promise<{ events: CalendarEvent[]; fetchOk: boolean; refreshAttempts: number }> {
+  let lastResult: { events: CalendarEvent[]; fetchOk: boolean } = { events: [], fetchOk: false };
+
+  for (let attempt = 0; attempt < CALENDAR_CONFLICT_REFRESH_MAX_ATTEMPTS; attempt += 1) {
+    lastResult = await fetchTimedEventsNearScheduleWindowOnce({
+      ...params,
+      attempt: attempt + 1,
+    });
+
+    if (lastResult.fetchOk) {
+      return {
+        ...lastResult,
+        refreshAttempts: attempt + 1,
+      };
+    }
+
+    const hasMoreAttempts = attempt + 1 < CALENDAR_CONFLICT_REFRESH_MAX_ATTEMPTS;
+
+    if (hasMoreAttempts) {
+      await sleep(CONFLICT_REFRESH_BACKOFF_MS[attempt] ?? CONFLICT_REFRESH_BACKOFF_MS.at(-1) ?? 800);
+    }
+  }
+
+  console.log('[Calendar Conflict Refresh]', {
+    exhausted: true,
+    attempts: CALENDAR_CONFLICT_REFRESH_MAX_ATTEMPTS,
+    at: new Date().toISOString(),
+  });
+
+  return {
+    events: [],
+    fetchOk: false,
+    refreshAttempts: CALENDAR_CONFLICT_REFRESH_MAX_ATTEMPTS,
   };
 }
 
@@ -125,14 +194,14 @@ export async function checkCalendarScheduleConflict(params: {
     };
   }
 
-  const { events, fetchOk } = await fetchTimedEventsNearScheduleWindow({
+  const { events, fetchOk, refreshAttempts } = await fetchTimedEventsNearScheduleWindow({
     referenceNow: params.referenceNow,
     proposedStartMs: params.proposedStartMs,
     proposedEndMs: params.proposedEndMs,
   });
 
   if (!fetchOk) {
-    return { status: 'fetch_failed' as const };
+    return { status: 'fetch_failed' as const, refreshAttempts };
   }
 
   const conflicts = findConflictingTimedEvents({
