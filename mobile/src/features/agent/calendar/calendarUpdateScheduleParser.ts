@@ -18,6 +18,7 @@ import {
 } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import {
   parseNaturalDayOffset,
+  resolveWeekdayTargetYmd,
   stripNaturalDatePhrases,
 } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
 import {
@@ -54,6 +55,8 @@ export type CalendarUpdateSchedule =
       ok: true;
       kind: 'day_preserve_time';
       explicitDayOffset: number;
+      weekdayIndex?: number;
+      forceNextWeek?: boolean;
     }
   | {
       ok: true;
@@ -76,12 +79,32 @@ export type CalendarUpdateSchedule =
 const PHRASE_END = '(?:$|[\\s,.;:!?—-])';
 
 const RELATIVE_LATER = new RegExp(
-  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:(\\d+)\\s+)?(?:годин(?:у|и|ы)?|час(?:а|ов|у)?|hour(?:s)?)\\s+(?:позже|пізніше|later)${PHRASE_END}`,
+  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:(\\d+)\\s+)?(?!(?:полтора|півтора)\\s)(?:годин(?:у|и|ы)?|час(?:а|ов|у)?|hour(?:s)?)\\s+(?:позже|пізніше|later)${PHRASE_END}`,
   'iu',
 );
 
 const RELATIVE_EARLIER = new RegExp(
-  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:(\\d+)\\s+)?(?:годин(?:у|и|ы)?|час(?:а|ов|у)?|hour(?:s)?)\\s+(?:раньше|раніше|earlier)${PHRASE_END}`,
+  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:(\\d+)\\s+)?(?!(?:полтора|півтора)\\s)(?:годин(?:у|и|ы)?|час(?:а|ов|у)?|hour(?:s)?)\\s+(?:раньше|раніше|earlier)${PHRASE_END}`,
+  'iu',
+);
+
+const RELATIVE_ONE_AND_HALF_HOURS_LATER = new RegExp(
+  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:полтора|півтора|one\\s+and\\s+a\\s+half|1[,.]5)\\s+(?:час(?:а)?|годин(?:у|и)?|hours?)\\s+(?:позже|пізніше|later)${PHRASE_END}`,
+  'iu',
+);
+
+const RELATIVE_ONE_AND_HALF_HOURS_EARLIER = new RegExp(
+  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:полтора|півтора|one\\s+and\\s+a\\s+half|1[,.]5)\\s+(?:час(?:а)?|годин(?:у|и)?|hours?)\\s+(?:раньше|раніше|earlier)${PHRASE_END}`,
+  'iu',
+);
+
+const RELATIVE_HALF_HOUR_LATER = new RegExp(
+  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:полчаса|півгодини|half\\s+an?\\s+hour)\\s+(?:позже|пізніше|later)${PHRASE_END}`,
+  'iu',
+);
+
+const RELATIVE_HALF_HOUR_EARLIER = new RegExp(
+  `(?:^|[\\s,.;:!?—-]+)(?:на|через)\\s+(?:полчаса|півгодини|half\\s+an?\\s+hour)\\s+(?:раньше|раніше|earlier)${PHRASE_END}`,
   'iu',
 );
 
@@ -322,12 +345,52 @@ function parseRelativeOffset(transcript: string): CalendarUpdateSchedule | null 
     };
   }
 
+  const oneAndHalfLater = transcript.match(RELATIVE_ONE_AND_HALF_HOURS_LATER);
+  const oneAndHalfEarlier = transcript.match(RELATIVE_ONE_AND_HALF_HOURS_EARLIER);
+  const halfHourLater = transcript.match(RELATIVE_HALF_HOUR_LATER);
+  const halfHourEarlier = transcript.match(RELATIVE_HALF_HOUR_EARLIER);
   const clockLater = transcript.match(RELATIVE_CLOCK_OFFSET_LATER);
   const clockEarlier = transcript.match(RELATIVE_CLOCK_OFFSET_EARLIER);
   const laterHours = transcript.match(RELATIVE_LATER);
   const earlierHours = transcript.match(RELATIVE_EARLIER);
   const laterMinutes = transcript.match(RELATIVE_MINUTES_LATER);
   const earlierMinutes = transcript.match(RELATIVE_MINUTES_EARLIER);
+
+  if (oneAndHalfLater) {
+    return {
+      ok: true,
+      kind: 'relative_offset',
+      offsetMs: 90 * 60_000,
+      direction: 'later',
+    };
+  }
+
+  if (oneAndHalfEarlier) {
+    return {
+      ok: true,
+      kind: 'relative_offset',
+      offsetMs: 90 * 60_000,
+      direction: 'earlier',
+    };
+  }
+
+  if (halfHourLater) {
+    return {
+      ok: true,
+      kind: 'relative_offset',
+      offsetMs: 30 * 60_000,
+      direction: 'later',
+    };
+  }
+
+  if (halfHourEarlier) {
+    return {
+      ok: true,
+      kind: 'relative_offset',
+      offsetMs: 30 * 60_000,
+      direction: 'earlier',
+    };
+  }
 
   if (clockLater) {
     const hours = Number(clockLater[1]);
@@ -435,6 +498,8 @@ function parseDayOnlyReschedule(
     ok: true,
     kind: 'day_preserve_time',
     explicitDayOffset: dayResolution.dayOffset,
+    weekdayIndex: dayResolution.weekdayIndex,
+    forceNextWeek: dayResolution.source === 'next_weekday',
   };
 }
 
@@ -533,6 +598,10 @@ export function stripCalendarUpdateSchedulePhrases(transcript: string) {
   cleaned = stripNaturalDatePhrases(cleaned);
   cleaned = stripCalendarDayPeriodPhrases(cleaned);
   cleaned = stripCalendarClockPhrases(cleaned);
+  cleaned = cleaned.replace(RELATIVE_ONE_AND_HALF_HOURS_LATER, ' ');
+  cleaned = cleaned.replace(RELATIVE_ONE_AND_HALF_HOURS_EARLIER, ' ');
+  cleaned = cleaned.replace(RELATIVE_HALF_HOUR_LATER, ' ');
+  cleaned = cleaned.replace(RELATIVE_HALF_HOUR_EARLIER, ' ');
   cleaned = cleaned.replace(RELATIVE_CLOCK_OFFSET_LATER, ' ');
   cleaned = cleaned.replace(RELATIVE_CLOCK_OFFSET_EARLIER, ' ');
   cleaned = cleaned.replace(RELATIVE_LATER, ' ');
@@ -615,10 +684,15 @@ export function resolveUpdateTargetMs(params: {
 
   if (params.schedule.kind === 'day_preserve_time') {
     const eventParts = getZonedTimeParts(new Date(params.matchedEventStartMs), timeZone);
-    const targetYmd = addDaysToZonedYmd(
-      getZonedYmd(referenceNow, timeZone),
-      params.schedule.explicitDayOffset,
-    );
+    const targetYmd =
+      params.schedule.weekdayIndex !== undefined
+        ? resolveWeekdayTargetYmd({
+            weekdayIndex: params.schedule.weekdayIndex,
+            referenceNow,
+            timeZone,
+            forceNextWeek: params.schedule.forceNextWeek,
+          })
+        : addDaysToZonedYmd(getZonedYmd(referenceNow, timeZone), params.schedule.explicitDayOffset);
 
     return zonedLocalToUtcMs(
       {

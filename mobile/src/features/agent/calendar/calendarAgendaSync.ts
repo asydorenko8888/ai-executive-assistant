@@ -69,6 +69,7 @@ export async function refreshCalendarStateAfterMutation(params: {
   referenceNow: Date;
   eventId?: string | null;
   eventStartIso?: string | null;
+  previousEventStartIso?: string | null;
   reason?: 'post_create' | 'post_mutation';
 }) {
   await clearAssistantCalendarAgendaCache(params.referenceNow);
@@ -76,14 +77,40 @@ export async function refreshCalendarStateAfterMutation(params: {
   const timezone = getExecutiveCalendarTimezone();
 
   if (params.eventStartIso) {
-    const dayOffset = resolveZonedDayOffsetForInstant(
+    const dayOffsets = new Set<number>();
+    const newDayOffset = resolveZonedDayOffsetForInstant(
       params.eventStartIso,
       params.referenceNow,
       timezone,
     );
-    const safeDayOffset = dayOffset ?? 0;
-    const { events, range } = await fetchCalendarEventsForZonedDay(params.referenceNow, safeDayOffset);
-    const merged = mergeLiveEventsReplacingZonedDay(getLiveCalendarEvents(), events, range);
+
+    if (newDayOffset !== null) {
+      dayOffsets.add(newDayOffset);
+    }
+
+    if (params.previousEventStartIso) {
+      const previousDayOffset = resolveZonedDayOffsetForInstant(
+        params.previousEventStartIso,
+        params.referenceNow,
+        timezone,
+      );
+
+      if (previousDayOffset !== null) {
+        dayOffsets.add(previousDayOffset);
+      }
+    }
+
+    if (dayOffsets.size === 0) {
+      dayOffsets.add(0);
+    }
+
+    let merged = getLiveCalendarEvents();
+
+    for (const safeDayOffset of dayOffsets) {
+      const { events, range } = await fetchCalendarEventsForZonedDay(params.referenceNow, safeDayOffset);
+      merged = mergeLiveEventsReplacingZonedDay(merged, events, range);
+    }
+
     replaceLiveCalendarEvents(merged);
 
     return {

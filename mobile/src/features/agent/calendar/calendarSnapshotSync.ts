@@ -22,6 +22,7 @@ export async function syncCalendarSnapshotAfterMutation(params: {
   referenceNow: Date;
   eventId?: string | null;
   eventStartIso?: string | null;
+  previousEventStartIso?: string | null;
   languageCode?: VoiceLanguageCode;
   reason?: 'post_create' | 'post_update' | 'post_delete' | 'post_mutation';
 }): Promise<{
@@ -50,6 +51,7 @@ export async function syncCalendarSnapshotAfterMutation(params: {
           referenceNow: params.referenceNow,
           eventId: params.eventId,
           eventStartIso: params.eventStartIso,
+          previousEventStartIso: params.previousEventStartIso,
           reason: params.reason === 'post_create' ? 'post_create' : 'post_mutation',
         }),
     );

@@ -1,9 +1,11 @@
 import type { VerifiedCalendarEvent } from '@/src/features/agent/execution/actionExecutionTypes';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
-import { formatCalendarScheduleLabelForUi } from '@/src/features/agent/calendar/calendarScheduleDisplay';
+import { formatVerifiedEventScheduleRangeForUi } from '@/src/features/agent/calendar/calendarAuthoritativeEvent';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
-import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
-import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import {
+  getChatLocaleFromVoiceLanguage,
+  type VoiceLanguageCode,
+} from '@/src/features/chat/services/voiceLanguageLocale';
 
 export function buildNaturalCalendarCreateSuccessReply(params: {
   event: VerifiedCalendarEvent;
@@ -13,24 +15,23 @@ export function buildNaturalCalendarCreateSuccessReply(params: {
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
   const referenceNow = params.referenceNow ?? new Date();
   const timeZone = getExecutiveCalendarTimezone();
-  const startMs = Date.parse(params.event.startsAt);
-  const referenceMs = referenceNow.getTime();
   const exactTitle = params.event.summary.trim();
-  const scheduleLabel = formatCalendarScheduleLabelForUi({
-    instantMs: Number.isNaN(startMs) ? referenceMs : startMs,
-    referenceMs,
-    locale,
-    timeZone,
-  });
+  const scheduleLabel =
+    formatVerifiedEventScheduleRangeForUi({
+      event: params.event,
+      referenceNow,
+      locale,
+      timeZone,
+    }) ?? '';
 
   let reply = '';
 
   if (locale === 'uk') {
-    reply = `Подію створено успішно:\nНазва: ${exactTitle}\nЧас: ${scheduleLabel}`;
+    reply = `Подію створено успішно:\nНазва: ${exactTitle}\nФактичний час: ${scheduleLabel}`;
   } else if (locale === 'ru') {
-    reply = `Событие создано успешно:\nНазвание: ${exactTitle}\nВремя: ${scheduleLabel}`;
+    reply = `Событие создано успешно:\nНазвание: ${exactTitle}\nФактическое время: ${scheduleLabel}`;
   } else {
-    reply = `Event created successfully:\nTitle: ${exactTitle}\nTime: ${scheduleLabel}`;
+    reply = `Event created successfully:\nTitle: ${exactTitle}\nActual time: ${scheduleLabel}`;
   }
 
   logCalendarCreate('success reply', {

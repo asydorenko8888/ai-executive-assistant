@@ -11,8 +11,9 @@ import type { CalendarUpdateSchedule } from '@/src/features/agent/calendar/calen
 import { parseCalendarClockMinutes } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
 
-const EXPLICIT_DAY_IN_TRANSCRIPT =
-  /\b(?:today|tomorrow|завтра|сьогодні|сегодня|післязавтра|послезавтра|monday|tuesday|wednesday|thursday|friday|saturday|sunday|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес)\b/iu;
+/** Relative calendar words — destination day for search, not weekday names. */
+const TEMPORAL_DESTINATION_IN_TRANSCRIPT =
+  /\b(?:today|tomorrow|завтра|сьогодні|сегодня|післязавтра|послезавтра)\b/iu;
 
 export function calendarEventFromMemoryRecord(record: ConversationEventRecord): CalendarEvent {
   return {
@@ -38,20 +39,30 @@ export function resolveMutationSearchDayOffset(params: {
   const timeZone = params.timeZone ?? getExecutiveCalendarTimezone();
   const memoryRef = params.memoryRef ?? getActiveCalendarEvent(params.referenceNow);
 
-  if (memoryRef?.startISO && !EXPLICIT_DAY_IN_TRANSCRIPT.test(params.transcript)) {
+  if (memoryRef?.startISO) {
     const memoryDay = resolveZonedDayOffsetForInstant(memoryRef.startISO, params.referenceNow, timeZone);
 
     if (memoryDay !== null) {
-      return memoryDay;
+      const schedule = params.schedule;
+      const useMemoryDay =
+        schedule?.ok &&
+        (schedule.kind === 'day_preserve_time' || schedule.kind === 'relative_offset');
+
+      if (useMemoryDay || !TEMPORAL_DESTINATION_IN_TRANSCRIPT.test(params.transcript)) {
+        return memoryDay;
+      }
     }
   }
 
   if (params.schedule?.ok) {
     if (
       params.schedule.kind === 'destination' ||
-      params.schedule.kind === 'day_preserve_time' ||
       params.schedule.kind === 'day_period'
     ) {
+      return params.schedule.explicitDayOffset;
+    }
+
+    if (params.schedule.kind === 'day_preserve_time') {
       return params.schedule.explicitDayOffset;
     }
   }

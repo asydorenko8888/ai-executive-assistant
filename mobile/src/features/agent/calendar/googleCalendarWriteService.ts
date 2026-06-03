@@ -2,9 +2,9 @@ import { ensureCalendarAuthForTool } from '@/src/features/agent/calendar/calenda
 import { createGoogleCalendarEventOnBackend } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import type { CalendarCreateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
+import { buildAuthoritativeCreateToolResponse } from '@/src/features/agent/calendar/calendarAuthoritativeMutationTool';
 import {
   createCalendarToolFailure,
-  createCalendarToolSuccess,
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
 import { logCalendarGoogleApiResponse } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
@@ -59,33 +59,19 @@ export async function createGoogleCalendarEvent(
       eventId: response.event?.id ?? null,
     });
 
-    if (
-      response.executionState !== 'success' ||
-      !response.verified ||
-      !response.verificationFetched ||
-      !response.event?.id
-    ) {
-      logExecutionAudit('verification_response', { verified: false, reason: 'backend_did_not_confirm' });
-
-      return createCalendarToolFailure(
-        'VERIFY_FAILED',
-        'Google Calendar did not return a verified event.',
-      );
-    }
+    const tool = await buildAuthoritativeCreateToolResponse({
+      eventId: response.event?.id ?? '',
+      backendResponse: response,
+    });
 
     logExecutionAudit('verification_response', {
-      verified: true,
-      eventId: response.event.id,
+      verified: tool.verified,
+      verificationFetched: tool.verificationFetched,
+      eventId: tool.eventId ?? null,
+      status: tool.status,
     });
 
-    return createCalendarToolSuccess({
-      id: response.event.id,
-      summary: response.event.summary,
-      location: response.event.location,
-      startsAt: response.event.startsAt,
-      endsAt: response.event.endsAt,
-      htmlLink: response.event.htmlLink,
-    });
+    return tool;
   } catch (error) {
     return await mapCaughtCalendarApiError({
       error,

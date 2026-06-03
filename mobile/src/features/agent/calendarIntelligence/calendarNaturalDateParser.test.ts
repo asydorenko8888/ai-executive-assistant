@@ -63,6 +63,25 @@ describe('calendarNaturalDateParser', () => {
     assert.equal(weekendUa?.source, 'weekend');
   });
 
+  it('parses Russian weekday names to calendar offsets from Thursday', () => {
+    const phrases: Array<{ text: string; weekdayIndex: number; dayOffset: number }> = [
+      { text: 'на понедельник', weekdayIndex: 1, dayOffset: 4 },
+      { text: 'на вторник', weekdayIndex: 2, dayOffset: 5 },
+      { text: 'на среду', weekdayIndex: 3, dayOffset: 6 },
+      { text: 'на четверг', weekdayIndex: 4, dayOffset: 7 },
+      { text: 'на пятницу', weekdayIndex: 5, dayOffset: 1 },
+      { text: 'на субботу', weekdayIndex: 6, dayOffset: 2 },
+      { text: 'на воскресенье', weekdayIndex: 0, dayOffset: 3 },
+    ];
+
+    for (const sample of phrases) {
+      const resolution = parseNaturalDayOffset(sample.text, referenceNow, timeZone);
+      assert.equal(resolution?.source, 'weekday', sample.text);
+      assert.equal(resolution?.weekdayIndex, sample.weekdayIndex, sample.text);
+      assert.equal(resolution?.dayOffset, sample.dayOffset, sample.text);
+    }
+  });
+
   it('parses weekday and next-weekday phrases', () => {
     assert.equal(getZonedWeekdayIndex(referenceNow, timeZone), 4);
 

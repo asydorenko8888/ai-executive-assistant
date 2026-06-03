@@ -24,6 +24,7 @@ export function recordVerifiedCalendarEventContext(params: {
   clearPendingReason?: string;
   referenceNow?: Date;
   languageCode?: VoiceLanguageCode;
+  previousStartISO?: string | null;
 }) {
   if (params.actionType === 'create') {
     recordCreatedConversationEvent({
@@ -67,6 +68,7 @@ export function recordVerifiedCalendarEventContext(params: {
       referenceNow: params.referenceNow,
       eventId: params.eventId,
       eventStartIso: params.startISO,
+      previousEventStartIso: params.previousStartISO,
       languageCode: params.languageCode,
       reason:
         params.actionType === 'create'

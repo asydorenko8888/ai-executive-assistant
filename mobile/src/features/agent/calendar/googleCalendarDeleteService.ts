@@ -1,9 +1,10 @@
 import { ensureCalendarAuthForTool } from '@/src/features/agent/calendar/calendarAuthCapabilities';
 import { mapCaughtCalendarApiError } from '@/src/features/agent/calendar/calendarApiToolErrorMapper';
 import { deleteGoogleCalendarEventOnBackend } from '@/src/features/agent/calendar/googleCalendarBackendApi';
+import { mapGoogleBackendEventToVerified } from '@/src/features/agent/calendar/calendarAuthoritativeEvent';
+import { buildAuthoritativeDeleteToolResponse } from '@/src/features/agent/calendar/calendarAuthoritativeMutationTool';
 import {
   createCalendarToolFailure,
-  createCalendarToolSuccess,
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
 import {
@@ -52,21 +53,12 @@ export async function deleteGoogleCalendarEvent(
       verified: response.verified,
     });
 
-    if (
-      !response.verified ||
-      !response.verificationFetched ||
-      !response.event?.id
-    ) {
-      return createCalendarToolFailure('VERIFY_FAILED', 'Google Calendar did not confirm deletion.');
-    }
-
-    return createCalendarToolSuccess({
-      id: response.event.id,
-      summary: response.event.summary,
-      location: response.event.location,
-      startsAt: response.event.startsAt,
-      endsAt: response.event.endsAt,
-      htmlLink: response.event.htmlLink,
+    return buildAuthoritativeDeleteToolResponse({
+      eventId,
+      backendResponse: response,
+      deletedEventSnapshot: response.event
+        ? mapGoogleBackendEventToVerified(response.event)
+        : null,
     });
   } catch (error) {
     return await mapCaughtCalendarApiError({

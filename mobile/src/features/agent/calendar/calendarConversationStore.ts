@@ -667,6 +667,7 @@ export function commitModifiedCalendarEvent(params: {
   endISO: string;
 }) {
   const pointer = buildPointer(params);
+  const event = pointerToCalendarEvent(pointer);
 
   touchCalendarConversationContext();
   workingMemory = syncFlatIds({
@@ -675,6 +676,7 @@ export function commitModifiedCalendarEvent(params: {
     lastModified: pointer,
     lastReferenced: pointer,
   });
+  upsertCalendarStoreEvent(event, 'update_committed');
 
   console.log('[CALENDAR CONVERSATION STORE] lastModified committed');
   console.log(JSON.stringify({ eventId: pointer.eventId, title: pointer.eventName }));

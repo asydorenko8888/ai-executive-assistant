@@ -7,11 +7,10 @@ import {
   logCalendarUpdateVerified,
   logCalendarUpdateVerifyFetch,
 } from '@/src/features/agent/calendar/calendarUpdateLogger';
-import { verifyUpdatedEventMatchesPayload } from '@/src/features/agent/calendar/calendarUpdateVerification';
+import { buildAuthoritativeUpdateToolResponse } from '@/src/features/agent/calendar/calendarAuthoritativeMutationTool';
 import type { CalendarUpdateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import {
   createCalendarToolFailure,
-  createCalendarToolSuccess,
   type CalendarToolResponse,
 } from '@/src/features/agent/execution/calendarToolContract';
 import { logCalendarGoogleApiResponse } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
@@ -83,69 +82,33 @@ export async function updateGoogleCalendarEvent(
       eventId: response.event?.id ?? null,
     });
 
-    if (
-      response.executionState !== 'success' ||
-      !response.verified ||
-      !response.verificationFetched ||
-      !response.event?.id ||
-      response.event.id !== eventId
-    ) {
+    const tool = await buildAuthoritativeUpdateToolResponse({
+      eventId,
+      backendResponse: response,
+    });
+
+    if (tool.status === 'SUCCESS' && tool.event) {
+      logCalendarUpdateVerified({
+        eventId: tool.event.id,
+        startsAt: tool.event.startsAt,
+        endsAt: tool.event.endsAt,
+      });
+    } else {
       logCalendarUpdateFailed({
         eventId,
-        reason: 'backend_did_not_confirm',
-        executionState: response.executionState,
-        verified: response.verified,
-        verificationFetched: response.verificationFetched,
+        reason: 'authoritative_read_failed',
+        message: tool.error ?? 'verification failed',
       });
-      logExecutionAudit('verification_response', { verified: false, reason: 'backend_did_not_confirm' });
-
-      return createCalendarToolFailure(
-        'VERIFY_FAILED',
-        'Google Calendar did not return a verified updated event.',
-      );
     }
-
-    const clientVerification = verifyUpdatedEventMatchesPayload(response.event, payload, {
-      requestedEventId: eventId,
-      originalStartsAt: options?.originalStartsAt,
-    });
-
-    if (!clientVerification.ok) {
-      logCalendarUpdateFailed({
-        eventId: response.event.id,
-        reason: 'client_verify_mismatch',
-        expectedStart: clientVerification.expectedStart,
-        expectedEnd: clientVerification.expectedEnd,
-        actualStart: clientVerification.actualStart,
-        actualEnd: clientVerification.actualEnd,
-      });
-      logExecutionAudit('verification_response', { verified: false, reason: 'client_verify_mismatch' });
-
-      return createCalendarToolFailure(
-        'VERIFY_FAILED',
-        'Google Calendar event times did not match the requested update after verification fetch.',
-      );
-    }
-
-    logCalendarUpdateVerified({
-      eventId: response.event.id,
-      startsAt: response.event.startsAt,
-      endsAt: response.event.endsAt,
-    });
 
     logExecutionAudit('verification_response', {
-      verified: true,
-      eventId: response.event.id,
+      verified: tool.verified,
+      verificationFetched: tool.verificationFetched,
+      eventId: tool.eventId ?? null,
+      status: tool.status,
     });
 
-    return createCalendarToolSuccess({
-      id: response.event.id,
-      summary: response.event.summary,
-      location: response.event.location,
-      startsAt: response.event.startsAt,
-      endsAt: response.event.endsAt,
-      htmlLink: response.event.htmlLink,
-    });
+    return tool;
   } catch (error) {
     logCalendarUpdateFailed({
       eventId,

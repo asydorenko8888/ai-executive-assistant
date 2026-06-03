@@ -95,7 +95,8 @@ describe('calendar update integration', () => {
   });
 
   it('uses terminal success copy for verified update replies', () => {
-    const reply = 'Event updated successfully:\nTitle: Dinner\nNew time: today, 8:00 PM';
+    const reply =
+      'Dinner moved successfully.\nPrevious time: today, 7:00 PM\nActual time: today, 8:00 PM–9:00 PM';
     assert.ok(isTerminalCalendarToolReply(reply));
   });
 

@@ -1,12 +1,17 @@
 import type { VerifiedCalendarEvent } from '@/src/features/agent/execution/actionExecutionTypes';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
-import { formatCalendarScheduleLabelForUi } from '@/src/features/agent/calendar/calendarScheduleDisplay';
+import {
+  formatVerifiedEventScheduleRangeForUi,
+  formatVerifiedEventStartLabelForUi,
+} from '@/src/features/agent/calendar/calendarAuthoritativeEvent';
 import {
   getExecutiveCalendarTimezone,
   getZonedTimeParts,
 } from '@/src/features/agent/calendar/calendarTimezone';
-import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
-import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import {
+  getChatLocaleFromVoiceLanguage,
+  type VoiceLanguageCode,
+} from '@/src/features/chat/services/voiceLanguageLocale';
 
 function isSameZonedCalendarDay(leftMs: number, rightMs: number, timeZone: string) {
   const left = getZonedTimeParts(new Date(leftMs), timeZone);
@@ -25,23 +30,21 @@ export function buildNaturalCalendarUpdateSuccessReply(params: {
   const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
   const referenceNow = params.referenceNow ?? new Date();
   const timeZone = params.timeZone ?? getExecutiveCalendarTimezone();
-  const newStartMs = Date.parse(params.event.startsAt);
-  const startMs = Number.isNaN(newStartMs) ? referenceNow.getTime() : newStartMs;
   const exactTitle = params.event.summary.trim();
-  const referenceMs = referenceNow.getTime();
-  const newScheduleLabel = formatCalendarScheduleLabelForUi({
-    instantMs: startMs,
-    referenceMs,
-    locale,
-    timeZone,
-  });
+  const actualScheduleLabel =
+    formatVerifiedEventScheduleRangeForUi({
+      event: params.event,
+      referenceNow,
+      locale,
+      timeZone,
+    }) ?? '';
 
   const previousMs = params.previousStartsAt ? Date.parse(params.previousStartsAt) : Number.NaN;
   const hasPrevious = !Number.isNaN(previousMs);
   const oldScheduleLabel = hasPrevious
-    ? formatCalendarScheduleLabelForUi({
-        instantMs: previousMs,
-        referenceMs,
+    ? formatVerifiedEventStartLabelForUi({
+        event: { startsAt: params.previousStartsAt! },
+        referenceNow,
         locale,
         timeZone,
       })
@@ -51,24 +54,30 @@ export function buildNaturalCalendarUpdateSuccessReply(params: {
 
   if (locale === 'uk') {
     reply = hasPrevious
-      ? `Подію перенесено:\nНазва: ${exactTitle}\nБуло: ${oldScheduleLabel}\nСтало: ${newScheduleLabel}`
-      : `Подію оновлено успішно:\nНазва: ${exactTitle}\nНовий час: ${newScheduleLabel}`;
+      ? `Подію перенесено:\nНазва: ${exactTitle}\nБуло: ${oldScheduleLabel}\nФактичний час: ${actualScheduleLabel}`
+      : `Подію оновлено успішно:\nНазва: ${exactTitle}\nФактичний час: ${actualScheduleLabel}`;
   } else if (locale === 'ru') {
     reply = hasPrevious
-      ? `Событие перенесено:\nНазвание: ${exactTitle}\nБыло: ${oldScheduleLabel}\nСтало: ${newScheduleLabel}`
-      : `Событие обновлено успешно:\nНазвание: ${exactTitle}\nНовое время: ${newScheduleLabel}`;
+      ? `Событие перенесено:\nНазвание: ${exactTitle}\nБыло: ${oldScheduleLabel}\nФактическое время: ${actualScheduleLabel}`
+      : `Событие обновлено успешно:\nНазвание: ${exactTitle}\nФактическое время: ${actualScheduleLabel}`;
   } else {
     reply = hasPrevious
-      ? `${exactTitle} moved successfully.\nPrevious time: ${oldScheduleLabel}\nNew time: ${newScheduleLabel}`
-      : `${exactTitle} updated successfully.\nNew time: ${newScheduleLabel}`;
+      ? `${exactTitle} moved successfully.\nPrevious time: ${oldScheduleLabel}\nActual time: ${actualScheduleLabel}`
+      : `${exactTitle} updated successfully.\nActual time: ${actualScheduleLabel}`;
   }
+
+  const newStartMs = Date.parse(params.event.startsAt);
 
   logCalendarCreate('update success reply', {
     eventId: params.event.id,
     summary: exactTitle,
     startsAt: params.event.startsAt,
+    endsAt: params.event.endsAt,
     previousStartsAt: params.previousStartsAt ?? null,
-    sameDay: hasPrevious ? isSameZonedCalendarDay(previousMs, startMs, timeZone) : null,
+    sameDay:
+      hasPrevious && !Number.isNaN(newStartMs)
+        ? isSameZonedCalendarDay(previousMs, newStartMs, timeZone)
+        : null,
     reply,
   });
 

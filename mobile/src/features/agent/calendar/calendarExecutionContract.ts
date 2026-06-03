@@ -49,6 +49,12 @@ export function isTerminalCalendarToolReply(text: string) {
     normalized.startsWith('Event updated successfully:') ||
     normalized.startsWith('Событие обновлено успешно:') ||
     normalized.startsWith('Подію оновлено успішно:') ||
+    normalized.startsWith('Событие перенесено:') ||
+    normalized.startsWith('Подію перенесено:') ||
+    normalized.includes(' moved successfully.\n') ||
+    normalized.includes('Фактическое время:') ||
+    normalized.includes('Фактичний час:') ||
+    normalized.includes('Actual time:') ||
     normalized.startsWith('Готово.') ||
     normalized.startsWith('Done.') ||
     normalized.includes('Я додав:') ||

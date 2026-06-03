@@ -187,6 +187,24 @@ describe('calendar natural language reschedule', () => {
     assert.equal(resolved.day, 29);
   });
 
+  it('parses полтора часа позже as ninety-minute relative shift', () => {
+    const schedule = parseCalendarUpdateSchedule(
+      'перенеси его на полтора часа позже',
+      referenceNow,
+      timeZone,
+    );
+
+    assert.equal(schedule.ok, true);
+
+    if (!schedule.ok) {
+      return;
+    }
+
+    assert.equal(schedule.kind, 'relative_offset');
+    assert.equal(schedule.offsetMs, 90 * 60_000);
+    assert.equal(schedule.direction, 'later');
+  });
+
   it('preserves event date for relative hour shift', () => {
     const walkTomorrow = chicagoEvent('walk-tomorrow', 'Прогулка', 13, 0, 1);
     const startMs = Date.parse(walkTomorrow.startsAt);

@@ -52,8 +52,7 @@ export async function loadCalendarQueryEvents(params: {
   calendarTrustworthy: boolean;
 }> {
   const supplemental = params.supplementalEvents ?? [];
-  const includePins = params.preferLocalStore ?? false;
-  const localStore = buildLocalCalendarStoreEvents(includePins);
+  const localStore = buildLocalCalendarStoreEvents(true);
   const mergedLocal = sortEventsChronologically(
     mergeCalendarEventLists(localStore, supplemental).filter(isSchedulableEvent),
   );

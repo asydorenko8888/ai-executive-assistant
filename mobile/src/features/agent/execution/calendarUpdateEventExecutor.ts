@@ -151,7 +151,7 @@ async function executeVerifiedCalendarUpdate(params: {
       eventId: params.payloadResult.eventId,
       title: params.matchedTitle,
       fromStart: params.matchedStartsAt,
-      toStart: params.payloadResult.payload.start.dateTime ?? params.matchedStartsAt,
+      toStart: tool.event?.startsAt ?? params.matchedStartsAt,
     });
     clearPendingCalendarUpdateIntent();
     clearPendingCalendarConflictContext();
@@ -166,6 +166,7 @@ async function executeVerifiedCalendarUpdate(params: {
         clearPendingReason: 'update_completed',
         referenceNow: params.referenceNow,
         languageCode: params.languageCode,
+        previousStartISO: params.matchedStartsAt,
       });
     }
     logCalendarMutationVerification({

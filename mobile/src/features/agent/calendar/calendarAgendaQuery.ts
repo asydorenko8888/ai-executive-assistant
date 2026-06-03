@@ -18,6 +18,7 @@ import {
   classifyCalendarAgendaQueryIntent,
   isCalendarListQuestion,
 } from '@/src/features/voice/speech/voiceSpeechFormatter';
+import { parseNaturalDayOffset } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
 
 const FULL_AGENDA_REQUEST_PATTERNS = [
   /\bfull\s+list\b/i,
@@ -71,8 +72,17 @@ export function isCalendarAgendaQuery(transcript: string) {
   );
 }
 
-export function resolveAgendaQueryDayOffset(transcript: string): number | null {
+export function resolveAgendaQueryDayOffset(
+  transcript: string,
+  referenceNow = new Date(),
+  timeZone = getExecutiveCalendarTimezone(),
+): number | null {
   const normalized = transcript.trim();
+  const naturalDay = parseNaturalDayOffset(normalized, referenceNow, timeZone);
+
+  if (naturalDay) {
+    return naturalDay.dayOffset;
+  }
 
   if (TOMORROW_AGENDA_PATTERNS.some((pattern) => pattern.test(normalized))) {
     return 1;
@@ -183,7 +193,12 @@ export async function fetchCalendarEventsForAgendaQuery(params: {
   referenceNow: Date;
   userTranscript: string;
 }): Promise<CalendarEvent[]> {
-  const dayOffset = resolveAgendaQueryDayOffset(params.userTranscript);
+  const timezone = getExecutiveCalendarTimezone();
+  const dayOffset = resolveAgendaQueryDayOffset(
+    params.userTranscript,
+    params.referenceNow,
+    timezone,
+  );
 
   if (dayOffset !== null) {
     const { events } = await fetchCalendarEventsForZonedDay(params.referenceNow, dayOffset);

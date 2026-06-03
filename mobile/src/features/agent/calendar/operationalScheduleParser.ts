@@ -49,56 +49,7 @@ export function resolveDayOffset(
     return natural.dayOffset;
   }
 
-  const normalized = transcript.toLowerCase();
-
-  if (/\b(?:tomorrow|завтра)\b/i.test(normalized)) {
-    return 1;
-  }
-
-  if (/\b(?:today|сьогодні|сегодня)\b/i.test(normalized)) {
-    return 0;
-  }
-
-  const weekdayMatch = normalized.match(
-    /\b(?:on\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес)\b/i,
-  );
-
-  if (!weekdayMatch) {
-    return null;
-  }
-
-  const weekdayIndex: Record<string, number> = {
-    sunday: 0,
-    monday: 1,
-    tuesday: 2,
-    wednesday: 3,
-    thursday: 4,
-    friday: 5,
-    saturday: 6,
-    воскрес: 0,
-    понедельник: 1,
-    вторник: 2,
-    сред: 3,
-    четверг: 4,
-    пятниц: 5,
-    суббот: 6,
-  };
-
-  const key = Object.keys(weekdayIndex).find((candidate) => weekdayMatch[1].toLowerCase().startsWith(candidate));
-
-  if (!key) {
-    return null;
-  }
-
-  const target = weekdayIndex[key];
-  const current = referenceNow.getDay();
-  let delta = (target - current + 7) % 7;
-
-  if (delta === 0) {
-    delta = 7;
-  }
-
-  return delta;
+  return null;
 }
 
 export function parseOperationalScheduleHint(transcript: string, referenceNow: Date): OperationalScheduleParseResult {

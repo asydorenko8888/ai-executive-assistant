@@ -25,6 +25,7 @@ const WEEKDAY_PREFIXES: Array<[string, number]> = [
   ['tuesday', 2],
   ['sered', 3],
   ['серед', 3],
+  ['сред', 3],
   ['среда', 3],
   ['wednesday', 3],
   ['четвер', 4],
@@ -85,7 +86,7 @@ export function getZonedWeekdayIndex(instant: Date, timeZone: string) {
   return map[weekday] ?? 0;
 }
 
-function resolveWeekdayOffset(params: {
+export function resolveWeekdayOffset(params: {
   targetWeekday: number;
   referenceNow: Date;
   timeZone: string;
@@ -99,6 +100,22 @@ function resolveWeekdayOffset(params: {
   }
 
   return delta === 0 ? 7 : delta;
+}
+
+export function resolveWeekdayTargetYmd(params: {
+  weekdayIndex: number;
+  referenceNow: Date;
+  timeZone: string;
+  forceNextWeek?: boolean;
+}) {
+  const dayOffset = resolveWeekdayOffset({
+    targetWeekday: params.weekdayIndex,
+    referenceNow: params.referenceNow,
+    timeZone: params.timeZone,
+    forceNextWeek: params.forceNextWeek ?? false,
+  });
+
+  return addDaysToZonedYmd(getZonedYmd(params.referenceNow, params.timeZone), dayOffset);
 }
 
 export function parseRelativeTimeOffset(transcript: string): NaturalRelativeOffset | null {
@@ -163,16 +180,28 @@ export function parseRelativeTimeOffset(transcript: string): NaturalRelativeOffs
 }
 
 function matchWeekdayToken(text: string) {
-  const match = text.match(WEEKDAY_PATTERN);
+  const token = text.trim().toLowerCase();
+
+  if (!token) {
+    return null;
+  }
+
+  for (const [prefix, index] of WEEKDAY_PREFIXES) {
+    if (token.startsWith(prefix)) {
+      return index;
+    }
+  }
+
+  const match = token.match(WEEKDAY_PATTERN);
 
   if (!match) {
     return null;
   }
 
-  const token = match[0].toLowerCase();
+  const matched = match[0].toLowerCase();
 
   for (const [prefix, index] of WEEKDAY_PREFIXES) {
-    if (token.startsWith(prefix)) {
+    if (matched.startsWith(prefix)) {
       return index;
     }
   }

@@ -5,10 +5,14 @@ import {
   saveVoiceLanguagePreference,
 } from '@/src/features/chat/services/voiceLanguageStorage';
 
-/** BCP-47 locale codes used for speech recognition and TTS. */
-export type VoiceLanguageCode = 'en-US' | 'uk-UA' | 'ru-RU';
+import {
+  getChatLocaleFromVoiceLanguage as getChatLocaleFromVoiceLanguageCode,
+  type VoiceLanguageChatLocale,
+  type VoiceLanguageCode,
+} from '@/src/features/chat/services/voiceLanguageLocale';
 
-export type VoiceLanguageChatLocale = 'en' | 'uk' | 'ru';
+/** BCP-47 locale codes used for speech recognition and TTS. */
+export type { VoiceLanguageCode, VoiceLanguageChatLocale };
 
 export type VoiceLanguageDefinition = {
   code: VoiceLanguageCode;
@@ -60,7 +64,7 @@ export function getRecognitionLocale(code: VoiceLanguageCode) {
 }
 
 export function getChatLocaleFromVoiceLanguage(code: VoiceLanguageCode): VoiceLanguageChatLocale {
-  return getVoiceLanguageDefinition(code).chatLocale;
+  return getChatLocaleFromVoiceLanguageCode(code);
 }
 
 /** @deprecated Use VoiceLanguageCode — kept for compact UI toggles. */

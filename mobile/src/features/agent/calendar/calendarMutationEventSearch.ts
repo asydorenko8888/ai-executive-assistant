@@ -3,10 +3,9 @@ import type { ConversationEventRecord } from '@/src/features/agent/calendar/cale
 import { fetchCalendarEventsForZonedDay } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import { resolveMutationSearchDayOffset } from '@/src/features/agent/calendar/calendarActiveEventContext';
 import { mergeCalendarEventLists } from '@/src/features/agent/calendar/calendarLiveState';
+import { parseCalendarUpdateSchedule } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
-
-const EXPLICIT_DAY_IN_TRANSCRIPT =
-  /\b(?:today|tomorrow|завтра|сьогодні|сегодня|післязавтра|послезавтра|monday|tuesday|wednesday|thursday|friday|saturday|sunday|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес)\b/iu;
+import { parseNaturalDayOffset } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
 
 export async function fetchCalendarEventsForMutationSearch(params: {
   referenceNow: Date;
@@ -20,14 +19,18 @@ export async function fetchCalendarEventsForMutationSearch(params: {
 }> {
   const timeZone = getExecutiveCalendarTimezone();
   const memoryRef = params.memoryRef ?? null;
+  const schedule = parseCalendarUpdateSchedule(params.transcript, params.referenceNow, timeZone);
   const searchDayOffset = resolveMutationSearchDayOffset({
     transcript: params.transcript,
     referenceNow: params.referenceNow,
     memoryRef,
+    schedule,
     timeZone,
   });
+  const namedDay =
+    parseNaturalDayOffset(params.transcript, params.referenceNow, timeZone) !== null;
 
-  if (EXPLICIT_DAY_IN_TRANSCRIPT.test(params.transcript)) {
+  if (namedDay) {
     const { events, range, fetchOk } = await fetchCalendarEventsForZonedDay(
       params.referenceNow,
       searchDayOffset,
