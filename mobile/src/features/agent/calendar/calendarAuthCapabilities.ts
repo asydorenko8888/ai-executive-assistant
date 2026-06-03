@@ -102,7 +102,13 @@ function computeCapabilities(params: {
       scopesIncludeCalendarEventsWrite(backendScopes),
   );
 
-  const canReadCalendar = backendConnected;
+  const localHasUsableToken =
+    localHasSession &&
+    (params.localSession?.expiresAt
+      ? Date.parse(params.localSession.expiresAt) > Date.now() + 60_000
+      : Boolean(params.localSession?.refreshToken));
+
+  const canReadCalendar = backendConnected || localHasUsableToken;
   let canWriteCalendar = Boolean(
     params.backendStatus?.writeEnabled && backendWriteScope && backendConnected,
   );
@@ -217,17 +223,32 @@ export async function refreshCalendarAuthCapabilities(options?: {
   const backendMissingWrite =
     backendStatus?.connected && !backendStatus.writeEnabled && !backendStatus.hasCalendarEventsScope;
 
-  if (heal && localShowsConnected && (backendMissing || backendMissingWrite) && localSession) {
-    const healResult = await tryHealBackendFromLocal(localSession);
-    healed = healResult.healed;
-    desyncReason = healResult.desyncReason;
-    backendStatus = healResult.backendStatus ?? backendStatus;
+  const { getActiveGoogleCalendarSession } = await import(
+    '@/src/features/agent/calendar/googleCalendarAuth'
+  );
+
+  if (heal && localSession?.refreshToken) {
+    const expiresAt = localSession.expiresAt ? Date.parse(localSession.expiresAt) : NaN;
+    const accessTokenStale = Number.isFinite(expiresAt) && expiresAt <= Date.now() + 60_000;
+
+    if (accessTokenStale) {
+      const refreshed = await getActiveGoogleCalendarSession();
+
+      if (refreshed) {
+        localSession = refreshed;
+        healed = true;
+
+        if (!backendStatus?.connected) {
+          const healResult = await tryHealBackendFromLocal(refreshed);
+          healed = healResult.healed || healed;
+          desyncReason = healResult.desyncReason;
+          backendStatus = healResult.backendStatus ?? backendStatus;
+        }
+      }
+    }
   }
 
   if (heal && !localSession) {
-    const { getActiveGoogleCalendarSession } = await import(
-      '@/src/features/agent/calendar/googleCalendarAuth'
-    );
     const activeSession = await getActiveGoogleCalendarSession();
 
     if (activeSession) {
@@ -240,6 +261,13 @@ export async function refreshCalendarAuthCapabilities(options?: {
         backendStatus = healResult.backendStatus ?? backendStatus;
       }
     }
+  }
+
+  if (heal && localShowsConnected && (backendMissing || backendMissingWrite) && localSession) {
+    const healResult = await tryHealBackendFromLocal(localSession);
+    healed = healResult.healed || healed;
+    desyncReason = healResult.desyncReason;
+    backendStatus = healResult.backendStatus ?? backendStatus;
   }
 
   const capabilities = computeCapabilities({

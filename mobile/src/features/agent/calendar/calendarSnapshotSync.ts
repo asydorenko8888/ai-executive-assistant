@@ -3,6 +3,7 @@ import { refreshCalendarStateAfterMutation } from '@/src/features/agent/calendar
 import {
   beginCalendarSnapshotSync,
   endCalendarSnapshotSync,
+  getLastCalendarSnapshot,
   setLastCalendarSnapshot,
 } from '@/src/features/agent/calendar/calendarConversationStore';
 import {
@@ -34,7 +35,7 @@ export async function syncCalendarSnapshotAfterMutation(params: {
 
     endCalendarSnapshotSync({ success: false, reason: 'refresh_max_attempts' });
 
-    return { ok: false, events: [], failureReply };
+    return { ok: false, events: getLastCalendarSnapshot(), failureReply };
   }
 
   incrementCalendarRefreshAttempt();
@@ -57,14 +58,16 @@ export async function syncCalendarSnapshotAfterMutation(params: {
     console.log('[CALENDAR SNAPSHOT SYNC] refresh failed', error);
     endCalendarSnapshotSync({ success: false, reason: 'refresh_exception' });
 
+    const localEvents = getLastCalendarSnapshot();
+
     if (hasExceededCalendarRefreshAttempts()) {
       const failureReply = params.languageCode
         ? buildCalendarRefreshFailedReply(params.languageCode)
         : "I couldn't refresh calendar data. Please try again.";
 
-      return { ok: false, events: [], failureReply };
+      return { ok: false, events: localEvents, failureReply };
     }
 
-    return { ok: false, events: [], failureReply: null };
+    return { ok: false, events: localEvents, failureReply: null };
   }
 }

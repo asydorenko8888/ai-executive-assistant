@@ -1,5 +1,6 @@
 import { formatTimeInExecutiveTimezone } from '@/src/features/agent/calendar/calendarTime';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
+import { formatWallClockLabel } from '@/src/features/agent/calendarIntelligence/calendarWallClockLabel';
 import type {
   CalendarDayContext,
   CalendarFreeSlot,
@@ -23,15 +24,8 @@ function formatRuAtTimeIntro(clock: string, userTranscript?: string) {
   return `${ruAtTimePreposition(userTranscript)} ${clock}`;
 }
 
-function formatClock(minutes: number, timeZone: string, sampleIso: string) {
-  const hour = Math.floor(minutes / 60);
-  const minute = minutes % 60;
-  const iso = sampleIso.replace(
-    /T\d{2}:\d{2}/,
-    `T${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
-  );
-
-  return formatTimeInExecutiveTimezone(iso, timeZone);
+function formatClock(minutes: number, day: CalendarDayContext) {
+  return formatWallClockLabel(minutes, day);
 }
 
 function formatEventLine(event: NormalizedCalendarEvent, index: number, timeZone: string) {
@@ -53,9 +47,9 @@ function dayLabel(day: CalendarDayContext, locale: VoiceLanguageChatLocale) {
   return day.dateKey;
 }
 
-function formatSlot(slot: CalendarFreeSlot, timeZone: string, sampleIso: string) {
-  const start = formatClock(slot.startMinutes, timeZone, sampleIso);
-  const end = formatClock(slot.endMinutes, timeZone, sampleIso);
+function formatSlot(slot: CalendarFreeSlot, day: CalendarDayContext) {
+  const start = formatClock(slot.startMinutes, day);
+  const end = formatClock(slot.endMinutes, day);
 
   return `${start}–${end} (${slot.durationMinutes} min)`;
 }
@@ -116,7 +110,7 @@ export function formatDeterministicCalendarReply(params: {
     const clock =
       params.clockMinutes === null || params.clockMinutes === undefined
         ? ''
-        : formatClock(params.clockMinutes, day.timezone, sampleIso);
+        : formatClock(params.clockMinutes, day);
     const matches = params.atTimeEvents ?? [];
 
     if (intent === 'count_at_time') {
@@ -215,7 +209,7 @@ export function formatDeterministicCalendarReply(params: {
           : `No ${duration}-minute free slot is available ${label}.`;
     }
 
-    const slotText = formatSlot(slot, day.timezone, sampleIso);
+    const slotText = formatSlot(slot, day);
     const meetings =
       events.length > 0
         ? events.map((event, index) => formatEventLine(event, index, day.timezone)).join('\n')
@@ -248,7 +242,7 @@ export function formatDeterministicCalendarReply(params: {
       }
 
       const lines = all
-        .map((window, index) => `${index + 1}. ${formatSlot(window, day.timezone, sampleIso)}`)
+        .map((window, index) => `${index + 1}. ${formatSlot(window, day)}`)
         .join('\n');
 
       return formatAgendaListForDisplay(

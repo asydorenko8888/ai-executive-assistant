@@ -83,6 +83,14 @@ const CLOCK_FRAGMENT_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
     id: 'english_meridiem',
     pattern: /\b(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.))\b/i,
   },
+  {
+    id: 'english_tonight_hour',
+    pattern: /\b(?:today\s+)?(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s+tonight\b/i,
+  },
+  {
+    id: 'english_tonight_at',
+    pattern: /\btonight\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(?:am|pm|a\.m\.|p\.m\.)?\b/i,
+  },
 ];
 
 const FROM_TO_EN =
@@ -97,7 +105,7 @@ const FROM_TO_RU = new RegExp(
 );
 
 function applyRussianMeridiemHint(hours: number, normalizedFragment: string) {
-  if (/вечер/ui.test(normalizedFragment) && hours >= 1 && hours <= 11) {
+  if (/вечер|вечора|увечер/i.test(normalizedFragment) && hours >= 1 && hours <= 11) {
     return hours + 12;
   }
 
@@ -135,6 +143,22 @@ function parseEnglishMeridiem(hours: number, fragment: string) {
   return hours;
 }
 
+function applyEveningContextHint(hours: number, contextText: string) {
+  const normalized = contextText.toLowerCase();
+
+  if (
+    (/\btonight\b/i.test(normalized) ||
+      /\bthis\s+evening\b/i.test(normalized) ||
+      /\b(?:сегодня|сьогодні)\s+вечером\b/iu.test(normalized)) &&
+    hours >= 1 &&
+    hours <= 11
+  ) {
+    return hours + 12;
+  }
+
+  return hours;
+}
+
 export function normalizeSplitClockFragment(fragment: string) {
   const splitMatch = fragment.trim().match(/^(\d{1,2})\s+и\s+(\d{2})$/iu);
 
@@ -156,6 +180,7 @@ export function parseClockFragmentToMinutes(fragment: string, contextText = '') 
     const minutes = Number(colonMatch[2]);
     hours = applyRussianMeridiemHint(hours, meridiemContext);
     hours = parseEnglishMeridiem(hours, meridiemContext);
+    hours = applyEveningContextHint(hours, meridiemContext);
 
     if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
       return hours * 60 + minutes;
@@ -170,6 +195,7 @@ export function parseClockFragmentToMinutes(fragment: string, contextText = '') 
     let hours = Number(bareHourMatch[1]);
     hours = applyRussianMeridiemHint(hours, meridiemContext);
     hours = parseEnglishMeridiem(hours, meridiemContext);
+    hours = applyEveningContextHint(hours, meridiemContext);
 
     if (hours >= 0 && hours <= 23) {
       return hours * 60;

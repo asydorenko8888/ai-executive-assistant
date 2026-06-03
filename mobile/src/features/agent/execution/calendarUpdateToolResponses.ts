@@ -3,6 +3,10 @@ import {
   buildFailureTerminalReply,
   isVerifiedCalendarUpdateSuccess,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
+import {
+  buildCalendarApiUnavailableReply,
+  buildCalendarToolUserReply,
+} from '@/src/features/agent/calendar/calendarAuthUserReplies';
 import { buildCalendarOperationInProgressReply } from '@/src/features/agent/calendar/calendarOperationUserReplies';
 import {
   buildCalendarUpdateAmbiguousReply,
@@ -116,16 +120,27 @@ export function buildCalendarUpdateToolReplyBundle(
     };
   }
 
+  const authOrApiReply = buildCalendarToolUserReply(tool, languageCode);
+
+  if (authOrApiReply) {
+    return {
+      tool,
+      reply: authOrApiReply,
+      spokenReply: authOrApiReply,
+      executionState: mapToolStatusToExecutionState(tool),
+      requiresCalendarAuth: tool.errorCode === 'CALENDAR_AUTH_REQUIRED',
+    };
+  }
+
   if (tool.status === 'PENDING') {
-    const code = tool.errorCode ?? 'PENDING';
-    const text = `PENDING: ${code}`;
+    const text = buildCalendarOperationInProgressReply(languageCode);
 
     return {
       tool,
       reply: text,
       spokenReply: text,
       executionState: mapToolStatusToExecutionState(tool),
-      requiresCalendarAuth: tool.errorCode === 'CALENDAR_AUTH_REQUIRED',
+      requiresCalendarAuth: false,
     };
   }
 

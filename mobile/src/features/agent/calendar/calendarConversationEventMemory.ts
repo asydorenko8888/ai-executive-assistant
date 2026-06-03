@@ -3,9 +3,9 @@ import {
   augmentEventsWithConversationContext,
   clearPendingTargetInMemory,
   commitCreatedCalendarEvent,
+  commitDeletedCalendarEvent,
   commitModifiedCalendarEvent,
   commitReferencedCalendarEvent,
-  commitVerifiedCalendarMutation,
   getCalendarWorkingMemory,
   getConversationPointersForResolution,
   getLastCalendarSnapshot,
@@ -252,7 +252,7 @@ export function recordDeletedConversationEvent(params: {
   startISO: string;
   endISO: string;
 }) {
-  commitReferencedCalendarEvent(params);
+  commitDeletedCalendarEvent(params);
 }
 
 export function resolveConversationEventReference(_referenceNow: Date): ConversationEventRecord | null {

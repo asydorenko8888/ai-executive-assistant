@@ -32,6 +32,7 @@ describe('update conflict parity across schedule forms', () => {
   it('does not treat evening meridiem as an event title', () => {
     assert.equal(extractUpdateEventTitle('перенеси на 7 вечера'), null);
     assert.equal(extractUpdateEventTitle('перенеси прогулку на 7 вечера'), 'прогулка');
+    assert.equal(extractUpdateEventTitle('перенеси прогулку на 3 часа раньше'), 'прогулка');
   });
 
   it('resolves memory title for absolute evening move without pronoun', () => {

@@ -66,8 +66,22 @@ function normalizeUpdateTitle(title: string) {
   return words.join(' ');
 }
 
+const SCHEDULE_FRAGMENT_BOUNDARY =
+  /\s+(?:(?:на|to|в|через)\s+(?:\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|pm|am)?|\d+\s*(?:час|годин|hour|минут|minutes|хвилин)|завтра|tomorrow|сьогодні|сегодня)|(?:\d+\s+)?(?:час(?:а|ов|у)?|hours?|годин(?:у|и)?)\s+(?:раньше|раніше|позже|пізніше|earlier|later))/iu;
+
+function extractTitleBeforeScheduleFragment(text: string) {
+  const match = SCHEDULE_FRAGMENT_BOUNDARY.exec(text);
+
+  if (!match || match.index <= 0) {
+    return text;
+  }
+
+  return text.slice(0, match.index).trim();
+}
+
 export function extractUpdateEventTitle(transcript: string) {
   let text = transcript.replace(UPDATE_COMMAND_PREFIX, '').trim();
+  text = extractTitleBeforeScheduleFragment(text);
   text = stripCalendarUpdateSchedulePhrases(text).trim();
   text = text.replace(/^[\s,.:;!\-—]+|[\s,.:;!\-—]+$/gu, '');
   text = text.replace(/\s+(?:с|з|на|from|to)\.?$/iu, '').trim();

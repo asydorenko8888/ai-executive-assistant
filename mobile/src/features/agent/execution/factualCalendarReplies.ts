@@ -1,5 +1,9 @@
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
+import {
+  buildCalendarApiUnavailableReply,
+  buildCalendarToolUserReply,
+} from '@/src/features/agent/calendar/calendarAuthUserReplies';
 import { buildCalendarOperationInProgressReply } from '@/src/features/agent/calendar/calendarOperationUserReplies';
 import { buildNaturalCalendarCreateSuccessReply } from '@/src/features/agent/execution/calendarCreateSuccessReply';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -60,9 +64,7 @@ export function buildFactualCalendarToolReplies(
     };
   }
 
-  const code = tool.errorCode ?? 'UNKNOWN';
-  const detail = tool.error ?? 'unknown error';
-  const text = `FAILURE: ${code}: ${detail}`;
+  const text = buildCalendarApiUnavailableReply(options.languageCode);
 
   return {
     reply: text,

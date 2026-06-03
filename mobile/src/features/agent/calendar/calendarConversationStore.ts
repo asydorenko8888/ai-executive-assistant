@@ -1,10 +1,29 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+function createPendingActionId() {
+  return `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function logPendingStateCreated(pending: CalendarPendingAction) {
+  console.log('[PENDING STATE CREATED]');
+  console.log(
+    JSON.stringify({
+      pendingActionId: pending.pendingActionId,
+      actionType: pending.actionType,
+      originalIntentPreview: pending.originalIntent.slice(0, 120),
+      candidateEventId: pending.candidateEventId,
+      proposedStart: pending.requestedTimeIso,
+      proposedEnd: new Date(pending.requestedEndMs).toISOString(),
+      conflictEvents: pending.conflictEvents.map((event) => event.title),
+      createdAt: new Date(pending.createdAtMs).toISOString(),
+    }),
+  );
+}
 import {
-  createPendingActionId,
-  logPendingStateCreated,
-} from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
-import { mergeCalendarEventLists } from '@/src/features/agent/calendar/calendarLiveState';
+  getLiveCalendarEvents,
+  mergeCalendarEventLists,
+  replaceLiveCalendarEvents,
+} from '@/src/features/agent/calendar/calendarLiveState';
 import { getExecutiveCalendarTimezone, getZonedYmd } from '@/src/features/agent/calendar/calendarTimezone';
 import { formatDateKey } from '@/src/features/agent/calendarIntelligence/zonedEventTime';
 import {
@@ -117,6 +136,60 @@ const IDLE_SNAPSHOT: CalendarConversationSnapshot = {
 let conversationSnapshot: CalendarConversationSnapshot = { ...IDLE_SNAPSHOT };
 let workingMemory: CalendarWorkingMemory = emptyWorkingMemory();
 let syncingStartedAtMs: number | null = null;
+const deletedEventTombstones = new Set<string>();
+
+export const LOCAL_CALENDAR_STORE_FRESH_MS = 5 * 60 * 1000;
+
+export function getDeletedEventTombstones(): ReadonlySet<string> {
+  return deletedEventTombstones;
+}
+
+export function isLocalCalendarStoreFresh(nowMs = Date.now()) {
+  const refreshedAt = workingMemory.snapshotRefreshedAtMs;
+
+  return refreshedAt !== null && nowMs - refreshedAt <= LOCAL_CALENDAR_STORE_FRESH_MS;
+}
+
+function clearPointerIfMatches(eventId: string) {
+  const clear = (pointer: ConversationEventPointer | null) =>
+    pointer?.eventId === eventId ? null : pointer;
+
+  return {
+    lastCreated: clear(workingMemory.lastCreated),
+    lastModified: clear(workingMemory.lastModified),
+    lastReferenced: clear(workingMemory.lastReferenced),
+    pendingTarget: clear(workingMemory.pendingTarget),
+  };
+}
+
+export function purgeDeletedEventFromConversation(eventId: string, reason: string) {
+  if (!eventId || eventId.startsWith('pending:')) {
+    return;
+  }
+
+  deletedEventTombstones.add(eventId);
+  removeCalendarStoreEvent(eventId, reason);
+
+  const cleared = clearPointerIfMatches(eventId);
+  workingMemory = syncFlatIds({
+    ...workingMemory,
+    ...cleared,
+  });
+
+  if (
+    conversationSnapshot.pendingAction &&
+    [
+      conversationSnapshot.pendingAction.targetEventId,
+      conversationSnapshot.pendingAction.updateEventId,
+      conversationSnapshot.pendingAction.candidateEventId,
+    ].includes(eventId)
+  ) {
+    resetCalendarConversationState('deleted_event_pending_cleared');
+  }
+
+  console.log('[CALENDAR CONVERSATION STORE] deleted event purged');
+  console.log(JSON.stringify({ eventId, reason }));
+}
 
 function emptyWorkingMemory(): CalendarWorkingMemory {
   return {
@@ -453,6 +526,7 @@ export function resetCalendarConversationStore(reason: string) {
   conversationSnapshot = { ...IDLE_SNAPSHOT };
   workingMemory = emptyWorkingMemory();
   syncingStartedAtMs = null;
+  deletedEventTombstones.clear();
 
   console.log('[CALENDAR CONVERSATION STORE RESET]');
   console.log(`reason=${reason}`);
@@ -544,6 +618,26 @@ export function clearPendingTargetInMemory() {
   console.log('[CALENDAR CONVERSATION STORE] pendingTarget cleared');
 }
 
+export function upsertCalendarStoreEvent(event: CalendarEvent, reason: string) {
+  if (event.id.startsWith('pending:') || event.id.startsWith('pending-intent:')) {
+    return;
+  }
+
+  setLastCalendarSnapshot(
+    mergeCalendarEventLists([event], workingMemory.lastCalendarSnapshot),
+    reason,
+  );
+  replaceLiveCalendarEvents(mergeCalendarEventLists([event], getLiveCalendarEvents()));
+}
+
+export function removeCalendarStoreEvent(eventId: string, reason: string) {
+  setLastCalendarSnapshot(
+    workingMemory.lastCalendarSnapshot.filter((event) => event.id !== eventId),
+    reason,
+  );
+  replaceLiveCalendarEvents(getLiveCalendarEvents().filter((event) => event.id !== eventId));
+}
+
 export function commitCreatedCalendarEvent(params: {
   eventId: string;
   title: string;
@@ -551,6 +645,7 @@ export function commitCreatedCalendarEvent(params: {
   endISO: string;
 }) {
   const pointer = buildPointer(params);
+  const event = pointerToCalendarEvent(pointer);
 
   touchCalendarConversationContext();
   workingMemory = syncFlatIds({
@@ -559,6 +654,7 @@ export function commitCreatedCalendarEvent(params: {
     lastCreated: pointer,
     lastReferenced: pointer,
   });
+  upsertCalendarStoreEvent(event, 'create_committed');
 
   console.log('[CALENDAR CONVERSATION STORE] lastCreated committed');
   console.log(JSON.stringify({ eventId: pointer.eventId, title: pointer.eventName }));
@@ -601,6 +697,15 @@ export function commitReferencedCalendarEvent(params: {
   console.log('[CALENDAR CONVERSATION STORE] lastReferenced committed');
 }
 
+export function commitDeletedCalendarEvent(params: {
+  eventId: string;
+  title: string;
+  startISO: string;
+  endISO: string;
+}) {
+  purgeDeletedEventFromConversation(params.eventId, 'delete_committed');
+}
+
 export function commitVerifiedCalendarMutation(params: {
   actionType: 'create' | 'update' | 'delete' | 'search';
   eventId: string;
@@ -614,12 +719,10 @@ export function commitVerifiedCalendarMutation(params: {
   } else if (params.actionType === 'update') {
     commitModifiedCalendarEvent(params);
   } else if (params.actionType === 'delete') {
-    commitReferencedCalendarEvent(params);
+    commitDeletedCalendarEvent(params);
   } else {
     commitReferencedCalendarEvent(params);
   }
-
-  upsertPointerInSnapshot(buildPointer(params));
 
   if (params.clearPendingWorkflow) {
     resetCalendarConversationState('verified_mutation');
@@ -668,14 +771,27 @@ export function getConversationPointersForResolution(): ConversationEventPointer
   });
 }
 
+function filterOutDeletedTombstones(events: CalendarEvent[]) {
+  if (deletedEventTombstones.size === 0) {
+    return events;
+  }
+
+  return events.filter((event) => !deletedEventTombstones.has(event.id));
+}
+
 export function augmentEventsWithConversationContext(fetchedEvents: CalendarEvent[]): CalendarEvent[] {
   const pinned = getConversationPointersForResolution()
-    .filter((pointer) => !pointer.eventId.startsWith('pending:'))
+    .filter(
+      (pointer) =>
+        !pointer.eventId.startsWith('pending:') && !deletedEventTombstones.has(pointer.eventId),
+    )
     .map(pointerToCalendarEvent);
 
-  return mergeCalendarEventLists(
-    mergeCalendarEventLists(fetchedEvents, workingMemory.lastCalendarSnapshot),
-    pinned,
+  return filterOutDeletedTombstones(
+    mergeCalendarEventLists(
+      mergeCalendarEventLists(fetchedEvents, workingMemory.lastCalendarSnapshot),
+      pinned,
+    ),
   );
 }
 

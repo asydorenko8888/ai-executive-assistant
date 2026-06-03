@@ -148,8 +148,6 @@ const EN_LATER_BY = new RegExp(
 
 const NEXT_WEEK = /\b(?:next\s+week|на\s+наступн(?:ому|ій)\s+тижн(?:і|е|ю)?)\b/iu;
 
-const MOVE_TO_PREFIX = /\b(?:move|reschedule|shift|перенеси|перенести|здвинь|зсунь)\b.*?\b(?:to|на)\s+/iu;
-
 const TEMPORAL_DAY_WORDS = new RegExp(
   `${CALENDAR_WORD_EDGE}(?:today|tonight|tomorrow|завтра|сьогодні|сегодня|післязавтра|послезавтра)${CALENDAR_WORD_END}`,
   'giu',
@@ -555,7 +553,6 @@ export function stripCalendarUpdateSchedulePhrases(transcript: string) {
     /(?:^|[\s,.;:!?—-]+)(?:на|to)\s+(?:завтра|tomorrow|today|сьогодні|сегодня|післязавтра|послезавтра)/giu,
     ' ',
   );
-  cleaned = cleaned.replace(MOVE_TO_PREFIX, ' ');
   cleaned = cleaned.replace(
     /\b(?:вечера|вечером|утра|утром|дня|днём|dнем|ночи|ночью|вечора|ранку|утра|am|pm|a\.m\.|p\.m\.)\b/giu,
     ' ',

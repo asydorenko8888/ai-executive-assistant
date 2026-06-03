@@ -5,6 +5,10 @@ import {
   buildCalendarDeleteNotFoundReply,
   buildCalendarDeleteRecurringNotSupportedReply,
 } from '@/src/features/agent/calendar/calendarDeleteNaturalReplies';
+import {
+  buildCalendarApiUnavailableReply,
+  buildCalendarToolUserReply,
+} from '@/src/features/agent/calendar/calendarAuthUserReplies';
 import { buildCalendarOperationInProgressReply } from '@/src/features/agent/calendar/calendarOperationUserReplies';
 import { buildNaturalCalendarDeleteSuccessReply } from '@/src/features/agent/execution/calendarDeleteSuccessReply';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
@@ -89,16 +93,27 @@ export function buildCalendarDeleteToolReplyBundle(
     };
   }
 
+  const authOrApiReply = buildCalendarToolUserReply(tool, languageCode);
+
+  if (authOrApiReply) {
+    return {
+      tool,
+      reply: authOrApiReply,
+      spokenReply: authOrApiReply,
+      executionState: mapToolStatusToExecutionState(tool),
+      requiresCalendarAuth: tool.errorCode === 'CALENDAR_AUTH_REQUIRED',
+    };
+  }
+
   if (tool.status === 'PENDING') {
-    const code = tool.errorCode ?? 'PENDING';
-    const text = `PENDING: ${code}`;
+    const text = buildCalendarOperationInProgressReply(languageCode);
 
     return {
       tool,
       reply: text,
       spokenReply: text,
       executionState: mapToolStatusToExecutionState(tool),
-      requiresCalendarAuth: tool.errorCode === 'CALENDAR_AUTH_REQUIRED',
+      requiresCalendarAuth: false,
     };
   }
 
@@ -114,19 +129,13 @@ export function buildCalendarDeleteToolReplyBundle(
     };
   }
 
-  const code = tool.errorCode ?? 'UNKNOWN';
-  const detail = tool.error ?? 'unknown error';
-  const text = `FAILURE: ${code}: ${detail}`;
+  const text = buildCalendarApiUnavailableReply(languageCode);
 
   return {
     tool,
     reply: text,
     spokenReply: text,
     executionState: mapToolStatusToExecutionState(tool),
-    requiresCalendarAuth:
-      tool.errorCode === 'CALENDAR_AUTH_REQUIRED' ||
-      tool.errorCode === 'WRITE_SCOPE_MISSING' ||
-      tool.errorCode === 'GOOGLE_CALENDAR_WRITE_NOT_GRANTED' ||
-      tool.errorCode === 'GOOGLE_WRITE_PERMISSION_MISSING',
+    requiresCalendarAuth: false,
   };
 }

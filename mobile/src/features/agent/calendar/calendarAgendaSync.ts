@@ -12,9 +12,11 @@ import {
   resolveAgendaQueryDayOffset,
 } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import { isDeterministicCalendarReadQuery } from '@/src/features/agent/calendarIntelligence';
+import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
 
 export { isCalendarAgendaQuery, resolveAgendaQueryDayOffset } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import { invalidateCalendarVisibilityCaches } from '@/src/features/agent/calendar/calendarAgendaRefresh';
+import { loadCalendarQueryEvents } from '@/src/features/agent/calendar/calendarQueryEventSource';
 import { getLiveCalendarEvents, replaceLiveCalendarEvents } from '@/src/features/agent/calendar/calendarLiveState';
 import { buildCalendarSummary } from '@/src/features/agent/calendar/googleCalendarService';
 import {
@@ -165,12 +167,22 @@ export async function ensureFreshCalendarForAgendaTurn(params: {
     return resolveAgendaEventsForQuery(snapshotEvents, params.referenceNow, params.userTranscript);
   }
 
-  const events = await syncFreshCalendarStateForAgendaQuery({
+  await syncFreshCalendarStateForAgendaQuery({
     referenceNow: params.referenceNow,
     userTranscript: params.userTranscript,
+  }).catch((error) => {
+    console.log('[CALENDAR QUERY] agenda sync failed — using local store', error);
+  });
+
+  const timeZone = getExecutiveCalendarTimezone();
+  const day = resolveTargetDayContext(params.userTranscript, params.referenceNow, timeZone);
+  const { events } = await loadCalendarQueryEvents({
+    referenceNow: params.referenceNow,
+    day,
+    transcript: params.userTranscript,
   });
 
   patchExecutiveSnapshotCalendar(params.orchestrator.snapshot, getLiveCalendarEvents(), params.referenceNow);
 
-  return events;
+  return resolveAgendaEventsForQuery(events, params.referenceNow, params.userTranscript);
 }

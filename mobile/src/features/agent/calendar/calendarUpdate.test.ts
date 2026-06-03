@@ -337,6 +337,8 @@ describe('calendar update integration', () => {
   it('extracts title from imperfect mutation phrases', () => {
     assert.equal(extractUpdateEventTitle('переносы прогулянку'), 'прогулянка');
     assert.equal(extractUpdateEventTitle('перенеси прогулку на завтра в 15:00'), 'прогулка');
+    assert.equal(extractUpdateEventTitle('перенеси прогулку на 3 часа раньше'), 'прогулка');
+    assert.equal(extractUpdateEventTitle('Move walk 3 hours earlier'), 'walk');
     assert.equal(extractUpdateEventTitle('здвинь прогулянку на час позже'), 'прогулянка');
   });
 

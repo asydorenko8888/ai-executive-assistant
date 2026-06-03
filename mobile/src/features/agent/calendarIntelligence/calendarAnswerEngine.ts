@@ -11,10 +11,8 @@ import {
   classifyCalendarReadTimeKind,
   type CalendarReadTimeKind,
 } from '@/src/features/agent/calendarIntelligence/calendarReadTimeIntent';
-import {
-  DEFAULT_CALENDAR_INTELLIGENCE_TIMEZONE,
-  resolveTargetDayContext,
-} from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
+import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
 import {
   findBestSlot,
   findOverlappingEventPairs,
@@ -27,6 +25,10 @@ import {
 } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import type { DeterministicCalendarAnswer } from '@/src/features/agent/calendarIntelligence/types';
 import { recordSearchedConversationEvent } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import { logCalendarQueryResolution } from '@/src/features/agent/calendar/calendarQueryDiagnostics';
+import { getCalendarWorkingMemory } from '@/src/features/agent/calendar/calendarConversationStore';
+import { getLiveCalendarEvents } from '@/src/features/agent/calendar/calendarLiveState';
+import { formatWallClockLabel } from '@/src/features/agent/calendarIntelligence/calendarWallClockLabel';
 import { setLastCalendarReadMatch } from '@/src/features/agent/execution/calendarExecutionSession';
 
 function resolveAtTimeEvents(params: {
@@ -69,7 +71,7 @@ export function buildDeterministicCalendarAnswer(params: {
   const day = resolveTargetDayContext(
     params.transcript,
     params.referenceNow,
-    params.timeZone ?? DEFAULT_CALENDAR_INTELLIGENCE_TIMEZONE,
+    params.timeZone ?? getExecutiveCalendarTimezone(),
   );
   const scopedRaw = filterRawEventsForDay(params.events, day);
   const normalized = normalizeCalendarEvents(scopedRaw, day.timezone);
@@ -84,7 +86,7 @@ export function buildDeterministicCalendarAnswer(params: {
     intent === 'events_starting_at_time' ||
     intent === 'count_at_time'
   ) {
-    const clockMinutes = parseQueryClockMinutes(params.transcript, day);
+    const clockMinutes = parseQueryClockMinutes(params.transcript, day, { logResolution: false });
 
     if (clockMinutes === null) {
       return null;
@@ -108,6 +110,22 @@ export function buildDeterministicCalendarAnswer(params: {
       clockMinutes,
       matchedEvents: rawMatches,
       pinnedEventId: rawMatches.length === 1 ? rawMatches[0]?.id ?? null : null,
+    });
+
+    logCalendarQueryResolution({
+      original_user_query: params.transcript.slice(0, 200),
+      parsed_time_minutes: clockMinutes,
+      parsed_time_label: formatWallClockLabel(clockMinutes, day),
+      timezone_used: day.timezone,
+      events_found: rawMatches.map((event) => ({
+        id: event.id,
+        title: event.title,
+        startsAt: event.startsAt,
+      })),
+      calendar_refresh_status: 'skipped',
+      calendarStore_count: getCalendarWorkingMemory().lastCalendarSnapshot.length,
+      live_store_count: getLiveCalendarEvents().length,
+      remote_fetch_count: params.events.length,
     });
 
     if (rawMatches.length === 1) {

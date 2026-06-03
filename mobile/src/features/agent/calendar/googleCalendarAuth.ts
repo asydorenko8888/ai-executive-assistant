@@ -831,11 +831,24 @@ export async function getActiveGoogleCalendarSession() {
     expiresAt: session.expiresAt ?? null,
   });
 
-  const refreshedSession = await refreshGoogleCalendarSession(session);
-  const refreshedExpiresAt = refreshedSession.expiresAt ? Date.parse(refreshedSession.expiresAt) : NaN;
+  let refreshedSession = await refreshGoogleCalendarSession(session);
+  let refreshedExpiresAt = refreshedSession.expiresAt ? Date.parse(refreshedSession.expiresAt) : NaN;
+
+  if (!Number.isFinite(refreshedExpiresAt) || refreshedExpiresAt <= Date.now() + 60_000) {
+    refreshedSession = await refreshGoogleCalendarSession(session);
+    refreshedExpiresAt = refreshedSession.expiresAt ? Date.parse(refreshedSession.expiresAt) : NaN;
+  }
 
   if (Number.isFinite(refreshedExpiresAt) && refreshedExpiresAt > Date.now() + 60_000) {
     console.log('[Calendar Audit] getActiveGoogleCalendarSession — refresh succeeded', {
+      platform: Platform.OS,
+      expiresAt: refreshedSession.expiresAt ?? null,
+    });
+    return refreshedSession;
+  }
+
+  if (refreshedSession.accessToken) {
+    console.log('[Calendar Audit] getActiveGoogleCalendarSession — using session after refresh attempt', {
       platform: Platform.OS,
       expiresAt: refreshedSession.expiresAt ?? null,
     });

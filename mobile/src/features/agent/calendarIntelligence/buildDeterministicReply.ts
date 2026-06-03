@@ -6,10 +6,8 @@ import {
 } from '@/src/features/agent/calendarIntelligence/classifyQuery';
 import { logReadEventList } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import { formatDeterministicCalendarReply } from '@/src/features/agent/calendarIntelligence/formatDeterministicReply';
-import {
-  filterRawEventsForDay,
-  loadCalendarEventsForTargetDay,
-} from '@/src/features/agent/calendarIntelligence/loadDayEvents';
+import { buildCalendarQueryUncertainReply } from '@/src/features/agent/calendar/calendarAuthUserReplies';
+import { loadCalendarQueryEvents } from '@/src/features/agent/calendar/calendarQueryEventSource';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
 import type { CalendarFreeSlot, NormalizedCalendarEvent } from '@/src/features/agent/calendarIntelligence/types';
@@ -38,17 +36,17 @@ export async function tryBuildDeterministicCalendarReply(params: {
 
   const timeZone = getExecutiveCalendarTimezone();
   const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
-  const prefetchedForDay = params.prefetchedEvents
-    ? filterRawEventsForDay(params.prefetchedEvents, day)
-    : [];
 
-  const rawEvents =
-    prefetchedForDay.length > 0
-      ? prefetchedForDay
-      : await loadCalendarEventsForTargetDay({
-          referenceNow: params.referenceNow,
-          day,
-        });
+  const { events: rawEvents, calendarTrustworthy } = await loadCalendarQueryEvents({
+    referenceNow: params.referenceNow,
+    day,
+    transcript: params.transcript,
+    supplementalEvents: params.prefetchedEvents,
+  });
+
+  if (!calendarTrustworthy) {
+    return buildCalendarQueryUncertainReply(params.languageCode);
+  }
 
   logReadEventList({
     transcript: params.transcript,
