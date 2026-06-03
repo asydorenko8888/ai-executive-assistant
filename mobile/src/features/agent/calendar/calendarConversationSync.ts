@@ -169,7 +169,16 @@ export function syncConversationStateForDeleteSelection(
   context: PendingCalendarDeleteContext,
   languageCode: CalendarPendingAction['languageCode'],
 ) {
-  const pendingAction = deleteContextToPendingAction(context, languageCode);
+  const pendingAction = {
+    ...deleteContextToPendingAction(context, languageCode),
+    conflictEvents:
+      context.candidates?.map((candidate) => ({
+        eventId: candidate.eventId,
+        title: candidate.title,
+        startsAt: candidate.startsAt,
+        endsAt: candidate.endsAt,
+      })) ?? [],
+  };
 
   transitionCalendarConversationState({
     toState: 'WAITING_EVENT_SELECTION',
@@ -197,7 +206,16 @@ export function syncConversationStateForUpdateSelection(
   context: PendingCalendarUpdateContext,
   languageCode: CalendarPendingAction['languageCode'],
 ) {
-  const pendingAction = updateContextToPendingAction(context, languageCode);
+  const pendingAction = {
+    ...updateContextToPendingAction(context, languageCode),
+    conflictEvents:
+      context.candidates?.map((candidate) => ({
+        eventId: candidate.eventId,
+        title: candidate.title,
+        startsAt: candidate.startsAt,
+        endsAt: candidate.endsAt,
+      })) ?? [],
+  };
 
   transitionCalendarConversationState({
     toState: 'WAITING_EVENT_SELECTION',

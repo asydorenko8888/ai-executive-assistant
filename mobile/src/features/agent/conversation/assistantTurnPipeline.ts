@@ -28,6 +28,7 @@ import {
   isTemporalFactualQuery,
 } from '@/src/features/agent/factual/factualTimeGrounding';
 import { tryBuildFactualTimeReply } from '@/src/features/agent/factual/factualTimeReply';
+import { buildActionModeFailureReply } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
 import { detectCalendarCommandIntent, requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
 import { executeCalendarCommand } from '@/src/features/agent/calendar/calendarCommandExecutor';
@@ -674,13 +675,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   }
 
   if (behavior.mode === 'ACTION_MODE') {
-    const locale = params.languageCode === 'ru-RU' ? 'ru' : params.languageCode === 'uk-UA' ? 'uk' : 'en';
-    const terminalReply =
-      locale === 'ru'
-        ? 'FAILURE: ACTION_MODE: не удалось выполнить запрошенное действие.'
-        : locale === 'uk'
-          ? 'FAILURE: ACTION_MODE: не вдалося виконати запитану дію.'
-          : 'FAILURE: ACTION_MODE: could not execute the requested action.';
+    const terminalReply = buildActionModeFailureReply(params.languageCode);
 
     logTurnPipeline('route selected', {
       route: 'operational_local',

@@ -1,4 +1,4 @@
-import { fetchCalendarEventsForZonedDay } from '@/src/features/agent/calendar/calendarAgendaQuery';
+import { fetchCalendarEventsForMutationSearch } from '@/src/features/agent/calendar/calendarMutationEventSearch';
 import {
   logDeleteCandidate,
   logDeleteNotFoundReason,
@@ -60,15 +60,16 @@ export async function resolveCalendarDeleteTarget(params: {
     clockMinutes,
   });
 
-  const { events, range, fetchOk } = await fetchCalendarEventsForZonedDay(
-    params.referenceNow,
-    searchDayOffset,
-  );
+  const { events, fetchOk, timeMin, timeMax } = await fetchCalendarEventsForMutationSearch({
+    referenceNow: params.referenceNow,
+    transcript: params.transcript,
+    memoryRef,
+  });
 
   logCalendarMutationFreshRead({
     dayOffset: searchDayOffset,
-    timeMin: range.timeMin,
-    timeMax: range.timeMax,
+    timeMin,
+    timeMax,
     fetchOk,
     eventCount: events.length,
   });

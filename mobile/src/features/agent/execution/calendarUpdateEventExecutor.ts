@@ -7,6 +7,7 @@ import {
   syncConversationStateForMoveClarification,
   syncConversationStateForUpdateSelection,
 } from '@/src/features/agent/calendar/calendarConversationSync';
+import { calendarEventsToDisambiguationCandidates } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import { extractCalendarUpdateParameters } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import { logCalendarMutationAudit } from '@/src/features/agent/calendar/calendarMutationAudit';
 import {
@@ -382,10 +383,14 @@ export async function executeCalendarUpdateEvent(
 
       if (reason === 'ambiguous') {
         const extracted = extractCalendarUpdateParameters(params.transcript, params.referenceNow);
-        const pendingUpdate = pendingContextFromExtraction({
-          sourceTranscript: params.transcript,
-          extraction: extracted,
-        });
+        const candidates = calendarEventsToDisambiguationCandidates(matchResult.candidates);
+        const pendingUpdate = {
+          ...pendingContextFromExtraction({
+            sourceTranscript: params.transcript,
+            extraction: extracted,
+          }),
+          candidates,
+        };
         setPendingCalendarUpdateContext(pendingUpdate);
         syncConversationStateForUpdateSelection(pendingUpdate, params.languageCode);
         const tool = createCalendarToolFailure(
@@ -403,6 +408,7 @@ export async function executeCalendarUpdateEvent(
           ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
             referenceNow: params.referenceNow,
             requestedEventTitle: requestedTitle,
+            disambiguationCandidates: candidates,
           }),
           verified: false,
         };

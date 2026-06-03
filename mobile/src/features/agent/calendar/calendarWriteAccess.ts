@@ -16,7 +16,7 @@ export type CalendarWriteAccessState = {
 };
 
 export async function resolveCalendarWriteAccessState(): Promise<CalendarWriteAccessState> {
-  const capabilities = await refreshCalendarAuthCapabilities({ force: true, heal: true });
+  const capabilities = await refreshCalendarAuthCapabilities({ heal: true });
 
   return {
     connected: capabilities.canReadCalendar,

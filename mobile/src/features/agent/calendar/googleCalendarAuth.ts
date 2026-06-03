@@ -22,6 +22,12 @@ import {
   syncGoogleCalendarSessionToBackend,
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import { apiClient } from '@/src/shared/api';
+import {
+  logCalendarAuthStateCleared,
+  logCalendarTokenExpiration,
+  logCalendarTokenRefreshAttempt,
+  logCalendarTokenRefreshResult,
+} from '@/src/features/agent/calendar/calendarAuthDiagnostics';
 import { env } from '@/src/shared/config';
 import {
   GOOGLE_CALENDAR_WEB_CALLBACK_PATH,
@@ -334,7 +340,8 @@ async function refreshGoogleCalendarTokenOnBackend(params: {
   });
 }
 
-async function clearGoogleCalendarAuthState() {
+async function clearGoogleCalendarAuthState(reason: string) {
+  logCalendarAuthStateCleared({ source: 'googleCalendarAuth', reason });
   await clearGoogleCalendarSession();
   await disconnectGoogleCalendarOnBackend().catch((error) => {
     console.log('[GoogleCalendar] backend disconnect during auth reset failed', error);
@@ -373,7 +380,7 @@ export async function finalizeGoogleCalendarAuthCode(params: {
     });
 
     if (tokenResponse.hasCalendarEventsScope === false) {
-      await clearGoogleCalendarAuthState();
+      await clearGoogleCalendarAuthState('oauth_missing_write_scope_after_exchange');
       throw new Error(GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE);
     }
 
@@ -467,12 +474,23 @@ function buildConnectionFromSession(
   };
 }
 
-async function refreshGoogleCalendarSession(session: GoogleCalendarSession) {
+async function refreshGoogleCalendarSession(session: GoogleCalendarSession, attempt = 1) {
   const clientId = resolveGoogleCalendarClientId();
 
   if (!clientId || !session.refreshToken) {
+    logCalendarTokenRefreshResult({
+      source: 'refreshGoogleCalendarSession',
+      success: false,
+      detail: 'missing_client_or_refresh_token',
+    });
     return session;
   }
+
+  logCalendarTokenRefreshAttempt({
+    source: 'refreshGoogleCalendarSession',
+    hasRefreshToken: Boolean(session.refreshToken),
+    attempt,
+  });
 
   try {
     if (Platform.OS === 'web') {
@@ -485,7 +503,7 @@ async function refreshGoogleCalendarSession(session: GoogleCalendarSession) {
       );
 
       if (!scopesIncludeCalendarEventsWrite(scopes)) {
-        await clearGoogleCalendarAuthState();
+        await clearGoogleCalendarAuthState('refresh_missing_write_scope');
         return session;
       }
 
@@ -510,6 +528,11 @@ async function refreshGoogleCalendarSession(session: GoogleCalendarSession) {
         '@/src/features/agent/calendar/calendarAuthCapabilities'
       );
       invalidateCalendarAuthCache();
+      logCalendarTokenRefreshResult({
+        source: 'refreshGoogleCalendarSession',
+        success: true,
+        expiresAt: nextSession.expiresAt ?? null,
+      });
       return nextSession;
     }
 
@@ -528,7 +551,7 @@ async function refreshGoogleCalendarSession(session: GoogleCalendarSession) {
     );
 
     if (!scopesIncludeCalendarEventsWrite(scopes)) {
-      await clearGoogleCalendarAuthState();
+      await clearGoogleCalendarAuthState('refresh_missing_write_scope');
       return session;
     }
 
@@ -552,8 +575,18 @@ async function refreshGoogleCalendarSession(session: GoogleCalendarSession) {
       '@/src/features/agent/calendar/calendarAuthCapabilities'
     );
     invalidateCalendarAuthCache();
+    logCalendarTokenRefreshResult({
+      source: 'refreshGoogleCalendarSession',
+      success: true,
+      expiresAt: nextSession.expiresAt ?? null,
+    });
     return nextSession;
-  } catch {
+  } catch (error) {
+    logCalendarTokenRefreshResult({
+      source: 'refreshGoogleCalendarSession',
+      success: false,
+      detail: error instanceof Error ? error.message : 'refresh_failed',
+    });
     return session;
   }
 }
@@ -813,6 +846,12 @@ export async function getActiveGoogleCalendarSession() {
     });
     return null;
   }
+
+  logCalendarTokenExpiration({
+    source: 'getActiveGoogleCalendarSession',
+    expiresAt: session.expiresAt ?? null,
+    connectedEmail: session.connectedEmail ?? null,
+  });
 
   const expiresAt = session.expiresAt ? Date.parse(session.expiresAt) : NaN;
   const isExpired = Number.isFinite(expiresAt) && expiresAt <= Date.now() + 60_000;

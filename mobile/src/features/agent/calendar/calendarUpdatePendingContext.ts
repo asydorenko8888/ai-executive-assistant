@@ -10,6 +10,11 @@ import {
 } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import type { PendingCalendarUpdateContext } from '@/src/features/agent/execution/calendarExecutionSession';
+import {
+  buildTranscriptFromSelectedDisambiguationCandidate,
+  resolveDisambiguationSelection,
+} from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import type { CalendarDisambiguationCandidate } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 
 const TIME_ONLY_REPLY = /^(\d{1,2}:\d{2})$/;
 const BARE_HOUR_REPLY = /^(\d{1,2})$/;
@@ -72,6 +77,7 @@ export function buildTranscriptFromPendingContext(context: PendingCalendarUpdate
 export function pendingContextFromExtraction(params: {
   sourceTranscript: string;
   extraction: CalendarUpdateExtractResult;
+  candidates?: CalendarDisambiguationCandidate[];
 }): PendingCalendarUpdateContext {
   return {
     operation: 'update',
@@ -79,6 +85,7 @@ export function pendingContextFromExtraction(params: {
     fromStartISO: params.extraction.fromStartISO,
     toStartISO: params.extraction.toStartISO,
     sourceTranscript: params.sourceTranscript.trim(),
+    candidates: params.candidates,
   };
 }
 
@@ -139,6 +146,28 @@ export function tryMergePendingCalendarUpdateReply(params: {
 
   if (!reply || isCalendarExactTimeReadQuery(reply)) {
     return null;
+  }
+
+  if (params.pending.candidates && params.pending.candidates.length > 0) {
+    const selected = resolveDisambiguationSelection({
+      reply,
+      candidates: params.pending.candidates,
+      referenceNow: params.referenceNow,
+    });
+
+    if (selected) {
+      const next: PendingCalendarUpdateContext = {
+        ...params.pending,
+        selectedEventId: selected.eventId,
+        title: selected.title,
+      };
+
+      return {
+        context: next,
+        transcript: `${params.pending.sourceTranscript} ${selected.title}`.replace(/\s+/g, ' ').trim(),
+        selectedEventId: selected.eventId,
+      };
+    }
   }
 
   const isTimeOnly = TIME_ONLY_REPLY.test(reply) || BARE_HOUR_REPLY.test(reply);

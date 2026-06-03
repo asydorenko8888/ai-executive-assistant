@@ -17,8 +17,22 @@ const TASK_DOMAIN_NOISE = new RegExp(
   'giu',
 );
 
+const DELETE_ALL_PREFIX =
+  /^(?:please\s+)?(?:удали|удалить|убери|отмени|отменить|прибери|скасуй|скасувати|видали|видалити|delete|remove|cancel)\s+(?:все|всі|all)\s+/iu;
+
+export function isDeleteAllCalendarCommand(transcript: string) {
+  const normalized = transcript.trim();
+
+  return (
+    DELETE_ALL_PREFIX.test(normalized) ||
+    /\b(?:все|всі|all)\s+.+(?:удали|удалить|видали|видалити|delete|remove)\b/iu.test(normalized)
+  );
+}
+
 export function extractDeleteEventTitle(transcript: string) {
   let text = transcript.replace(DELETE_COMMAND_PREFIX, '').trim();
+  text = text.replace(DELETE_ALL_PREFIX, '').trim();
+  text = text.replace(/^(?:все|всі|all)\s+/iu, '').trim();
   text = stripCalendarClockPhrases(text);
   text = text.replace(RELATIVE_DAY_PHRASES, ' ');
   text = text.replace(TASK_DOMAIN_NOISE, ' ');

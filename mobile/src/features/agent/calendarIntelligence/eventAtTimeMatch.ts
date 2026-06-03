@@ -23,7 +23,12 @@ import {
   resolveMutationSearchDayOffset,
   shouldResolveMutationFromActiveMemory,
 } from '@/src/features/agent/calendar/calendarActiveEventContext';
-import { resolveEventTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import { isDeleteAllCalendarCommand } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
+import {
+  EVENT_PRONOUN_REFERENCE,
+  isIgnorableTitleQueryForMemory,
+  resolveEventTitleQueryForMemory,
+} from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { calendarConversationTitlesMatch } from '@/src/features/agent/calendar/calendarConversationTitleMatch';
 import {
   scoreTitleMatch,
@@ -31,7 +36,6 @@ import {
   selectBestEventByTitlePriority,
 } from '@/src/features/agent/calendar/calendarTitleMatchPriority';
 import { validateMoveTargetAgainstConversationMemory } from '@/src/features/agent/calendar/calendarConversationMemorySchedule';
-import { isIgnorableTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { getLastCalendarReadMatch } from '@/src/features/agent/execution/calendarExecutionSession';
 
 function pickBestNormalizedMatch(
@@ -579,6 +583,7 @@ export type CalendarDeleteEventMatchResult = {
     | 'ambiguous_title_at_time'
     | 'no_title_match_on_day'
     | 'ambiguous_title_on_day'
+    | 'delete_all_matches'
     | null;
 };
 
@@ -597,14 +602,37 @@ export function findCalendarEventForDeleteFromEvents(params: {
     memoryTitle: memoryRef?.title ?? null,
   });
   const activeEvents = params.events.filter((event) => !event.isCancelled);
+  const deleteAllRequested = isDeleteAllCalendarCommand(params.transcript);
 
+  const strongTitleMatches = activeEvents
+    .map((event) => ({
+      event,
+      score: scoreTitleMatch(effectiveTitleQuery, event.title),
+    }))
+    .filter((entry) => entry.score >= 70)
+    .sort((left, right) => right.score - left.score)
+    .map((entry) => entry.event);
+
+  if (deleteAllRequested && strongTitleMatches.length >= 2) {
+    return {
+      match: null,
+      titleQuery: effectiveTitleQuery,
+      clockMinutes: null,
+      candidates: strongTitleMatches,
+      hasExplicitTime: false,
+      matchSource: 'none',
+      notFoundReason: 'delete_all_matches',
+    };
+  }
+
+  const pronounReference = EVENT_PRONOUN_REFERENCE.test(params.transcript);
   const memoryMatch =
     shouldResolveMutationFromActiveMemory({
       transcript: params.transcript,
       referenceNow: params.referenceNow,
       titleQuery: effectiveTitleQuery,
       timeZone,
-    })
+    }) && strongTitleMatches.length <= 1
       ? resolveActiveEventForMutation({
           events: activeEvents,
           referenceNow: params.referenceNow,
@@ -612,7 +640,7 @@ export function findCalendarEventForDeleteFromEvents(params: {
         })
       : null;
 
-  if (memoryMatch) {
+  if (memoryMatch && (pronounReference || strongTitleMatches.length <= 1)) {
     return {
       match: memoryMatch,
       titleQuery: memoryMatch.title,
@@ -646,6 +674,29 @@ export function findCalendarEventForDeleteFromEvents(params: {
   const day = resolveTargetDayContext(params.transcript, params.referenceNow, timeZone);
   const clockMinutes = parseCalendarClockMinutes(params.transcript, day);
   const resolvedTitleQuery = effectiveTitleQuery;
+  const hasExplicitDay =
+    /\b(?:today|tomorrow|завтра|сьогодні|сегодня|післязавтра|послезавтра|monday|tuesday|wednesday|thursday|friday|saturday|sunday|понедельник|вторник|сред|четверг|пятниц|суббот|воскрес)\b/iu.test(
+      params.transcript,
+    );
+
+  if (clockMinutes === null && strongTitleMatches.length > 1 && !deleteAllRequested) {
+    logDeleteNotFoundReason({
+      reason: 'ambiguous_title_on_day',
+      titleQuery,
+      clockMinutes: null,
+      candidateCount: strongTitleMatches.length,
+    });
+
+    return {
+      match: null,
+      titleQuery,
+      clockMinutes: null,
+      candidates: strongTitleMatches,
+      hasExplicitTime: false,
+      matchSource: 'none',
+      notFoundReason: 'ambiguous_title_on_day',
+    };
+  }
 
   if (clockMinutes !== null) {
     const resolved = findCalendarEventAtTimeFromEvents({
@@ -745,7 +796,10 @@ export function findCalendarEventForDeleteFromEvents(params: {
 
   const normalized = normalizeCalendarEvents(activeEvents, timeZone);
   const dayEvents = getEventsForDay(normalized, day);
-  const titleMatches = dayEvents
+  const titleSearchEvents = hasExplicitDay
+    ? activeEvents.filter((event) => dayEvents.some((entry) => entry.id === event.id))
+    : activeEvents;
+  const titleMatches = titleSearchEvents
     .map((event) => ({
       event,
       score: scoreTitleMatch(resolvedTitleQuery, event.title),

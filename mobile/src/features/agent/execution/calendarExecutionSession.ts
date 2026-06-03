@@ -6,8 +6,11 @@ import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendar
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { logExecutionAudit } from '@/src/features/agent/execution/executionAuditLogger';
 import { recordCalendarExecutionDebug } from '@/src/features/settings/storage/calendarExecutionDebugStore';
+import type { CalendarDisambiguationCandidate } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 
 let calendarOperationInProgress = false;
+let calendarOperationStartedAtMs: number | null = null;
+const CALENDAR_OPERATION_LOCK_MS = 45_000;
 let calendarRetryCount = 0;
 let lastOperationKey: string | null = null;
 let lastToolResponse: CalendarToolResponse | null = null;
@@ -18,6 +21,8 @@ export type PendingCalendarUpdateContext = {
   fromStartISO: string | null;
   toStartISO: string | null;
   sourceTranscript: string;
+  candidates?: CalendarDisambiguationCandidate[];
+  selectedEventId?: string | null;
 };
 
 export type PendingCalendarDeleteContext = {
@@ -25,6 +30,9 @@ export type PendingCalendarDeleteContext = {
   title: string | null;
   dayHint: string | null;
   sourceTranscript: string;
+  candidates?: CalendarDisambiguationCandidate[];
+  selectedEventId?: string | null;
+  deleteAll?: boolean;
 };
 
 export type PendingCalendarConflictContext = {
@@ -171,6 +179,16 @@ export function setLastCalendarToolResponse(response: CalendarToolResponse) {
 }
 
 export function tryBeginCalendarOperation(transcript: string) {
+  if (
+    calendarOperationInProgress &&
+    calendarOperationStartedAtMs !== null &&
+    Date.now() - calendarOperationStartedAtMs > CALENDAR_OPERATION_LOCK_MS
+  ) {
+    console.log('[Calendar Operation] stale lock released');
+    calendarOperationInProgress = false;
+    calendarOperationStartedAtMs = null;
+  }
+
   if (calendarOperationInProgress) {
     logExecutionAudit('tool_call', {
       blocked: true,
@@ -198,6 +216,7 @@ export function tryBeginCalendarOperation(transcript: string) {
   }
 
   calendarOperationInProgress = true;
+  calendarOperationStartedAtMs = Date.now();
 
   logExecutionAudit('tool_call', {
     started: true,
@@ -217,6 +236,7 @@ export function acknowledgeCalendarConflictConfirmation() {
 
 export function endCalendarOperation(params: { failed: boolean; createdEventId?: string | null }) {
   calendarOperationInProgress = false;
+  calendarOperationStartedAtMs = null;
 
   if (params.createdEventId) {
     currentCalendarOperationEventId = params.createdEventId;
@@ -254,6 +274,7 @@ export function shouldBlockCalendarRecreate(transcript: string) {
 
 export function resetCalendarExecutionSession() {
   calendarOperationInProgress = false;
+  calendarOperationStartedAtMs = null;
   calendarRetryCount = 0;
   lastOperationKey = null;
   lastToolResponse = null;

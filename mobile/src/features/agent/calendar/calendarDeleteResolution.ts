@@ -60,6 +60,14 @@ export type CalendarDeleteResolution =
       targetMs: null;
       candidates: CalendarDeleteRankedCandidate[];
       notFoundReason: null;
+    }
+  | {
+      status: 'delete_all';
+      events: CalendarEvent[];
+      titleQuery: string;
+      targetMs: null;
+      candidates: CalendarDeleteRankedCandidate[];
+      notFoundReason: null;
     };
 
 function mapCandidates(events: CalendarEvent[]): CalendarDeleteRankedCandidate[] {
@@ -124,6 +132,17 @@ export function resolveCalendarDeleteTargetFromEvents(params: {
     targetMs,
     candidates,
   };
+
+  if (resolved.notFoundReason === 'delete_all_matches') {
+    return {
+      status: 'delete_all',
+      events: resolved.candidates,
+      titleQuery: resolved.titleQuery,
+      targetMs: null,
+      candidates,
+      notFoundReason: null,
+    };
+  }
 
   if (resolved.notFoundReason === 'ambiguous_title_at_time' || resolved.notFoundReason === 'ambiguous_title_on_day') {
     return {

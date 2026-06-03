@@ -1,4 +1,4 @@
-import { fetchCalendarEventsForZonedDay } from '@/src/features/agent/calendar/calendarAgendaQuery';
+import { fetchCalendarEventsForMutationSearch } from '@/src/features/agent/calendar/calendarMutationEventSearch';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import { logUpdateParsedRequest } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
 import {
@@ -45,15 +45,16 @@ export async function findCalendarEventForDelete(params: {
     memoryRef,
     timeZone,
   });
-  const { events, range, fetchOk } = await fetchCalendarEventsForZonedDay(
-    params.referenceNow,
-    searchDayOffset,
-  );
+  const { events, fetchOk, timeMin, timeMax } = await fetchCalendarEventsForMutationSearch({
+    referenceNow: params.referenceNow,
+    transcript: params.transcript,
+    memoryRef,
+  });
 
   logCalendarMutationFreshRead({
     dayOffset: searchDayOffset,
-    timeMin: range.timeMin,
-    timeMax: range.timeMax,
+    timeMin,
+    timeMax,
     fetchOk,
     eventCount: events.length,
   });
@@ -148,10 +149,11 @@ export async function findCalendarEventForUpdate(params: {
     schedule,
     timeZone,
   });
-  const { events, range, fetchOk } = await fetchCalendarEventsForZonedDay(
-    params.referenceNow,
-    searchDayOffset,
-  );
+  const { events, fetchOk, timeMin, timeMax } = await fetchCalendarEventsForMutationSearch({
+    referenceNow: params.referenceNow,
+    transcript: params.transcript,
+    memoryRef,
+  });
 
   logUpdateParsedRequest({
     transcript: params.transcript,
@@ -167,8 +169,8 @@ export async function findCalendarEventForUpdate(params: {
 
   logCalendarMutationFreshRead({
     dayOffset: searchDayOffset,
-    timeMin: range.timeMin,
-    timeMax: range.timeMax,
+    timeMin,
+    timeMax,
     fetchOk,
     eventCount: events.length,
   });

@@ -9,6 +9,10 @@ import {
 } from '@/src/features/agent/calendar/calendarAuthUserReplies';
 import { buildCalendarOperationInProgressReply } from '@/src/features/agent/calendar/calendarOperationUserReplies';
 import {
+  buildCalendarEventDisambiguationReply,
+  type CalendarDisambiguationCandidate,
+} from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import {
   buildCalendarUpdateAmbiguousReply,
   buildCalendarUpdateNoTimeChangeReply,
   buildCalendarUpdateNotFoundReply,
@@ -30,7 +34,11 @@ export type CalendarUpdateToolReplyBundle = {
 function buildNaturalUpdateFailureReply(
   tool: CalendarToolResponse,
   languageCode: VoiceLanguageCode,
-  options?: { eventTitle?: string | null },
+  options?: {
+    eventTitle?: string | null;
+    referenceNow?: Date;
+    disambiguationCandidates?: CalendarDisambiguationCandidate[];
+  },
 ): string | null {
   const locale = getChatLocaleFromVoiceLanguage(languageCode);
 
@@ -39,6 +47,16 @@ function buildNaturalUpdateFailureReply(
   }
 
   if (tool.errorCode === 'CALENDAR_EVENT_AMBIGUOUS') {
+    if (options?.disambiguationCandidates?.length && options.referenceNow) {
+      return buildCalendarEventDisambiguationReply({
+        locale,
+        action: 'update',
+        title: options.eventTitle ?? options.disambiguationCandidates[0]?.title ?? 'event',
+        candidates: options.disambiguationCandidates,
+        referenceNow: options.referenceNow,
+      });
+    }
+
     return buildCalendarUpdateAmbiguousReply(locale);
   }
 
@@ -72,6 +90,7 @@ export function buildCalendarUpdateToolReplyBundle(
     referenceNow?: Date;
     previousStartsAt?: string;
     requestedEventTitle?: string | null;
+    disambiguationCandidates?: CalendarDisambiguationCandidate[];
   },
 ): CalendarUpdateToolReplyBundle {
   if (tool.status === 'SUCCESS' && isVerifiedCalendarUpdateSuccess(tool) && tool.event) {
@@ -108,6 +127,8 @@ export function buildCalendarUpdateToolReplyBundle(
 
   const naturalFailure = buildNaturalUpdateFailureReply(tool, languageCode, {
     eventTitle: options?.requestedEventTitle,
+    referenceNow: options?.referenceNow,
+    disambiguationCandidates: options?.disambiguationCandidates,
   });
 
   if (naturalFailure) {

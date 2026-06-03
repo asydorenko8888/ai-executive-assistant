@@ -1,6 +1,9 @@
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { resolveCalendarDeleteTarget } from '@/src/features/agent/calendar/calendarDeleteEventResolver';
 import {
+  calendarEventsToDisambiguationCandidates,
+} from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import {
   pendingDeleteContextFromResolution,
 } from '@/src/features/agent/calendar/calendarDeletePendingContext';
 import { syncConversationStateForDeleteSelection } from '@/src/features/agent/calendar/calendarConversationSync';
@@ -33,7 +36,52 @@ export type CalendarDeleteExecutionParams = {
   transcript: string;
   languageCode: VoiceLanguageCode;
   referenceNow: Date;
+  selectedEventId?: string | null;
 };
+
+async function finalizeVerifiedDelete(params: {
+  event: { id: string; title: string; startsAt: string; endsAt: string };
+  tool: CalendarToolResponse;
+  languageCode: VoiceLanguageCode;
+  referenceNow: Date;
+}): Promise<CalendarDeleteExecutionOutcome> {
+  if (params.tool.status === 'SUCCESS' && params.tool.verified) {
+    clearPendingCalendarDeleteIntent();
+    endCalendarOperation({ failed: false });
+    recordVerifiedCalendarEventContext({
+      eventId: params.event.id,
+      title: params.event.title,
+      startISO: params.event.startsAt,
+      endISO: params.event.endsAt,
+      actionType: 'delete',
+      clearPendingReason: 'delete_completed',
+      referenceNow: params.referenceNow,
+      languageCode: params.languageCode,
+    });
+    logCalendarMutationVerification({
+      intent: 'delete_calendar_event',
+      verified: true,
+      verificationFetched: params.tool.verificationFetched,
+      eventId: params.tool.eventId ?? null,
+    });
+
+    return {
+      ...buildCalendarDeleteToolReplyBundle(params.tool, params.languageCode, {
+        referenceNow: params.referenceNow,
+      }),
+      verified: true,
+    };
+  }
+
+  endCalendarOperation({ failed: true });
+
+  return {
+    ...buildCalendarDeleteToolReplyBundle(params.tool, params.languageCode, {
+      referenceNow: params.referenceNow,
+    }),
+    verified: false,
+  };
+}
 
 export type CalendarDeleteExecutionOutcome = CalendarDeleteToolReplyBundle & {
   verified: boolean;
@@ -95,6 +143,22 @@ export async function executeCalendarDeleteEvent(
   }
 
   try {
+    if (params.selectedEventId) {
+      const tool = await deleteGoogleCalendarEvent(params.selectedEventId);
+
+      return finalizeVerifiedDelete({
+        event: {
+          id: params.selectedEventId,
+          title: tool.event?.summary ?? '',
+          startsAt: tool.event?.startsAt ?? '',
+          endsAt: tool.event?.endsAt ?? '',
+        },
+        tool,
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+      });
+    }
+
     const resolution = await resolveCalendarDeleteTarget({
       transcript: params.transcript,
       referenceNow: params.referenceNow,
@@ -136,10 +200,14 @@ export async function executeCalendarDeleteEvent(
     }
 
     if (resolution.status === 'ambiguous') {
-      endCalendarOperation({ failed: true });
+      endCalendarOperation({ failed: false });
+      const candidates = calendarEventsToDisambiguationCandidates(
+        resolution.candidates.map((entry) => entry.event),
+      );
       const pendingDelete = pendingDeleteContextFromResolution({
         sourceTranscript: params.transcript,
         titleQuery: resolution.titleQuery,
+        candidates,
       });
       setPendingCalendarDeleteContext(pendingDelete);
       syncConversationStateForDeleteSelection(pendingDelete, params.languageCode);
@@ -157,9 +225,65 @@ export async function executeCalendarDeleteEvent(
       return {
         ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
           referenceNow: params.referenceNow,
+          disambiguationCandidates: candidates,
+          eventTitle: resolution.titleQuery,
         }),
         verified: false,
       };
+    }
+
+    if (resolution.status === 'delete_all') {
+      let lastTool: CalendarToolResponse | null = null;
+
+      for (const event of resolution.events) {
+        lastTool = await deleteGoogleCalendarEvent(event.id);
+
+        if (lastTool.status !== 'SUCCESS' || !lastTool.verified) {
+          endCalendarOperation({ failed: true });
+          return {
+            ...buildCalendarDeleteToolReplyBundle(lastTool, params.languageCode, {
+              referenceNow: params.referenceNow,
+            }),
+            verified: false,
+          };
+        }
+
+        recordVerifiedCalendarEventContext({
+          eventId: event.id,
+          title: event.title,
+          startISO: event.startsAt,
+          endISO: event.endsAt,
+          actionType: 'delete',
+          clearPendingReason: 'delete_all_completed',
+          referenceNow: params.referenceNow,
+          languageCode: params.languageCode,
+        });
+      }
+
+      clearPendingCalendarDeleteIntent();
+      endCalendarOperation({ failed: false });
+
+      if (!lastTool) {
+        const tool = createCalendarToolFailure('CALENDAR_EVENT_NOT_FOUND', 'No events to delete.');
+        return {
+          ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
+            referenceNow: params.referenceNow,
+          }),
+          verified: false,
+        };
+      }
+
+      return finalizeVerifiedDelete({
+        event: {
+          id: lastTool.eventId ?? resolution.events.at(-1)!.id,
+          title: lastTool.event?.summary ?? resolution.titleQuery,
+          startsAt: lastTool.event?.startsAt ?? '',
+          endsAt: lastTool.event?.endsAt ?? '',
+        },
+        tool: lastTool,
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+      });
     }
 
     if (resolution.status === 'recurring_not_supported') {
@@ -198,54 +322,12 @@ export async function executeCalendarDeleteEvent(
 
     const tool: CalendarToolResponse = await deleteGoogleCalendarEvent(resolution.event.id);
 
-    if (tool.status === 'SUCCESS' && tool.verified) {
-      clearPendingCalendarDeleteIntent();
-      endCalendarOperation({ failed: false });
-      recordVerifiedCalendarEventContext({
-        eventId: resolution.event.id,
-        title: resolution.event.title,
-        startISO: resolution.event.startsAt,
-        endISO: resolution.event.endsAt,
-        actionType: 'delete',
-        clearPendingReason: 'delete_completed',
-        referenceNow: params.referenceNow,
-        languageCode: params.languageCode,
-      });
-      logCalendarMutationVerification({
-        intent: 'delete_calendar_event',
-        verified: true,
-        verificationFetched: tool.verificationFetched,
-        eventId: tool.eventId ?? null,
-      });
-      return {
-        ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
-          referenceNow: params.referenceNow,
-        }),
-        verified: true,
-      };
-    }
-
-    if (tool.status === 'SUCCESS' && !tool.verified) {
-      endCalendarOperation({ failed: true });
-      const unverified = createCalendarToolFailure(
-        'VERIFY_FAILED',
-        'Google Calendar did not confirm deletion.',
-      );
-      return {
-        ...buildCalendarDeleteToolReplyBundle(unverified, params.languageCode, {
-          referenceNow: params.referenceNow,
-        }),
-        verified: false,
-      };
-    }
-
-    endCalendarOperation({ failed: true });
-    return {
-      ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
-        referenceNow: params.referenceNow,
-      }),
-      verified: false,
-    };
+    return finalizeVerifiedDelete({
+      event: resolution.event,
+      tool,
+      languageCode: params.languageCode,
+      referenceNow: params.referenceNow,
+    });
   } catch (error) {
     endCalendarOperation({ failed: true });
     const message = error instanceof Error ? error.message : 'Calendar delete error';

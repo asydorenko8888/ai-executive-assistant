@@ -10,6 +10,10 @@ import {
   buildCalendarToolUserReply,
 } from '@/src/features/agent/calendar/calendarAuthUserReplies';
 import { buildCalendarOperationInProgressReply } from '@/src/features/agent/calendar/calendarOperationUserReplies';
+import {
+  buildCalendarEventDisambiguationReply,
+  type CalendarDisambiguationCandidate,
+} from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import { buildNaturalCalendarDeleteSuccessReply } from '@/src/features/agent/execution/calendarDeleteSuccessReply';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -38,6 +42,11 @@ function mapToolStatusToExecutionState(tool: CalendarToolResponse): CalendarExec
 function buildNaturalDeleteFailureReply(
   tool: CalendarToolResponse,
   languageCode: VoiceLanguageCode,
+  options?: {
+    referenceNow?: Date;
+    disambiguationCandidates?: CalendarDisambiguationCandidate[];
+    eventTitle?: string | null;
+  },
 ): string | null {
   const locale = getChatLocaleFromVoiceLanguage(languageCode);
 
@@ -46,6 +55,16 @@ function buildNaturalDeleteFailureReply(
   }
 
   if (tool.errorCode === 'CALENDAR_EVENT_AMBIGUOUS') {
+    if (options?.disambiguationCandidates?.length && options.referenceNow) {
+      return buildCalendarEventDisambiguationReply({
+        locale,
+        action: 'delete',
+        title: options.eventTitle ?? options.disambiguationCandidates[0]?.title ?? 'event',
+        candidates: options.disambiguationCandidates,
+        referenceNow: options.referenceNow,
+      });
+    }
+
     return buildCalendarDeleteAmbiguousReply(locale);
   }
 
@@ -63,7 +82,11 @@ function buildNaturalDeleteFailureReply(
 export function buildCalendarDeleteToolReplyBundle(
   tool: CalendarToolResponse,
   languageCode: VoiceLanguageCode,
-  options?: { referenceNow?: Date },
+  options?: {
+    referenceNow?: Date;
+    disambiguationCandidates?: CalendarDisambiguationCandidate[];
+    eventTitle?: string | null;
+  },
 ): CalendarDeleteToolReplyBundle {
   if (tool.status === 'SUCCESS' && tool.event) {
     const copy = buildNaturalCalendarDeleteSuccessReply({
@@ -81,7 +104,7 @@ export function buildCalendarDeleteToolReplyBundle(
     };
   }
 
-  const naturalFailure = buildNaturalDeleteFailureReply(tool, languageCode);
+  const naturalFailure = buildNaturalDeleteFailureReply(tool, languageCode, options);
 
   if (naturalFailure) {
     return {

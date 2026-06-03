@@ -12,6 +12,7 @@ import {
   incrementCalendarRefreshAttempt,
   resetCalendarRefreshAttempts,
 } from '@/src/features/agent/calendar/calendarRefreshAttempts';
+import { runDedupedCalendarSnapshotRefresh } from '@/src/features/agent/calendar/calendarSnapshotRefreshLock';
 import { buildCalendarRefreshFailedReply } from '@/src/features/agent/calendar/calendarOperationUserReplies';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -42,12 +43,16 @@ export async function syncCalendarSnapshotAfterMutation(params: {
   beginCalendarSnapshotSync(params.reason ?? 'post_mutation');
 
   try {
-    const agenda = await refreshCalendarStateAfterMutation({
-      referenceNow: params.referenceNow,
-      eventId: params.eventId,
-      eventStartIso: params.eventStartIso,
-      reason: params.reason === 'post_create' ? 'post_create' : 'post_mutation',
-    });
+    const agenda = await runDedupedCalendarSnapshotRefresh(
+      params.reason ?? 'post_mutation',
+      () =>
+        refreshCalendarStateAfterMutation({
+          referenceNow: params.referenceNow,
+          eventId: params.eventId,
+          eventStartIso: params.eventStartIso,
+          reason: params.reason === 'post_create' ? 'post_create' : 'post_mutation',
+        }),
+    );
 
     setLastCalendarSnapshot(agenda.horizonEvents, params.reason ?? 'post_mutation');
     resetCalendarRefreshAttempts('refresh_success');

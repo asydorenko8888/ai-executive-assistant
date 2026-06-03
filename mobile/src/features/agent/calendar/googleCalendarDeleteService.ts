@@ -1,4 +1,6 @@
 import { ensureCalendarAuthForTool } from '@/src/features/agent/calendar/calendarAuthCapabilities';
+import { logCalendarApiError } from '@/src/features/agent/calendar/calendarAuthDiagnostics';
+import { getActiveGoogleCalendarSession } from '@/src/features/agent/calendar/googleCalendarAuth';
 import { deleteGoogleCalendarEventOnBackend } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import {
   createCalendarToolFailure,
@@ -69,7 +71,45 @@ export async function deleteGoogleCalendarEvent(eventId: string): Promise<Calend
     const code = apiError?.code;
 
     if (apiError?.status === 401 || code === 'calendar_not_connected') {
-      return createCalendarToolFailure('GOOGLE_CALENDAR_NOT_CONNECTED', 'Google Calendar is not connected.');
+      logCalendarApiError({
+        operation: 'google_calendar_delete_event',
+        status: apiError?.status,
+        code,
+        message: apiError?.message,
+        willRetryRefresh: true,
+      });
+      const refreshed = await getActiveGoogleCalendarSession().catch(() => null);
+
+      if (refreshed?.accessToken) {
+        try {
+          const retryResponse = await deleteGoogleCalendarEventOnBackend(eventId);
+
+          if (
+            retryResponse.verified &&
+            retryResponse.verificationFetched &&
+            retryResponse.event?.id
+          ) {
+            return createCalendarToolSuccess({
+              id: retryResponse.event.id,
+              summary: retryResponse.event.summary,
+              location: retryResponse.event.location,
+              startsAt: retryResponse.event.startsAt,
+              endsAt: retryResponse.event.endsAt,
+              htmlLink: retryResponse.event.htmlLink,
+            });
+          }
+        } catch (retryError) {
+          logCalendarApiError({
+            operation: 'google_calendar_delete_event_retry',
+            message: retryError instanceof Error ? retryError.message : 'retry_failed',
+          });
+        }
+      }
+
+      return createCalendarToolFailure(
+        'CALENDAR_API_UNAVAILABLE',
+        apiError?.message || 'Google Calendar API unavailable.',
+      );
     }
 
     if (code === 'CALENDAR_EVENT_NOT_FOUND') {

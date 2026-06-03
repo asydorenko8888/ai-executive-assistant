@@ -245,6 +245,7 @@ type ExecutePendingMutationParams = {
   calendarConnected: boolean;
   skipScheduleConflictCheck?: boolean;
   transcriptOverride?: string;
+  selectedEventId?: string | null;
   scheduleOverride?: {
     startMs: number;
     endMs: number;
@@ -280,10 +281,12 @@ async function executePendingMutation(params: ExecutePendingMutationParams) {
   const intent = mapPendingActionTypeToCommandIntent(params.pending.action);
 
   if (params.pending.action === 'DELETE_EVENT') {
+    const deletePending = getPendingCalendarDeleteContext();
     const outcome = await executeCalendarDeleteEvent({
       transcript,
       languageCode: params.pending.languageCode,
       referenceNow: params.referenceNow,
+      selectedEventId: params.selectedEventId ?? deletePending?.selectedEventId ?? null,
     });
 
     const verified = isVerifiedCalendarDeleteSuccess(outcome.tool);
@@ -624,6 +627,7 @@ async function handleDeleteOrSelectionState(params: {
     const merged = tryMergePendingCalendarDeleteReply({
       pending: deletePending,
       reply: params.transcript,
+      referenceNow: params.referenceNow,
     });
 
     if (merged) {
@@ -634,6 +638,7 @@ async function handleDeleteOrSelectionState(params: {
         referenceNow: params.referenceNow,
         calendarConnected: true,
         transcriptOverride: merged.transcript,
+        selectedEventId: merged.selectedEventId ?? null,
       });
     }
   }
