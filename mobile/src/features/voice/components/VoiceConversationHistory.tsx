@@ -5,6 +5,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import type { ChatMessage } from '@/src/entities/chat/types';
 import { ChatMessageBubble } from '@/src/features/chat/components/ChatMessageBubble';
+import { isChatAutoScrollAllowed } from '@/src/features/chat/debug/chatEmergencyScrollKill';
 import { ChatTypingIndicator } from '@/src/features/chat/components/ChatTypingIndicator';
 import { colors, fontSizes, fontWeights, radii, spacing } from '@/src/theme';
 
@@ -38,12 +39,20 @@ export function VoiceConversationHistory({
 }: VoiceConversationHistoryProps) {
   const listRef = useRef<FlatList<ChatMessage> | null>(null);
   const scrollToLatest = useCallback(() => {
+    if (!isChatAutoScrollAllowed()) {
+      return;
+    }
+
     listRef.current?.scrollToEnd({ animated: true });
   }, []);
 
   const messageSignature = `${messages.length}:${messages.at(-1)?.id ?? ''}:${messages.at(-1)?.content.length ?? 0}`;
 
   useEffect(() => {
+    if (!isChatAutoScrollAllowed()) {
+      return;
+    }
+
     scrollToLatest();
   }, [messageSignature, pendingUserTranscript, isProcessing, highlightedMessageId, scrollToLatest]);
 
@@ -78,7 +87,7 @@ export function VoiceConversationHistory({
         style={styles.list}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator
-        onContentSizeChange={scrollToLatest}
+        onContentSizeChange={isChatAutoScrollAllowed() ? scrollToLatest : undefined}
         renderItem={({ item }) => (
           <View
             style={

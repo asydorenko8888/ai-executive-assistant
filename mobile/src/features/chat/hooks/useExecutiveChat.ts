@@ -62,9 +62,14 @@ import { streamExecutiveChatMessage } from '@/src/features/chat/services/chatPro
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 import {
+  buildAssistantMessageDebugMeta,
+  buildUserMessageDebugMeta,
+} from '@/src/features/chat/debug/buildConversationTurnDebug';
+import {
   createConversationMessage,
   useExecutiveConversationStore,
 } from '@/src/features/chat/store/executiveConversationStore';
+import { useConversationMessageDebugStore } from '@/src/features/chat/store/conversationMessageDebugStore';
 import { startVoiceCapture, type VoiceCaptureSession } from '@/src/features/voice/voiceCapture';
 import { toApiError } from '@/src/shared/api';
 
@@ -99,6 +104,8 @@ export function useExecutiveChat() {
   const upsertAssistantMessage = useExecutiveConversationStore((state) => state.upsertAssistantMessage);
   const clearConversation = useExecutiveConversationStore((state) => state.clearConversation);
   const persistConversation = useExecutiveConversationStore((state) => state.persist);
+  const setMessageDebug = useConversationMessageDebugStore((state) => state.setForMessage);
+  const clearMessageDebug = useConversationMessageDebugStore((state) => state.clear);
   const [draft, setDraft] = useState('');
   const [typingState, setTypingState] = useState<ChatTypingState>({
     isActive: false,
@@ -588,6 +595,14 @@ export function useExecutiveChat() {
 
       console.log('[Voice Test] responseText', committed);
       finalizeAssistantMessage(variables.assistantMessageId, committed, 'completed');
+      setMessageDebug(
+        variables.assistantMessageId,
+        buildAssistantMessageDebugMeta({
+          userTranscript: latestUserTranscript,
+          route: result.route,
+          executionState: result.executionState,
+        }),
+      );
       coordinator.finalizeRequest(result.requestId);
       resetStreamingState();
       void persistConversationSafe();
@@ -614,10 +629,19 @@ export function useExecutiveChat() {
 
       const recovery = coordinator.buildRecoveryForRequest(variables.assistantMessageId, 'failed');
       finalizeAssistantMessage(variables.assistantMessageId, recovery, 'failed');
+      const freshMessages = readFreshConversationMessages();
+      const latestUser = [...freshMessages].reverse().find((message) => message.role === 'user');
+      const apiError = toApiError(error);
+      setMessageDebug(
+        variables.assistantMessageId,
+        buildAssistantMessageDebugMeta({
+          userTranscript: latestUser?.content.trim() ?? '',
+          rawError: apiError.message,
+        }),
+      );
       coordinator.finalizeRequest(variables.requestId);
       resetStreamingState();
 
-      const apiError = toApiError(error);
       setErrorMessage(apiError.message);
       void persistConversationSafe();
     },
@@ -674,7 +698,14 @@ export function useExecutiveChat() {
       clearTimers();
       setErrorMessage(null);
 
-      appendUserMessage(trimmedMessage);
+      const userMessage = appendUserMessage(trimmedMessage);
+      setMessageDebug(
+        userMessage.id,
+        buildUserMessageDebugMeta({
+          role: 'user',
+          transcript: trimmedMessage,
+        }),
+      );
       const assistantMessageId = `assistant-stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const request = assistantRequestCoordinatorRef.current.begin(
         assistantMessageId,
@@ -711,6 +742,7 @@ export function useExecutiveChat() {
       clearTimers,
       handleAssistantInactivityTimeout,
       persistConversationSafe,
+      setMessageDebug,
     ],
   );
 
@@ -867,7 +899,8 @@ export function useExecutiveChat() {
     setIsVoiceProcessing(false);
     clearVoiceStatus();
     await clearConversation();
-  }, [chatMutation, clearConversation, clearTimers, clearVoiceStatus, resetStreamingState]);
+    clearMessageDebug();
+  }, [chatMutation, clearConversation, clearMessageDebug, clearTimers, clearVoiceStatus, resetStreamingState]);
 
   return {
     thread,

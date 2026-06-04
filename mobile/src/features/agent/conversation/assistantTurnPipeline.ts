@@ -8,7 +8,9 @@ import {
   isDeterministicCalendarReadQuery,
   tryBuildDeterministicCalendarReply,
 } from '@/src/features/agent/calendarIntelligence';
+import { tryBuildCalendarTimeUntilReplyFromEvents } from '@/src/features/agent/calendar/calendarTimeUntilReply';
 import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
+import { isCalendarTimeUntilEventQuery } from '@/src/features/agent/calendar/calendarTimeUntilQuery';
 import type { ExecutiveAgentOrchestrator } from '@/src/features/agent/agentOrchestrator';
 import {
   assertExecutionTransition,
@@ -107,6 +109,38 @@ export function readFreshConversationMessages() {
   return getConversationPayloadMessages(useExecutiveConversationStore.getState().messages);
 }
 
+function buildGuardedCalendarTimeUntilReply(params: {
+  transcript: string;
+  events: CalendarEvent[];
+  messages: ChatMessage[];
+  languageCode: VoiceLanguageCode;
+  referenceNow: Date;
+  calendarConnected: boolean;
+}) {
+  if (!params.calendarConnected || !isCalendarTimeUntilEventQuery(params.transcript)) {
+    return null;
+  }
+
+  const reply = tryBuildCalendarTimeUntilReplyFromEvents({
+    transcript: params.transcript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+    events: params.events,
+  });
+
+  if (!reply) {
+    return null;
+  }
+
+  return guardAgainstRepeatedAssistantResponse({
+    messages: params.messages,
+    candidateReply: reply,
+    languageCode: params.languageCode,
+    calendarConnected: params.calendarConnected,
+    referenceNow: params.referenceNow,
+  });
+}
+
 function tryEmotionalRoute(
   params: ResolveAssistantTurnParams,
   intent: AssistantIntentAnalysis,
@@ -170,6 +204,38 @@ function tryEmotionalRoute(
     }
 
     if (!isDeterministicCalendarReadQuery(userTranscript)) {
+      const timeUntilReply = buildGuardedCalendarTimeUntilReply({
+        transcript: userTranscript,
+        events: calendarEvents,
+        messages: params.messages,
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+        calendarConnected,
+      });
+
+      if (timeUntilReply) {
+        if (
+          !assertExecutionTransition({ from: fromState, to: 'emotional_support', reason: 'calendar_time_until' })
+        ) {
+          return null;
+        }
+
+        logFallbackActivation('calendar_time_until', { fromState });
+
+        return {
+          route: 'advisory_local',
+          intent,
+          reply: timeUntilReply,
+          intentPrompt: buildIntentPrioritySystemPrompt(intent),
+          userTranscript,
+          latestUserMessageId: userMessage?.id ?? null,
+          executionState: 'conversational',
+          operationalStarted: false,
+          responseMode: 'factual',
+          factualGroundingStatus: 'grounded',
+        };
+      }
+
       const humanizedReply = tryBuildHumanizedCalendarReply({
         transcript: userTranscript,
         visibleEvents: calendarEvents,
@@ -599,6 +665,38 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
           calendarConnected,
           referenceNow: params.referenceNow,
         }),
+        intentPrompt: [behaviorPrompt, buildIntentPrioritySystemPrompt(intent)].filter(Boolean).join(' '),
+        userTranscript,
+        latestUserMessageId: userMessage?.id ?? null,
+        executionState: 'conversational',
+        operationalStarted: false,
+        responseMode: 'factual',
+        factualGroundingStatus: factualGrounding.snapshot.status,
+        behaviorMode: behavior.mode,
+        selectedTool: 'none',
+      };
+    }
+
+    const timeUntilReply = buildGuardedCalendarTimeUntilReply({
+      transcript: userTranscript,
+      events: calendarEvents,
+      messages: params.messages,
+      languageCode: params.languageCode,
+      referenceNow: params.referenceNow,
+      calendarConnected,
+    });
+
+    if (timeUntilReply) {
+      logTurnPipeline('route selected', {
+        route: 'advisory_local',
+        behaviorMode: behavior.mode,
+        calendarTimeUntil: true,
+      });
+
+      return {
+        route: 'advisory_local',
+        intent,
+        reply: timeUntilReply,
         intentPrompt: [behaviorPrompt, buildIntentPrioritySystemPrompt(intent)].filter(Boolean).join(' '),
         userTranscript,
         latestUserMessageId: userMessage?.id ?? null,

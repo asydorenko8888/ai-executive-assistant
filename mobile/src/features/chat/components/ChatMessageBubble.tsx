@@ -3,13 +3,21 @@ import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
 import type { ChatMessage } from '@/src/entities/chat/types';
+import type { ChatMessageDebugMeta } from '@/src/features/chat/debug/conversationDebugTypes';
+import { ChatMessageDebugDetails } from '@/src/features/chat/components/ChatMessageDebugDetails';
 import { colors, fontSizes, fontWeights, radii, spacing } from '@/src/theme';
 
 type ChatMessageBubbleProps = {
   message: ChatMessage;
+  debugMeta?: ChatMessageDebugMeta;
+  showDebugInspector?: boolean;
 };
 
-export function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
+export function ChatMessageBubble({
+  message,
+  debugMeta,
+  showDebugInspector = false,
+}: ChatMessageBubbleProps) {
   const isUserMessage = message.role === 'user';
   const animatedValue = useRef(new Animated.Value(0)).current;
 
@@ -49,6 +57,8 @@ export function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
           </Text>
           {isUserMessage ? <Text style={styles.status}>{message.status}</Text> : null}
         </View>
+
+        {showDebugInspector && debugMeta ? <ChatMessageDebugDetails debug={debugMeta} /> : null}
       </View>
     </Animated.View>
   );

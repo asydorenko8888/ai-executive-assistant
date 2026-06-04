@@ -4,6 +4,7 @@ import {
   buildSituationContextForLlm,
   isCalendarAwareQuestion,
 } from '@/src/features/agent/calendar/calendarSituationalReasoning';
+import { isCalendarTimeUntilEventQuery } from '@/src/features/agent/calendar/calendarTimeUntilQuery';
 import { shouldSuppressConversationalCalendarRouting } from '@/src/features/agent/intent/assistantIntentRouter';
 import { getMinutesUntilEvent, parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
 import type { VoiceLanguageChatLocale, VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -244,6 +245,13 @@ export function tryBuildSpokenCalendarReply(params: {
   }
 
   if (!isCalendarAwareQuestion(contextualTranscript) && !isCalendarAwareQuestion(params.transcript)) {
+    return null;
+  }
+
+  if (
+    isCalendarTimeUntilEventQuery(contextualTranscript) ||
+    isCalendarTimeUntilEventQuery(params.transcript)
+  ) {
     return null;
   }
 

@@ -6,6 +6,7 @@ import { SectionTitle } from '@/src/components/ui/SectionTitle';
 import { VoiceLanguageSelector } from '@/src/components/ui/VoiceLanguageSelector';
 import { useVoiceLanguage } from '@/src/features/chat/hooks/useVoiceLanguage';
 import { CalendarDebugPanel } from '@/src/features/settings/components/CalendarDebugPanel';
+import { ConversationDebugSettingsPanel } from '@/src/features/settings/components/ConversationDebugSettingsPanel';
 import { useSpeechVoiceSettings } from '@/src/features/settings/hooks/useSpeechVoiceSettings';
 import { ScreenContainer } from '@/src/shared/ui';
 import { colors, fontSizes, fontWeights, radii, spacing } from '@/src/theme';
@@ -29,6 +30,8 @@ export default function SettingsScreen() {
       <Text style={styles.title}>Settings</Text>
 
       <CalendarDebugPanel />
+
+      <ConversationDebugSettingsPanel />
 
       <GlassCard style={styles.card}>
         <SectionTitle

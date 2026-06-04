@@ -1,3 +1,4 @@
+import { useCallback, useRef } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import {
   Alert,
@@ -13,11 +14,21 @@ import { ChatHeader } from '@/src/features/chat/components/ChatHeader';
 import { ChatCalendarAuthBanner } from '@/src/features/chat/components/ChatCalendarAuthBanner';
 import { ChatInputBar } from '@/src/features/chat/components/ChatInputBar';
 import { ChatMessageList } from '@/src/features/chat/components/ChatMessageList';
+import { FORCE_DISABLE_AUTOSCROLL } from '@/src/features/chat/debug/chatEmergencyScrollKill';
+import { useConversationDebugMode } from '@/src/features/chat/hooks/useConversationDebugMode';
+import { useConversationKeyboardShortcuts } from '@/src/features/chat/hooks/useConversationKeyboardShortcuts';
 import { useExecutiveChat } from '@/src/features/chat/hooks/useExecutiveChat';
 import { ErrorState, ScreenContainer } from '@/src/shared/ui';
 import { colors, fontSizes, fontWeights, spacing } from '@/src/theme';
 
+type ChatScrollActions = {
+  scrollToLatest: (animated?: boolean) => void;
+  scrollToFirst: (animated?: boolean) => void;
+};
+
 export default function ChatScreen() {
+  const scrollActionsRef = useRef<ChatScrollActions | null>(null);
+  const { enabled: debugModeEnabled, toggle: toggleDebugMode } = useConversationDebugMode();
   const {
     thread,
     messages,
@@ -43,6 +54,23 @@ export default function ChatScreen() {
     isCalendarOAuthInFlight,
     connectGoogleCalendarForPendingAction,
   } = useExecutiveChat();
+
+  const registerScrollActions = useCallback((actions: ChatScrollActions) => {
+    scrollActionsRef.current = actions;
+  }, []);
+
+  useConversationKeyboardShortcuts({
+    enabled: true,
+    onToggleDebugMode: () => {
+      void toggleDebugMode();
+    },
+    onJumpToLatest: () => {
+      scrollActionsRef.current?.scrollToLatest(true);
+    },
+    onJumpToFirst: () => {
+      scrollActionsRef.current?.scrollToFirst(true);
+    },
+  });
 
   const handleHistoryResetRequest = () => {
     Alert.alert(
@@ -73,6 +101,16 @@ export default function ChatScreen() {
         behavior={Platform.select({ ios: 'padding', default: undefined })}>
         <ChatHeader thread={thread} onHistoryResetRequest={handleHistoryResetRequest} />
 
+        {FORCE_DISABLE_AUTOSCROLL || debugModeEnabled ? (
+          <View style={styles.debugBanner}>
+            <Text style={styles.debugBannerText}>
+              {FORCE_DISABLE_AUTOSCROLL
+                ? 'EMERGENCY: auto-scroll disabled — use Go Top (bottom-left)'
+                : 'Debug conversation mode — auto-scroll off'}
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.heroRow}>
           <View style={styles.heroCopy}>
             <Text style={styles.kicker}>Executive Chat</Text>
@@ -91,6 +129,7 @@ export default function ChatScreen() {
             messages={messages}
             typingState={typingState}
             isStreaming={isStreamingAssistant}
+            onRegisterScrollActions={registerScrollActions}
           />
         </View>
 
@@ -146,6 +185,19 @@ const styles = StyleSheet.create({
   keyboardLayer: {
     flex: 1,
     gap: spacing.lg,
+  },
+  debugBanner: {
+    borderRadius: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.overlayPurpleSoft,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  debugBannerText: {
+    color: colors.accentPurple,
+    fontSize: fontSizes.xs,
+    fontWeight: fontWeights.semibold,
   },
   heroRow: {
     flexDirection: 'row',
