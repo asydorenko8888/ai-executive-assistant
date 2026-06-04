@@ -44,10 +44,26 @@ export type GoogleCalendarBackendEvent = {
 
 export type GoogleCalendarCreateApiResponse = {
   event: GoogleCalendarBackendEvent;
+  eventId?: string;
   verified: boolean;
   verificationFetched: boolean;
-  executionState: CalendarExecutionState;
+  executionState?: CalendarExecutionState;
+  status?: string;
+  code?: string;
 };
+
+export function normalizeGoogleCalendarMutationApiResponse(
+  response: GoogleCalendarCreateApiResponse,
+): GoogleCalendarCreateApiResponse {
+  const executionState =
+    response.executionState ??
+    (response.status === 'SUCCESS' || response.code === 'SUCCESS' ? 'success' : 'failed');
+
+  return {
+    ...response,
+    executionState,
+  };
+}
 
 export type PendingCalendarCreateAction = {
   id: string;

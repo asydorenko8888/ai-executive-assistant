@@ -2,6 +2,7 @@ import type { CalendarToolResponse } from '@/src/features/agent/execution/calend
 import {
   buildCalendarDeleteAllDayNotSupportedReply,
   buildCalendarDeleteAmbiguousReply,
+  buildCalendarDeleteApiFailureReply,
   buildCalendarDeleteNotFoundReply,
   buildCalendarDeleteRecurringNotSupportedReply,
 } from '@/src/features/agent/calendar/calendarDeleteNaturalReplies';
@@ -74,6 +75,10 @@ function buildNaturalDeleteFailureReply(
 
   if (tool.errorCode === 'CALENDAR_ALL_DAY_NOT_SUPPORTED') {
     return buildCalendarDeleteAllDayNotSupportedReply(locale);
+  }
+
+  if (tool.status === 'FAILURE' && tool.error) {
+    return buildCalendarDeleteApiFailureReply(locale, tool.error);
   }
 
   return null;

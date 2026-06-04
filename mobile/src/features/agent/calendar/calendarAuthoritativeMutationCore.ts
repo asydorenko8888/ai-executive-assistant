@@ -10,13 +10,17 @@ import {
 import type { VerifiedCalendarEvent } from '@/src/features/agent/execution/actionExecutionTypes';
 
 export function backendClaimsVerified(
-  response: Pick<GoogleCalendarCreateApiResponse, 'executionState' | 'verified' | 'verificationFetched'>,
+  response: Pick<GoogleCalendarCreateApiResponse, 'executionState' | 'verified' | 'verificationFetched'> & {
+    status?: string;
+    code?: string;
+  },
 ) {
-  return (
-    response.executionState === 'success' &&
-    response.verified &&
-    response.verificationFetched
-  );
+  const executionOk =
+    response.executionState === 'success' ||
+    response.status === 'SUCCESS' ||
+    response.code === 'SUCCESS';
+
+  return executionOk && response.verified === true && response.verificationFetched === true;
 }
 
 export type ReadVerifiedCalendarEventById = (eventId: string) => Promise<VerifiedCalendarEvent | null>;

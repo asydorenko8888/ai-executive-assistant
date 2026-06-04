@@ -64,20 +64,36 @@ export async function fetchGoogleCalendarApiJson<T>(params: {
         ...params.init,
         signal: controller.signal,
       });
-      const rawBody = await response.json().catch(() => ({}));
+      const isDeleteOperation = params.operation === 'delete';
+      const isEmptySuccess =
+        response.status === 204 ||
+        response.status === 205 ||
+        response.headers.get('content-length') === '0';
+      const rawBody = isEmptySuccess
+        ? ({} as T)
+        : ((await response.json().catch(() => ({}))) as T);
       const body = rawBody as T & { error?: { message?: string; code?: number } };
+      const httpOk =
+        response.ok || response.status === 204 || response.status === 200;
+
+      if (isDeleteOperation) {
+        console.log('[delete_event_response]', {
+          status: response.status,
+          ok: httpOk,
+        });
+      }
 
       console.log('[GoogleCalendar API]', {
         operation: params.operation,
         action: params.label,
-        phase: response.ok ? 'success' : 'error',
+        phase: httpOk ? 'success' : 'error',
         attempt: attempt + 1,
         httpStatus: response.status,
-        ok: response.ok,
-        calendarChanged: params.operation !== 'read' && response.ok,
+        ok: httpOk,
+        calendarChanged: params.operation !== 'read' && httpOk,
       });
 
-      if (!response.ok) {
+      if (!httpOk) {
         const message =
           typeof body.error === 'object' && body.error?.message
             ? body.error.message
@@ -100,6 +116,12 @@ export async function fetchGoogleCalendarApiJson<T>(params: {
 
         await sleep(RETRY_BACKOFF_MS[attempt] ?? 900);
         continue;
+      }
+
+      if (isDeleteOperation && (response.status === 204 || response.status === 200)) {
+        console.log('[delete_event_success]', {
+          status: response.status,
+        });
       }
 
       return { ok: true, body, status: response.status, attempts: attempt + 1 };

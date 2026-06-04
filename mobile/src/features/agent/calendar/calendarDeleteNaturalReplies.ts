@@ -12,6 +12,23 @@ export function buildCalendarDeleteNotFoundReply(locale: CalendarDeleteLocale) {
   return 'I could not find that event on your calendar.';
 }
 
+export function buildCalendarDeleteApiFailureReply(
+  locale: CalendarDeleteLocale,
+  reason: string,
+) {
+  const detail = reason.trim() || 'unknown error';
+
+  if (locale === 'uk') {
+    return `Не вдалося видалити: Google Calendar повернув помилку: ${detail}. Я не змінював ваш календар.`;
+  }
+
+  if (locale === 'ru') {
+    return `Не удалось удалить: Google Calendar вернул ошибку: ${detail}. Я не менял ваш календар.`;
+  }
+
+  return `Could not delete because Google Calendar returned error: ${detail}. I did not change your calendar.`;
+}
+
 export function buildCalendarDeleteAmbiguousReply(locale: CalendarDeleteLocale) {
   if (locale === 'uk') {
     return 'Я знайшов кілька схожих подій. Яку саме видалити?';

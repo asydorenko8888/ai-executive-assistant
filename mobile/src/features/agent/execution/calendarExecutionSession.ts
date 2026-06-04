@@ -37,9 +37,12 @@ export type PendingCalendarUpdateContext = {
 
 export type PendingCalendarDeleteContext = {
   operation: 'delete';
+  type: 'delete';
   title: string | null;
   dayHint: string | null;
   sourceTranscript: string;
+  originalUserText: string;
+  createdAtMs: number;
   candidates?: CalendarDisambiguationCandidate[];
   selectedEventId?: string | null;
   deleteAll?: boolean;

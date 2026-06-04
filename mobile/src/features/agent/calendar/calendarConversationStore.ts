@@ -695,6 +695,7 @@ export function commitReferencedCalendarEvent(params: {
     ...workingMemory,
     lastReferenced: pointer,
   });
+  upsertPointerInSnapshot(pointer);
 
   console.log('[CALENDAR CONVERSATION STORE] lastReferenced committed');
 }
@@ -754,8 +755,10 @@ function upsertPointerInSnapshot(pointer: ConversationEventPointer) {
 }
 
 export function getConversationPointersForResolution(): ConversationEventPointer[] {
+  const includePendingTarget = isCalendarConversationAwaitingInput();
+
   const pointers = [
-    workingMemory.pendingTarget,
+    includePendingTarget ? workingMemory.pendingTarget : null,
     workingMemory.lastReferenced,
     workingMemory.lastModified,
     workingMemory.lastCreated,

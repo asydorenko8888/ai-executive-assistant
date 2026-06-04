@@ -13,7 +13,17 @@ import {
   runDedupedCalendarSnapshotRefresh,
 } from '@/src/features/agent/calendar/calendarSnapshotRefreshLock';
 import { resolveCalendarDeleteTargetFromEvents } from '@/src/features/agent/calendar/calendarDeleteResolution';
-import { resetConversationEventMemory } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import { tryMergePendingCalendarDeleteReply } from '@/src/features/agent/calendar/calendarDeletePendingContext';
+import {
+  resetConversationEventMemory,
+} from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import { mergeActionContextFromHistory } from '@/src/features/agent/intent/actionContextMerge';
+import {
+  clearPendingCalendarDeleteIntent,
+  getPendingCalendarDeleteContext,
+  setPendingCalendarDeleteContext,
+} from '@/src/features/agent/execution/calendarExecutionSession';
+import { syncConversationStateForDeleteSelection } from '@/src/features/agent/calendar/calendarConversationSync';
 
 const referenceNow = new Date('2026-05-28T20:00:00-05:00');
 const timeZone = 'America/Chicago';
@@ -83,6 +93,84 @@ describe('calendar disambiguation and reliability', () => {
     });
 
     assert.equal(selected?.eventId, 'lunch-3pm');
+  });
+
+  it('keeps selectedEventId and source transcript after Today 1 PM delete pick', () => {
+    clearPendingCalendarDeleteIntent();
+    const candidates = [
+      {
+        eventId: 'lunch-1pm',
+        title: 'Lunch',
+        startsAt: '2026-05-28T13:00:00-05:00',
+        endsAt: '2026-05-28T14:00:00-05:00',
+      },
+      {
+        eventId: 'lunch-2pm',
+        title: 'Lunch',
+        startsAt: '2026-05-28T14:00:00-05:00',
+        endsAt: '2026-05-28T15:00:00-05:00',
+      },
+    ];
+    const pending = {
+      operation: 'delete' as const,
+      type: 'delete' as const,
+      title: 'lunch',
+      dayHint: null,
+      sourceTranscript: 'Delete lunch',
+      originalUserText: 'Delete lunch',
+      createdAtMs: Date.now(),
+      candidates,
+    };
+
+    setPendingCalendarDeleteContext(pending);
+    syncConversationStateForDeleteSelection(pending, 'en-US');
+
+    const merged = tryMergePendingCalendarDeleteReply({
+      pending,
+      reply: 'Today 1 PM',
+      referenceNow,
+      timeZone,
+    });
+
+    assert.equal(merged?.selectedEventId, 'lunch-1pm');
+    assert.equal(merged?.transcript, 'Delete lunch');
+
+    const contextMerge = mergeActionContextFromHistory({
+      transcript: 'Today 1 PM',
+      messages: [],
+      referenceNow,
+    });
+
+    assert.equal(contextMerge.mergedTranscript, 'Today 1 PM');
+    assert.equal(contextMerge.contextSource, 'pending_delete_clarification');
+    assert.equal(getPendingCalendarDeleteContext()?.selectedEventId, 'lunch-1pm');
+    clearPendingCalendarDeleteIntent();
+  });
+
+  it('resolves delete selection by Today 1 PM label', () => {
+    const candidates = [
+      {
+        eventId: 'lunch-1pm',
+        title: 'Lunch',
+        startsAt: '2026-05-28T13:00:00-05:00',
+        endsAt: '2026-05-28T14:00:00-05:00',
+      },
+      {
+        eventId: 'lunch-2pm',
+        title: 'Lunch',
+        startsAt: '2026-05-28T14:00:00-05:00',
+        endsAt: '2026-05-28T15:00:00-05:00',
+      },
+    ];
+
+    const selected = resolveDisambiguationSelection({
+      reply: 'Today 1 PM',
+      candidates,
+      referenceNow,
+      timeZone,
+    });
+
+    assert.equal(selected?.eventId, 'lunch-1pm');
   });
 
   it('resolves delete selection by number', () => {

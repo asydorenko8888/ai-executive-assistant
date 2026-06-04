@@ -34,7 +34,7 @@ export function buildNaturalCalendarDeleteSuccessReply(params: {
     };
   }
 
-  const spokenReply = `I deleted the event: ${title}, ${dayPhrase}, ${timeLabel}.`;
+  const spokenReply = `Event deleted: ${title}, ${dayPhrase}, ${timeLabel}.`;
   return {
     reply: spokenReply,
     spokenReply,

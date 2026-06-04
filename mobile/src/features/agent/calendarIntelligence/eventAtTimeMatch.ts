@@ -15,13 +15,15 @@ import {
 import type { NormalizedCalendarEvent } from '@/src/features/agent/calendarIntelligence/types';
 import {
   findMoveConversationEventInList,
+  getConversationEventMemory,
   resolveMoveEventReference,
+  type ConversationEventRecord,
 } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import {
+  calendarEventFromMemoryRecord,
   getActiveCalendarEvent,
   resolveActiveEventForMutation,
   resolveMutationSearchDayOffset,
-  shouldResolveMutationFromActiveMemory,
 } from '@/src/features/agent/calendar/calendarActiveEventContext';
 import { isDeleteAllCalendarCommand } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import {
@@ -73,6 +75,47 @@ function formatClockLabel(minutes: number) {
   const pad = (value: number) => String(value).padStart(2, '0');
 
   return `${pad(Math.floor(minutes / 60))}:${pad(minutes % 60)}`;
+}
+
+function memoryRecordFromLastReadMatch(): ConversationEventRecord | null {
+  const pinned = getLastCalendarReadMatch();
+
+  if (!pinned) {
+    return null;
+  }
+
+  const referenced = getConversationEventMemory().lastReferencedEvent;
+
+  if (referenced?.eventId === pinned.eventId) {
+    return referenced;
+  }
+
+  return {
+    eventId: pinned.eventId,
+    title: pinned.title,
+    startISO: pinned.startISO,
+    endISO: pinned.startISO,
+    dateKey: '',
+    savedAtMs: Date.now(),
+    source: 'search',
+    activeSource: 'search',
+  };
+}
+
+function tryResolvePinnedLastReadForMutation(params: {
+  events: CalendarEvent[];
+}): { match: CalendarEvent; source: 'pinned_read' } | null {
+  const memory = memoryRecordFromLastReadMatch();
+
+  if (!memory) {
+    return null;
+  }
+
+  const match =
+    params.events.find((event) => event.id === memory.eventId) ??
+    calendarEventFromMemoryRecord(memory);
+
+  return { match, source: 'pinned_read' };
 }
 
 function tryPinnedConversationMemory(params: {
@@ -626,30 +669,41 @@ export function findCalendarEventForDeleteFromEvents(params: {
   }
 
   const pronounReference = EVENT_PRONOUN_REFERENCE.test(params.transcript);
-  const memoryMatch =
-    shouldResolveMutationFromActiveMemory({
-      transcript: params.transcript,
-      referenceNow: params.referenceNow,
-      titleQuery: effectiveTitleQuery,
-      timeZone,
-    }) && strongTitleMatches.length <= 1
-      ? resolveActiveEventForMutation({
-          events: activeEvents,
-          referenceNow: params.referenceNow,
-          titleQuery: effectiveTitleQuery,
-        })
-      : null;
+  const implicitReference =
+    pronounReference || isIgnorableTitleQueryForMemory(effectiveTitleQuery);
 
-  if (memoryMatch && (pronounReference || strongTitleMatches.length <= 1)) {
-    return {
-      match: memoryMatch,
-      titleQuery: memoryMatch.title,
-      clockMinutes: null,
-      candidates: [memoryMatch],
-      hasExplicitTime: false,
-      matchSource: 'conversation_memory',
-      notFoundReason: null,
-    };
+  if (implicitReference) {
+    const readPinned = tryResolvePinnedLastReadForMutation({ events: activeEvents });
+
+    if (readPinned) {
+      return {
+        match: readPinned.match,
+        titleQuery: readPinned.match.title,
+        clockMinutes: null,
+        candidates: [readPinned.match],
+        hasExplicitTime: false,
+        matchSource: readPinned.source,
+        notFoundReason: null,
+      };
+    }
+
+    const memoryPinned = tryPinnedConversationMemory({
+      events: activeEvents,
+      titleQuery: effectiveTitleQuery,
+      referenceNow: params.referenceNow,
+    });
+
+    if (memoryPinned && (pronounReference || strongTitleMatches.length <= 1)) {
+      return {
+        match: memoryPinned.match,
+        titleQuery: memoryPinned.match.title,
+        clockMinutes: null,
+        candidates: [memoryPinned.match],
+        hasExplicitTime: false,
+        matchSource: memoryPinned.source,
+        notFoundReason: null,
+      };
+    }
   }
 
   if (!effectiveTitleQuery) {

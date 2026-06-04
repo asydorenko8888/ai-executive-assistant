@@ -69,7 +69,7 @@ export async function updateGoogleCalendarEvent(
       verificationFetched: response.verificationFetched,
     });
     logCalendarGoogleApiResponse({
-      status: response.executionState,
+      status: response.executionState ?? 'unknown',
       eventId: response.event?.id ?? eventId,
       verified: response.verified,
       verificationFetched: response.verificationFetched,

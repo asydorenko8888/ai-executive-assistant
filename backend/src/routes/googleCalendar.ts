@@ -386,6 +386,7 @@ googleCalendarRouter.delete('/google-calendar/events/:eventId', async (request, 
   return response.status(200).json({
     status: 'SUCCESS',
     code: 'SUCCESS',
+    executionState: result.executionState,
     event: result.event,
     eventId: result.event.id,
     verified: result.verified,

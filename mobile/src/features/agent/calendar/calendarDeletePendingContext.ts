@@ -1,8 +1,11 @@
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
+import { parseCalendarClockMinutes } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
+import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
 import {
-  buildTranscriptFromSelectedDisambiguationCandidate,
-  resolveDisambiguationSelection,
-} from '@/src/features/agent/calendar/calendarEventDisambiguation';
+  logDeleteDisambiguationCandidates,
+  logDeleteDisambiguationSelection,
+} from '@/src/features/agent/calendar/calendarDeleteDiagnostics';
+import { resolveDisambiguationSelection } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import type { CalendarDisambiguationCandidate } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import type { PendingCalendarDeleteContext } from '@/src/features/agent/execution/calendarExecutionSession';
 
@@ -41,11 +44,16 @@ export function pendingDeleteContextFromResolution(params: {
   candidates?: CalendarDisambiguationCandidate[];
   deleteAll?: boolean;
 }): PendingCalendarDeleteContext {
+  const sourceTranscript = params.sourceTranscript.trim();
+
   return {
     operation: 'delete',
-    title: params.titleQuery || extractDeleteEventTitle(params.sourceTranscript),
+    type: 'delete',
+    title: params.titleQuery || extractDeleteEventTitle(sourceTranscript),
     dayHint: null,
-    sourceTranscript: params.sourceTranscript.trim(),
+    sourceTranscript,
+    originalUserText: sourceTranscript,
+    createdAtMs: Date.now(),
     candidates: params.candidates,
     deleteAll: params.deleteAll ?? false,
   };
@@ -65,11 +73,18 @@ export function tryMergePendingCalendarDeleteReply(params: {
   }
 
   if (params.pending.candidates && params.pending.candidates.length > 0) {
+    logDeleteDisambiguationCandidates({
+      phase: 'merge_reply',
+      candidates: params.pending.candidates,
+      replyPreview: reply.slice(0, 120),
+    });
+
     const selected = resolveDisambiguationSelection({
       reply,
       candidates: params.pending.candidates,
       referenceNow,
       timeZone: params.timeZone,
+      pendingTitle: params.pending.title,
     });
 
     if (selected) {
@@ -79,16 +94,26 @@ export function tryMergePendingCalendarDeleteReply(params: {
         dayHint: null,
       };
 
+      logDeleteDisambiguationSelection({
+        phase: 'merge_reply',
+        replyPreview: reply.slice(0, 120),
+        selectedEventId: selected.eventId,
+        selectedTitle: selected.title,
+        selectedStartsAt: selected.startsAt,
+      });
+
       return {
         context: next,
-        transcript: buildTranscriptFromSelectedDisambiguationCandidate({
-          action: 'delete',
-          candidate: selected,
-          sourceTranscript: params.pending.sourceTranscript,
-        }),
+        transcript: params.pending.sourceTranscript.trim(),
         selectedEventId: selected.eventId,
       };
     }
+  }
+
+  const hasClockInReply = parseCalendarClockMinutes(reply, resolveTargetDayContext(reply, referenceNow, params.timeZone)) !== null;
+
+  if (hasClockInReply) {
+    return null;
   }
 
   if (!DAY_HINT_REPLY.test(reply) && !POSSESSIVE_DAY_REPLY.test(reply)) {

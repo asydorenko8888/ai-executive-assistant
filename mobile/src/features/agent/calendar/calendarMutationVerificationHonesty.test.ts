@@ -7,6 +7,7 @@ import {
   mapGoogleBackendEventToVerified,
 } from '@/src/features/agent/calendar/calendarAuthoritativeEvent';
 import {
+  backendClaimsVerified,
   buildAuthoritativeCreateToolResponseCore,
   buildAuthoritativeDeleteToolResponseCore,
   buildAuthoritativeUpdateToolResponseCore,
@@ -160,6 +161,31 @@ describe('calendar mutation verification honesty', () => {
     assert.equal(tool.errorCode, 'VERIFY_FAILED');
   });
 
+  it('delete succeeds when backend returns SUCCESS flags without executionState field', async () => {
+    const actual = verifiedDinnerOnFriday({ startHour: 18, endHour: 19 });
+
+    const tool = await buildAuthoritativeDeleteToolResponseCore({
+      eventId: actual.id,
+      backendResponse: {
+        status: 'SUCCESS',
+        code: 'SUCCESS',
+        verified: true,
+        verificationFetched: true,
+        event: {
+          id: actual.id,
+          summary: actual.summary,
+          startsAt: actual.startsAt,
+          endsAt: actual.endsAt,
+        },
+      },
+      deletedEventSnapshot: actual,
+      confirmDeleted: async () => true,
+    });
+
+    assert.equal(tool.status, 'SUCCESS');
+    assert.equal(tool.verified, true);
+  });
+
   it('delete -> verify absence succeeds when follow-up read is empty', async () => {
     const actual = verifiedDinnerOnFriday({ startHour: 18, endHour: 19 });
 
@@ -173,6 +199,39 @@ describe('calendar mutation verification honesty', () => {
     assert.equal(tool.status, 'SUCCESS');
     assert.equal(tool.verified, true);
     assert.equal(tool.verificationFetched, true);
+  });
+
+  it('create event -> delete same event succeeds when backend confirms and follow-up read is empty', async () => {
+    const event = verifiedDinnerOnFriday({ startHour: 11, endHour: 12 });
+    const backendDeleteBody: GoogleCalendarCreateApiResponse = {
+      status: 'SUCCESS',
+      code: 'SUCCESS',
+      verified: true,
+      verificationFetched: true,
+      event: {
+        id: event.id,
+        summary: event.summary,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+      },
+      eventId: event.id,
+    };
+
+    assert.equal(backendClaimsVerified(backendDeleteBody), true);
+
+    const tool = await buildAuthoritativeDeleteToolResponseCore({
+      eventId: event.id,
+      backendResponse: backendDeleteBody,
+      deletedEventSnapshot: event,
+      confirmDeleted: async (eventId) => {
+        assert.equal(eventId, event.id);
+        return true;
+      },
+    });
+
+    assert.equal(tool.status, 'SUCCESS');
+    assert.equal(tool.verified, true);
+    assert.equal(tool.eventId, event.id);
   });
 
   it('rejects unreadable backend events for authoritative confirmation', () => {

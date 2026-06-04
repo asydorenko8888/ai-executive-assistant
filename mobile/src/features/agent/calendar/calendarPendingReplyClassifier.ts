@@ -12,6 +12,8 @@ import {
 } from '@/src/features/agent/calendar/calendarConversationState';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import { resolveDisambiguationSelection } from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
+import { titlesReferToSameEvent } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import {
   getPendingCalendarDeleteContext,
@@ -90,6 +92,20 @@ export function isNewCalendarCommandMessage(transcript: string) {
 
     if (updatePending?.sourceTranscript.trim() === normalized) {
       return false;
+    }
+
+    const deletePending = getPendingCalendarDeleteContext();
+
+    if (deletePending?.candidates?.length) {
+      const deleteTitle = extractDeleteEventTitle(normalized)?.trim();
+
+      if (
+        deleteTitle &&
+        deletePending.title &&
+        titlesReferToSameEvent(deleteTitle, deletePending.title)
+      ) {
+        return false;
+      }
     }
   }
 

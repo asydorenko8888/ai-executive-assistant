@@ -146,13 +146,16 @@ function parseEnglishMeridiem(hours: number, fragment: string) {
 function applyEveningContextHint(hours: number, contextText: string) {
   const normalized = contextText.toLowerCase();
 
-  if (
-    (/\btonight\b/i.test(normalized) ||
-      /\bthis\s+evening\b/i.test(normalized) ||
-      /\b(?:сегодня|сьогодні)\s+вечером\b/iu.test(normalized)) &&
-    hours >= 1 &&
-    hours <= 11
-  ) {
+  const hasEveningContext =
+    /\btonight\b/i.test(normalized) ||
+    /\bthis\s+evening\b/i.test(normalized) ||
+    /\bevening\b/i.test(normalized) ||
+    /\b(?:сегодня|сьогодні)\s+вечером\b/iu.test(normalized) ||
+    /\bвечер(?:а|ом|у)?\b/iu.test(normalized) ||
+    /\bвечора\b/iu.test(normalized) ||
+    /\bувечері\b/iu.test(normalized);
+
+  if (hasEveningContext && hours >= 1 && hours <= 11) {
     return hours + 12;
   }
 
@@ -208,8 +211,8 @@ export function parseClockFragmentToMinutes(fragment: string, contextText = '') 
 const CLOCK_FRAGMENT_PRIORITY = [
   'prep_colon_meridiem',
   'meridiem_clock',
-  'colon_24h',
   'english_meridiem',
+  'colon_24h',
   'prep_split_minutes',
   'prep_hour_minutes',
 ] as const;

@@ -20,6 +20,7 @@
     "test:calendar-date-parser": "npx tsx --test src/features/agent/calendarIntelligence/calendarNaturalDateParser.test.ts",
     "test:calendar-mutation-reliability": "npx tsx --test src/features/agent/calendar/calendarMutationReliability.test.ts src/features/agent/calendar/calendarExecutionHonesty.test.ts",
     "test:calendar-mutation-verification": "npx tsx --test src/features/agent/calendar/calendarMutationVerificationHonesty.test.ts",
+    "test:calendar-read-delete-pronoun": "npx tsx --test src/features/agent/calendar/calendarReadToDeletePronoun.test.ts",
     "test:calendar-reschedule": "npx tsx --test src/features/agent/calendar/calendarReschedule.test.ts",
     "test:calendar-real-user-regression": "npx tsx --test src/features/agent/calendar/calendarRealUserRegression.test.ts",
     "test:calendar-ru-uk-schedule": "npx tsx --test src/features/agent/calendar/calendarRuUkSchedule.test.ts",
@@ -32,7 +33,7 @@
     "test:calendar-conflict-resolution": "npx tsx --test src/features/agent/calendar/calendarConflictResolution.test.ts src/features/agent/calendar/calendarConversationState.test.ts",
     "test:calendar-event-memory": "npx tsx --test src/features/agent/calendar/calendarConversationEventMemory.test.ts src/features/agent/calendar/calendarEventReferenceTokens.test.ts src/features/agent/calendar/calendarConversationMemorySchedule.test.ts src/features/agent/calendar/calendarPendingIntent.test.ts src/features/agent/calendar/calendarConversationContextRetention.test.ts",
     "test:calendar-conflict-ux": "npx tsx --test src/features/agent/calendar/calendarConflictUx.test.ts",
-    "test:calendar-stabilization": "npx tsx --test src/features/agent/calendar/calendarStabilization.test.ts src/features/agent/calendar/calendarUpdateEventResolution.test.ts src/features/agent/calendar/calendarConversationMemoryFlow.test.ts src/features/agent/calendar/calendarAuthUserReplies.test.ts src/features/agent/calendar/calendarDisambiguation.test.ts",
+    "test:calendar-stabilization": "npx tsx --test src/features/agent/calendar/calendarStabilization.test.ts src/features/agent/calendar/calendarUpdateEventResolution.test.ts src/features/agent/calendar/calendarConversationMemoryFlow.test.ts src/features/agent/calendar/calendarAuthUserReplies.test.ts src/features/agent/calendar/calendarDisambiguation.test.ts src/features/agent/calendar/calendarDeleteDisambiguationFlow.test.ts",
     "test:calendar-query": "npx tsx --test src/features/agent/calendar/calendarQueryEngine.test.ts src/features/agent/calendar/calendarSpokenTime.test.ts src/features/agent/calendarIntelligence/calendarReadTimeIntent.test.ts",
     "test:calendar-time-range": "npx tsx --test src/features/agent/calendar/calendarTimeRange.test.ts"
   },

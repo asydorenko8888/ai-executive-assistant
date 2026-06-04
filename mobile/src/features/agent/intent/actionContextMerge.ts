@@ -78,7 +78,10 @@ export function mergeActionContextFromHistory(params: {
       setPendingCalendarDeleteContext(mergedPendingDelete.context);
 
       return {
-        mergedTranscript: mergedPendingDelete.transcript,
+        mergedTranscript:
+          mergedPendingDelete.selectedEventId != null
+            ? normalized
+            : mergedPendingDelete.transcript,
         usedContext: true,
         contextSource: 'pending_delete_clarification' as const,
       };

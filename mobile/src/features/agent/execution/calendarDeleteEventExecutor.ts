@@ -3,9 +3,7 @@ import { resolveCalendarDeleteTarget } from '@/src/features/agent/calendar/calen
 import {
   calendarEventsToDisambiguationCandidates,
 } from '@/src/features/agent/calendar/calendarEventDisambiguation';
-import {
-  pendingDeleteContextFromResolution,
-} from '@/src/features/agent/calendar/calendarDeletePendingContext';
+import { createPendingCalendarDeleteContext } from '@/src/features/agent/calendar/pendingCalendarDeleteSelection';
 import { syncConversationStateForDeleteSelection } from '@/src/features/agent/calendar/calendarConversationSync';
 import {
   logCalendarMutationStart,
@@ -15,6 +13,12 @@ import { recordVerifiedCalendarEventContext } from '@/src/features/agent/calenda
 import { deleteGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarDeleteService';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
 import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
+import {
+  logDeleteDisambiguationCandidates,
+  logDeleteExecutionEventId,
+  logPendingDeleteEventIdBeforeApi,
+  logDeleteApiResult,
+} from '@/src/features/agent/calendar/calendarDeleteDiagnostics';
 import { logCalendarCreate } from '@/src/features/agent/execution/calendarCreateLogger';
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import {
@@ -28,6 +32,7 @@ import {
 import {
   clearPendingCalendarDeleteIntent,
   endCalendarOperation,
+  getPendingCalendarDeleteContext,
   setPendingCalendarDeleteContext,
   tryBeginCalendarOperation,
 } from '@/src/features/agent/execution/calendarExecutionSession';
@@ -143,12 +148,37 @@ export async function executeCalendarDeleteEvent(
   }
 
   try {
-    if (params.selectedEventId) {
-      const tool = await deleteGoogleCalendarEvent(params.selectedEventId, params.languageCode);
+    const pendingDelete = getPendingCalendarDeleteContext();
+    const resolvedEventId = params.selectedEventId ?? pendingDelete?.selectedEventId ?? null;
+
+    logDeleteExecutionEventId({
+      phase: 'executeCalendarDeleteEvent',
+      eventId: resolvedEventId,
+      transcriptPreview: params.transcript.slice(0, 120),
+      source: params.selectedEventId
+        ? 'selectedEventId_param'
+        : pendingDelete?.selectedEventId
+          ? 'pending_context'
+          : 'resolution',
+    });
+    logPendingDeleteEventIdBeforeApi({
+      eventId: resolvedEventId,
+      transcriptPreview: params.transcript.slice(0, 120),
+    });
+
+    if (resolvedEventId) {
+      const tool = await deleteGoogleCalendarEvent(resolvedEventId, params.languageCode);
+      logDeleteApiResult({
+        eventId: resolvedEventId,
+        status: tool.status,
+        verified: tool.verified ?? false,
+        errorCode: tool.errorCode ?? null,
+        errorMessage: tool.error ?? null,
+      });
 
       return finalizeVerifiedDelete({
         event: {
-          id: params.selectedEventId,
+          id: resolvedEventId,
           title: tool.event?.summary ?? '',
           startsAt: tool.event?.startsAt ?? '',
           endsAt: tool.event?.endsAt ?? '',
@@ -204,12 +234,16 @@ export async function executeCalendarDeleteEvent(
       const candidates = calendarEventsToDisambiguationCandidates(
         resolution.candidates.map((entry) => entry.event),
       );
-      const pendingDelete = pendingDeleteContextFromResolution({
+      const pendingDelete = createPendingCalendarDeleteContext({
         sourceTranscript: params.transcript,
         titleQuery: resolution.titleQuery,
         candidates,
       });
       setPendingCalendarDeleteContext(pendingDelete);
+      logDeleteDisambiguationCandidates({
+        phase: 'ambiguous_resolution',
+        candidates,
+      });
       syncConversationStateForDeleteSelection(pendingDelete, params.languageCode);
       const tool = createCalendarToolFailure(
         'CALENDAR_EVENT_AMBIGUOUS',

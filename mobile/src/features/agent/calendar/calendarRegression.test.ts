@@ -89,9 +89,12 @@ describe('calendar regression (stability + disambiguation)', () => {
     const merged = tryMergePendingCalendarDeleteReply({
       pending: {
         operation: 'delete',
+        type: 'delete',
         title: 'Massage',
         dayHint: null,
         sourceTranscript: 'Delete Massage',
+        originalUserText: 'Delete Massage',
+        createdAtMs: Date.now(),
         candidates: resolution.candidates.map((entry) => ({
           eventId: entry.event.id,
           title: entry.event.title,

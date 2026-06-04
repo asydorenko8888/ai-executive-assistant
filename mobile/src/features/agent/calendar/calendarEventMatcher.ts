@@ -73,7 +73,7 @@ export async function findCalendarEventForDelete(params: {
   const resolved = findCalendarEventForDeleteFromEvents({
     transcript: params.transcript,
     referenceNow: params.referenceNow,
-    events,
+    events: augmentEventsWithConversationContext(events),
     titleQuery,
     timeZone,
   });

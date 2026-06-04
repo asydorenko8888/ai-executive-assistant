@@ -46,7 +46,7 @@ export async function createGoogleCalendarEvent(
       eventId: response.event?.id ?? null,
     });
     logCalendarGoogleApiResponse({
-      status: response.executionState,
+      status: response.executionState ?? 'unknown',
       eventId: response.event?.id ?? null,
       verified: response.verified,
       verificationFetched: response.verificationFetched,

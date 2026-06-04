@@ -1,6 +1,9 @@
 import { ensureCalendarAuthForTool } from '@/src/features/agent/calendar/calendarAuthCapabilities';
 import { mapCaughtCalendarApiError } from '@/src/features/agent/calendar/calendarApiToolErrorMapper';
-import { deleteGoogleCalendarEventOnBackend } from '@/src/features/agent/calendar/googleCalendarBackendApi';
+import {
+  deleteGoogleCalendarEventOnBackend,
+  normalizeGoogleCalendarMutationApiResponse,
+} from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import { mapGoogleBackendEventToVerified } from '@/src/features/agent/calendar/calendarAuthoritativeEvent';
 import { buildAuthoritativeDeleteToolResponse } from '@/src/features/agent/calendar/calendarAuthoritativeMutationTool';
 import {
@@ -37,12 +40,14 @@ export async function deleteGoogleCalendarEvent(
   logCalendarCreate('delete started', { eventId });
 
   try {
-    const response = await deleteGoogleCalendarEventOnBackend(eventId);
+    const response = normalizeGoogleCalendarMutationApiResponse(
+      await deleteGoogleCalendarEventOnBackend(eventId),
+    );
     logDeleteBackendResponse({
-      eventId: response.event?.id ?? eventId,
+      eventId: response.event?.id ?? response.eventId ?? eventId,
       verified: response.verified,
       verificationFetched: response.verificationFetched,
-      status: response.executionState,
+      status: response.executionState ?? 'unknown',
     });
     logDeleteVerificationResult({
       verified: response.verified,

@@ -325,18 +325,20 @@ export function findConversationEventInList<T extends { id: string; title: strin
         isAllDay: false,
       })),
     );
-    const explicit = resolveExplicitTitleFromMemory(effectiveTitleQuery, augmented);
-
-    if (explicit) {
-      return params.events.find((event) => event.id === explicit.id) ?? null;
-    }
-
     const titleMatches = params.events.filter((event) =>
       calendarConversationTitlesMatch(effectiveTitleQuery, event.title),
     );
 
     if (titleMatches.length === 1) {
       return titleMatches[0];
+    }
+
+    if (titleMatches.length <= 1) {
+      const explicit = resolveExplicitTitleFromMemory(effectiveTitleQuery, augmented);
+
+      if (explicit) {
+        return params.events.find((event) => event.id === explicit.id) ?? null;
+      }
     }
   }
 

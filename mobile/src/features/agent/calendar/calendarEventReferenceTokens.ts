@@ -7,6 +7,9 @@ export const EVENT_PRONOUN_REFERENCE =
 const PRONOUN_TOKEN =
   /^(?:его|её|ее|их|її|їх|його|неї|нею|цю|цей|це|той|та|те|it|this|that|them|him|her)$/iu;
 
+/** Prepositions left after schedule stripping — not event titles. */
+const PREPOSITION_ONLY_TITLE = /^(?:на|в|о|с|з|к|до|from|to|at|in)$/iu;
+
 export function transcriptHasEventPronounReference(transcript: string) {
   return EVENT_PRONOUN_REFERENCE.test(transcript.trim());
 }
@@ -32,7 +35,11 @@ export function isIgnorableTitleQueryForMemory(titleQuery: string) {
     return true;
   }
 
-  return isEventPronounReference(normalized) || isTemporalOnlyTitle(normalized);
+  return (
+    isEventPronounReference(normalized) ||
+    isTemporalOnlyTitle(normalized) ||
+    PREPOSITION_ONLY_TITLE.test(normalized)
+  );
 }
 
 /**

@@ -2,6 +2,7 @@ import type { CalendarEvent } from '@/src/entities/calendar/types';
 import type { ConversationEventRecord } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import {
   getActiveCalendarEventRecord,
+  getConversationEventMemory,
   resolveMoveEventReference,
 } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { calendarConversationTitlesMatch } from '@/src/features/agent/calendar/calendarConversationTitleMatch';
@@ -99,6 +100,20 @@ export function resolveActiveEventForMutation<T extends CalendarEvent>(params: {
     }
 
     return calendarEventFromMemoryRecord(ref) as T;
+  }
+
+  if (isIgnorableTitleQueryForMemory(effectiveTitleQuery)) {
+    const lastReferenced = getConversationEventMemory().lastReferencedEvent;
+
+    if (lastReferenced && !lastReferenced.eventId.startsWith('pending:')) {
+      const byId = params.events.find((event) => event.id === lastReferenced.eventId);
+
+      if (byId) {
+        return byId;
+      }
+
+      return calendarEventFromMemoryRecord(lastReferenced) as T;
+    }
   }
 
   return null;

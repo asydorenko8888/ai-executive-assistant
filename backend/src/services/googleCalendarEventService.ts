@@ -463,8 +463,16 @@ export async function deleteGoogleCalendarEventForDevice(deviceId: string, event
     };
   }
 
+  const calendarId = 'primary';
+  const deleteUrl = `${GOOGLE_CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(eventId)}`;
+
+  console.log('[delete_event_request]', {
+    calendarId,
+    eventId,
+  });
+
   const deleteResult = await fetchGoogleCalendarJson(
-    `${GOOGLE_CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(eventId)}`,
+    deleteUrl,
     {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${tokens.accessToken}` },
@@ -483,6 +491,19 @@ export async function deleteGoogleCalendarEventForDevice(deviceId: string, event
     };
   }
 
+  const deleteHttpOk = deleteResult.status === 204 || deleteResult.status === 200;
+
+  if (!deleteHttpOk) {
+    return {
+      ok: false as const,
+      executionState: 'failed' as const,
+      verified: false,
+      verificationFetched: false,
+      errorCode: 'calendar_api_unavailable',
+      errorMessage: `Unexpected delete HTTP status: ${deleteResult.status}`,
+    };
+  }
+
   const verifyGet = await getGoogleCalendarEventById(tokens, eventId, DELETE_FALLBACK);
   const deleted = !verifyGet.ok;
 
@@ -490,6 +511,7 @@ export async function deleteGoogleCalendarEventForDevice(deviceId: string, event
     eventId,
     summary: existing.event.summary,
     verified: deleted,
+    deleteHttpStatus: deleteResult.status,
   });
 
   if (!deleted) {

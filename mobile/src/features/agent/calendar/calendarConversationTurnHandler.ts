@@ -14,6 +14,7 @@ import {
   buildTranscriptFromPendingDeleteContext,
   tryMergePendingCalendarDeleteReply,
 } from '@/src/features/agent/calendar/calendarDeletePendingContext';
+import { logDeleteExecutionEventId } from '@/src/features/agent/calendar/calendarDeleteDiagnostics';
 import {
   buildTranscriptFromPendingContext,
   tryMergePendingCalendarUpdateReply,
@@ -282,11 +283,22 @@ async function executePendingMutation(params: ExecutePendingMutationParams) {
 
   if (params.pending.action === 'DELETE_EVENT') {
     const deletePending = getPendingCalendarDeleteContext();
+    const selectedEventId = params.selectedEventId ?? deletePending?.selectedEventId ?? null;
+    logDeleteExecutionEventId({
+      phase: 'executePendingMutation',
+      eventId: selectedEventId,
+      transcriptPreview: transcript.slice(0, 120),
+      source: params.selectedEventId
+        ? 'selectedEventId_param'
+        : deletePending?.selectedEventId
+          ? 'pending_context'
+          : 'resolution',
+    });
     const outcome = await executeCalendarDeleteEvent({
       transcript,
       languageCode: params.pending.languageCode,
       referenceNow: params.referenceNow,
-      selectedEventId: params.selectedEventId ?? deletePending?.selectedEventId ?? null,
+      selectedEventId,
     });
 
     const verified = isVerifiedCalendarDeleteSuccess(outcome.tool);
@@ -820,11 +832,23 @@ export async function handleCalendarConversationTurn(params: {
 
   if (classification === 'new_calendar_command' && !inConflictWorkflow) {
     const updatePending = getPendingCalendarUpdateContext();
+    const deletePending = getPendingCalendarDeleteContext();
     const repeatingOriginalMove =
       updatePending?.candidates?.length &&
       updatePending.sourceTranscript.trim() === selectionReply.trim();
+    const deleteSelectionFollowUp =
+      deletePending?.selectedEventId != null ||
+      (deletePending?.candidates?.length
+        ? Boolean(
+            tryMergePendingCalendarDeleteReply({
+              pending: deletePending,
+              reply: selectionReply,
+              referenceNow: params.referenceNow,
+            }),
+          )
+        : false);
 
-    if (!repeatingOriginalMove) {
+    if (!repeatingOriginalMove && !deleteSelectionFollowUp) {
       return null;
     }
   }

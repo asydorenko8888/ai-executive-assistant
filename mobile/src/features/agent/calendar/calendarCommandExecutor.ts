@@ -39,14 +39,19 @@ import {
 import { isExplicitDifferentCalendarCommand } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
 import { shouldClearStalePendingForNewCommand } from '@/src/features/agent/calendar/calendarNewCommandPendingClear';
 import { enrichCalendarCommandTranscript } from '@/src/features/agent/calendar/calendarTranscriptEnrichment';
+import { resolveDisambiguationSelection } from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
+import { resolvePendingCalendarDeleteFromReply } from '@/src/features/agent/calendar/pendingCalendarDeleteSelection';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
 import { executeCalendarUpdateEvent } from '@/src/features/agent/execution/calendarUpdateEventExecutor';
 import type { CalendarToolStatus } from '@/src/features/agent/execution/calendarToolContract';
 import {
   getLastCalendarCommandOutcome,
+  getPendingCalendarDeleteContext,
   getPendingCalendarUpdateContext,
   setLastCalendarCommandOutcome,
+  setPendingCalendarDeleteContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
 import {
   logCalendarIntentDetected,
@@ -71,6 +76,142 @@ export type CalendarCommandResult = {
   eventId?: string | null;
 };
 
+function isPendingDisambiguationSelectionFollowUp(params: {
+  selectionTranscript: string;
+  referenceNow: Date;
+}) {
+  const selectionTranscript = params.selectionTranscript.trim();
+
+  if (!selectionTranscript) {
+    return false;
+  }
+
+  const timeZone = getExecutiveCalendarTimezone();
+  const deletePending = getPendingCalendarDeleteContext();
+
+  if (deletePending?.selectedEventId) {
+    return true;
+  }
+
+  if (deletePending?.candidates?.length) {
+    if (
+      resolveDisambiguationSelection({
+        reply: selectionTranscript,
+        candidates: deletePending.candidates,
+        referenceNow: params.referenceNow,
+        timeZone,
+        pendingTitle: deletePending.title,
+      })
+    ) {
+      return true;
+    }
+  }
+
+  const updatePending = getPendingCalendarUpdateContext();
+
+  if (updatePending?.selectedEventId) {
+    return true;
+  }
+
+  if (updatePending?.candidates?.length) {
+    if (
+      resolveDisambiguationSelection({
+        reply: selectionTranscript,
+        candidates: updatePending.candidates,
+        referenceNow: params.referenceNow,
+        timeZone,
+      })
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function tryRunPendingCalendarDeleteSelection(params: {
+  selectionTranscript: string;
+  languageCode: VoiceLanguageCode;
+  referenceNow: Date;
+}): Promise<CalendarCommandResult | null> {
+  const pending = getPendingCalendarDeleteContext();
+
+  if (!pending?.candidates?.length) {
+    return null;
+  }
+
+  const selectionTranscript = params.selectionTranscript.trim();
+
+  if (!selectionTranscript) {
+    return null;
+  }
+
+  let selectedEventId = pending.selectedEventId ?? null;
+
+  if (!selectedEventId) {
+    const resolved = await resolvePendingCalendarDeleteFromReply({
+      pending,
+      reply: selectionTranscript,
+      referenceNow: params.referenceNow,
+    });
+
+    if (!resolved) {
+      return null;
+    }
+
+    setPendingCalendarDeleteContext(resolved.context);
+    selectedEventId = resolved.selected.eventId;
+  }
+
+  logCalendarIntentDetected({
+    transcript: selectionTranscript,
+    intent: 'delete_calendar_event',
+    requiresTool: true,
+  });
+  logCalendarToolSelected({ intent: 'delete_calendar_event', tool: 'google_calendar_delete_event' });
+
+  const outcome = await executeCalendarDeleteEvent({
+    transcript: pending.sourceTranscript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+    selectedEventId,
+  });
+
+  const contractOk = isVerifiedCalendarDeleteSuccess(outcome.tool);
+  const terminalReply =
+    outcome.tool.status === 'SUCCESS' && !contractOk
+      ? buildFailureTerminalReply(
+          'CALENDAR_EXECUTION_CONTRACT',
+          'API reported success but verified delete confirmation is missing',
+        )
+      : outcome.reply;
+
+  setLastCalendarCommandOutcome({
+    intent: 'delete_calendar_event',
+    tool: outcome.tool,
+    terminalReply,
+    verified: contractOk,
+  });
+
+  logCalendarTerminalReply({
+    intent: 'delete_calendar_event',
+    tool: outcome.tool,
+    replyPreview: terminalReply,
+  });
+
+  return {
+    matched: true,
+    intent: 'delete_calendar_event',
+    reply: terminalReply,
+    spokenReply: outcome.spokenReply,
+    toolStatus: contractOk ? 'SUCCESS' : outcome.tool.status === 'SUCCESS' ? 'FAILURE' : outcome.tool.status,
+    executionState: contractOk ? 'tool_success' : mapExecutionState(outcome.tool.status),
+    verified: contractOk,
+    requiresCalendarAuth: outcome.requiresCalendarAuth,
+    eventId: outcome.tool.eventId ?? null,
+  };
+}
+
 function mapExecutionState(status: CalendarToolStatus): AssistantExecutionState {
   if (status === 'SUCCESS') {
     return 'tool_success';
@@ -93,6 +234,17 @@ export async function executeCalendarCommand(params: {
 }): Promise<CalendarCommandResult> {
   advanceCalendarConversationTurn();
   expirePendingCalendarStateIfStale(params.referenceNow);
+
+  const selectionTranscript = params.titleSourceTranscript?.trim() || params.transcript.trim();
+  const pendingDeleteOutcome = await tryRunPendingCalendarDeleteSelection({
+    selectionTranscript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+  });
+
+  if (pendingDeleteOutcome) {
+    return pendingDeleteOutcome;
+  }
 
   const mergedWithPendingIntent = mergeTranscriptWithPendingIntent(params.transcript);
 
@@ -159,7 +311,13 @@ export async function executeCalendarCommand(params: {
       }
     }
 
+    const preservesPendingSelection = isPendingDisambiguationSelectionFollowUp({
+      selectionTranscript,
+      referenceNow: params.referenceNow,
+    });
+
     const overridesPending =
+      !preservesPendingSelection &&
       (classification === 'new_calendar_command' || shouldClearStalePendingForNewCommand(enrichedTranscript, pending)) &&
       pending &&
       !pendingIntent &&
@@ -211,10 +369,12 @@ export async function executeCalendarCommand(params: {
   if (intent === 'delete_calendar_event') {
     logCalendarToolSelected({ intent, tool: 'google_calendar_delete_event' });
 
+    const deletePending = getPendingCalendarDeleteContext();
     const outcome = await executeCalendarDeleteEvent({
       transcript: enrichedTranscript,
       languageCode: params.languageCode,
       referenceNow: params.referenceNow,
+      selectedEventId: deletePending?.selectedEventId ?? null,
     });
 
     const contractOk = isVerifiedCalendarDeleteSuccess(outcome.tool);
