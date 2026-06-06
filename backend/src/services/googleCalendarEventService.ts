@@ -8,6 +8,10 @@ import {
 
 import { fetchGoogleCalendarApiJson } from './googleCalendarApiClient.js';
 import {
+  attachGoogleCalendarEventReminders,
+  logCalendarEventReminderSet,
+} from './googleCalendarEventReminders.js';
+import {
   verifyUpdatedEventWithRetries,
 } from './googleCalendarUpdateVerification.js';
 
@@ -310,13 +314,15 @@ export async function createGoogleCalendarEventForDevice(
         Authorization: `Bearer ${tokens.accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        summary: payload.summary,
-        location: payload.location,
-        start: payload.start,
-        end: payload.end,
-        recurrence: payload.recurrence,
-      }),
+      body: JSON.stringify(
+        attachGoogleCalendarEventReminders({
+          summary: payload.summary,
+          location: payload.location,
+          start: payload.start,
+          end: payload.end,
+          recurrence: payload.recurrence,
+        }),
+      ),
     },
     'events.insert',
   );
@@ -632,12 +638,14 @@ export async function updateGoogleCalendarEventForDevice(
         Authorization: `Bearer ${tokens.accessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        summary: payload.summary,
-        location: payload.location,
-        start: payload.start,
-        end: payload.end,
-      }),
+      body: JSON.stringify(
+        attachGoogleCalendarEventReminders({
+          summary: payload.summary,
+          location: payload.location,
+          start: payload.start,
+          end: payload.end,
+        }),
+      ),
     },
     'events.patch',
   );
@@ -736,6 +744,11 @@ export async function updateGoogleCalendarEventForDevice(
       verificationMismatch: verification.finalMismatch,
     };
   }
+
+  logCalendarEventReminderSet({
+    eventId: verification.event.id,
+    title: verification.event.summary,
+  });
 
   return {
     ok: true as const,

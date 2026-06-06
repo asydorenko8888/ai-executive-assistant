@@ -36,7 +36,8 @@
     "test:calendar-stabilization": "npx tsx --test src/features/agent/calendar/calendarStabilization.test.ts src/features/agent/calendar/calendarUpdateEventResolution.test.ts src/features/agent/calendar/calendarConversationMemoryFlow.test.ts src/features/agent/calendar/calendarAuthUserReplies.test.ts src/features/agent/calendar/calendarDisambiguation.test.ts src/features/agent/calendar/calendarDeleteDisambiguationFlow.test.ts",
     "test:calendar-query": "npx tsx --test src/features/agent/calendar/calendarQueryEngine.test.ts src/features/agent/calendar/calendarSpokenTime.test.ts src/features/agent/calendarIntelligence/calendarReadTimeIntent.test.ts",
     "test:calendar-time-range": "npx tsx --test src/features/agent/calendar/calendarTimeRange.test.ts",
-    "test:calendar-duration-until": "npx tsx --test src/features/agent/calendar/calendarDurationUntil.test.ts"
+    "test:calendar-duration-until": "npx tsx --test src/features/agent/calendar/calendarDurationUntil.test.ts",
+    "test:calendar-reminder-engine": "npx tsx --test src/features/calendar-reminder-engine/calendarReminderEngine.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",
