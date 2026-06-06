@@ -1,4 +1,5 @@
 import {
+  logAlarmVoiceSelected,
   logLocalAlarmVoiceBlocked,
   logLocalAlarmVoicePlay,
 } from '@/src/features/local-alarms/localAlarmMarkers';
@@ -9,11 +10,18 @@ import { isSpeechSynthesisSupported, speakText } from '@/src/features/chat/servi
 export function playLocalAlarmVoice(params: {
   alarmId: string;
   title: string;
-  message: string;
+  voiceText: string;
+  snoozeCount: number;
   languageCode: VoiceLanguageCode;
 }) {
+  logAlarmVoiceSelected({
+    id: params.alarmId,
+    snoozeCount: params.snoozeCount,
+    voiceText: params.voiceText,
+  });
+
   playLocalReminderVoice({
-    message: params.message,
+    message: params.voiceText,
     languageCode: params.languageCode,
     isSupported: isSpeechSynthesisSupported,
     speak: speakText,

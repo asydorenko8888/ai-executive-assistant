@@ -39,7 +39,7 @@
     "test:calendar-duration-until": "npx tsx --test src/features/agent/calendar/calendarDurationUntil.test.ts",
     "test:calendar-reminder-engine": "npx tsx --test src/features/calendar-reminder-engine/calendarReminderEngine.test.ts",
     "test:local-reminders": "npx tsx --test src/features/local-reminders/localReminder.test.ts src/features/local-reminders/localReminderVoicePlayback.test.ts",
-    "test:local-alarms": "npx tsx --test src/features/local-alarms/localAlarm.test.ts src/features/local-alarms/localAlarmSession.test.ts"
+    "test:local-alarms": "npx tsx --test src/features/local-alarms/localAlarm.test.ts src/features/local-alarms/localAlarmSession.test.ts src/features/local-alarms/localAlarmVoiceText.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^14.1.0",

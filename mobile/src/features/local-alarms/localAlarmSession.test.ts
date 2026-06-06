@@ -27,10 +27,12 @@ describe('local alarm session store', () => {
       sourceTranscript: 'Поставь будильник через 2 минуты',
     });
 
-    const session = buildActiveAlarmSession(alarm);
+    const session = buildActiveAlarmSession(alarm, 'uk-UA');
 
     assert.equal(session.message, 'Будильник: Будильник.');
     assert.equal(session.alarmId, alarm.id);
+    assert.equal(session.snoozeCount, 0);
+    assert.match(session.voiceText, /^Андрію, ти просив розбудити тебе о /);
   });
 
   it('stops alarm permanently', () => {
@@ -59,6 +61,7 @@ describe('local alarm session store', () => {
     assert.ok(snoozed);
     assert.equal(snoozed?.status, 'scheduled');
     assert.equal(snoozed?.triggerAtMs, referenceNow + 5 * 60_000);
+    assert.equal(snoozed?.snoozeCount, 1);
     assert.equal(listScheduledLocalAlarms(referenceNow).length, 1);
     assert.equal(listDueLocalAlarms(referenceNow).length, 0);
   });

@@ -148,7 +148,7 @@ describe('local alarm runtime flow', () => {
 
       assert.equal(due.length, 1);
 
-      const session = buildActiveAlarmSession(due[0]!);
+      const session = buildActiveAlarmSession(due[0]!, 'ru-RU');
 
       logAlarmStarted({ id: session.alarmId, title: session.title });
       logAlarmRepeat({ id: session.alarmId, title: session.title });

@@ -80,3 +80,37 @@ export function logAlarmSnoozed(params: {
     snoozeMinutes: params.snoozeMinutes,
   });
 }
+
+export function logAlarmVoiceSelected(params: {
+  id: string;
+  snoozeCount: number;
+  voiceText: string;
+}) {
+  console.error('ALARM_VOICE_SELECTED', {
+    id: params.id,
+    snoozeCount: params.snoozeCount,
+    voiceText: params.voiceText,
+  });
+}
+
+export function logAlarmSnoozeCountIncremented(params: {
+  id: string;
+  snoozeCount: number;
+}) {
+  console.error('ALARM_SNOOZE_COUNT_INCREMENTED', {
+    id: params.id,
+    snoozeCount: params.snoozeCount,
+  });
+}
+
+export function logAlarmVoiceLocalized(params: {
+  language: string;
+  snoozeCount: number;
+  voiceText: string;
+}) {
+  console.error('ALARM_VOICE_LOCALIZED', {
+    language: params.language,
+    snoozeCount: params.snoozeCount,
+    voiceText: params.voiceText,
+  });
+}

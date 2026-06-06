@@ -4,6 +4,8 @@ export type LocalAlarm = {
   id: string;
   title: string;
   triggerAtMs: number;
+  originalTriggerAtMs: number;
+  snoozeCount: number;
   status: LocalAlarmStatus;
   sourceTranscript: string;
   createdAtMs: number;

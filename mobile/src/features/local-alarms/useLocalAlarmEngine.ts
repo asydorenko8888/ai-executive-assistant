@@ -64,7 +64,8 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
     playLocalAlarmVoice({
       alarmId: session.alarmId,
       title: session.title,
-      message: session.message,
+      voiceText: session.voiceText,
+      snoozeCount: session.snoozeCount,
       languageCode: languageCodeRef.current,
     });
   }, []);
@@ -90,7 +91,8 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
 
       markLocalAlarmRinging(alarm.id);
 
-      const session = buildActiveAlarmSession(alarm);
+      const ringingAlarm = getLocalAlarmById(alarm.id) ?? alarm;
+      const session = buildActiveAlarmSession(ringingAlarm, languageCodeRef.current);
 
       logAlarmStarted({
         id: session.alarmId,

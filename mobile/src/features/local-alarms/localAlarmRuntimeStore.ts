@@ -1,4 +1,4 @@
-import { logLocalAlarmCreated } from '@/src/features/local-alarms/localAlarmMarkers';
+import { logLocalAlarmCreated, logAlarmSnoozeCountIncremented } from '@/src/features/local-alarms/localAlarmMarkers';
 import type { LocalAlarm } from '@/src/features/local-alarms/types';
 
 type LocalAlarmListener = () => void;
@@ -41,10 +41,13 @@ export function createLocalAlarm(params: {
   triggerAt: Date;
   sourceTranscript: string;
 }) {
+  const triggerAtMs = params.triggerAt.getTime();
   const alarm: LocalAlarm = {
     id: `local-alarm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     title: params.title.trim() || 'Будильник',
-    triggerAtMs: params.triggerAt.getTime(),
+    triggerAtMs,
+    originalTriggerAtMs: triggerAtMs,
+    snoozeCount: 0,
     status: 'scheduled',
     sourceTranscript: params.sourceTranscript,
     createdAtMs: Date.now(),
@@ -92,6 +95,7 @@ export function snoozeLocalAlarm(id: string, snoozeMinutes: number, referenceNow
   }
 
   const snoozeMs = snoozeMinutes * 60_000;
+  const nextSnoozeCount = existing.snoozeCount + 1;
 
   alarms = alarms.map((alarm) =>
     alarm.id === id
@@ -99,9 +103,15 @@ export function snoozeLocalAlarm(id: string, snoozeMinutes: number, referenceNow
           ...alarm,
           status: 'scheduled',
           triggerAtMs: referenceNowMs + snoozeMs,
+          snoozeCount: nextSnoozeCount,
         }
       : alarm,
   );
+
+  logAlarmSnoozeCountIncremented({
+    id,
+    snoozeCount: nextSnoozeCount,
+  });
 
   notifyListeners();
   return getLocalAlarmById(id);
