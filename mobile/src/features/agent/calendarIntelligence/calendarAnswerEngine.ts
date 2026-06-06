@@ -174,6 +174,21 @@ export function buildDeterministicCalendarAnswer(params: {
     return { intent, day, events: dayEvents, payload: { overlaps } };
   }
 
+  if (intent === 'free_time_query') {
+    const freeSlots = getFreeWindows(normalized, day, params.referenceNow, 1, {
+      dayEndMinutes: 24 * 60,
+      minDurationMinutes: 1,
+      futureBusyEventsOnly: true,
+    });
+
+    return {
+      intent,
+      day,
+      events: dayEvents,
+      payload: { freeSlots },
+    };
+  }
+
   if (intent === 'free_windows' || intent === 'best_slot' || intent === 'combine_activity') {
     const durationMinutes = parseRequestedDurationMinutes(params.transcript);
     const freeSlots = getFreeWindows(normalized, day, params.referenceNow, durationMinutes);

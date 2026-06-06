@@ -38,6 +38,11 @@ import {
   selectBestEventByTitlePriority,
 } from '@/src/features/agent/calendar/calendarTitleMatchPriority';
 import { validateMoveTargetAgainstConversationMemory } from '@/src/features/agent/calendar/calendarConversationMemorySchedule';
+import {
+  collapseCalendarEventCandidates,
+  deduplicateCalendarEvents,
+  logCalendarEventDeduplication,
+} from '@/src/features/agent/calendar/calendarEventDeduplication';
 import { getLastCalendarReadMatch } from '@/src/features/agent/execution/calendarExecutionSession';
 
 function pickBestNormalizedMatch(
@@ -137,24 +142,6 @@ function tryPinnedConversationMemory(params: {
     titleQuery: effectiveTitleQuery,
   });
 
-  if (!pinned && effectiveTitleQuery) {
-    const fallback =
-      findMoveConversationEventInList({
-        events: params.events,
-        referenceNow: params.referenceNow,
-        titleQuery: '',
-      }) ??
-      resolveActiveEventForMutation({
-        events: params.events,
-        referenceNow: params.referenceNow,
-        titleQuery: '',
-      });
-
-    if (fallback) {
-      return { match: fallback, source: 'conversation_memory' as const };
-    }
-  }
-
   if (!pinned) {
     return null;
   }
@@ -177,6 +164,17 @@ function resolveUpdateFromConversationMemory(params: {
   });
 
   if (!memoryPinned) {
+    return null;
+  }
+
+  const effectiveTitleQuery = isIgnorableTitleQueryForMemory(params.titleQuery)
+    ? ''
+    : params.titleQuery.trim();
+
+  if (
+    effectiveTitleQuery &&
+    !calendarConversationTitlesMatch(effectiveTitleQuery, memoryPinned.match.title)
+  ) {
     return null;
   }
 
@@ -644,7 +642,7 @@ export function findCalendarEventForDeleteFromEvents(params: {
     extractedTitle: titleQuery,
     memoryTitle: memoryRef?.title ?? null,
   });
-  const activeEvents = params.events.filter((event) => !event.isCancelled);
+  const activeEvents = deduplicateCalendarEvents(params.events.filter((event) => !event.isCancelled));
   const deleteAllRequested = isDeleteAllCalendarCommand(params.transcript);
 
   const strongTitleMatches = activeEvents
@@ -734,18 +732,39 @@ export function findCalendarEventForDeleteFromEvents(params: {
     );
 
   if (clockMinutes === null && strongTitleMatches.length > 1 && !deleteAllRequested) {
+    const collapsedStrong = collapseCalendarEventCandidates(strongTitleMatches);
+
+    logCalendarEventDeduplication({
+      stage: 'delete_resolution_ambiguous_title',
+      rawCount: activeEvents.length,
+      matchedBeforeDedupe: strongTitleMatches.length,
+      matchedAfterDedupe: collapsedStrong.length,
+    });
+
+    if (collapsedStrong.length === 1) {
+      return {
+        match: collapsedStrong[0],
+        titleQuery,
+        clockMinutes: null,
+        candidates: collapsedStrong,
+        hasExplicitTime: false,
+        matchSource: 'title_rank',
+        notFoundReason: null,
+      };
+    }
+
     logDeleteNotFoundReason({
       reason: 'ambiguous_title_on_day',
       titleQuery,
       clockMinutes: null,
-      candidateCount: strongTitleMatches.length,
+      candidateCount: collapsedStrong.length,
     });
 
     return {
       match: null,
       titleQuery,
       clockMinutes: null,
-      candidates: strongTitleMatches,
+      candidates: collapsedStrong,
       hasExplicitTime: false,
       matchSource: 'none',
       notFoundReason: 'ambiguous_title_on_day',
@@ -799,18 +818,39 @@ export function findCalendarEventForDeleteFromEvents(params: {
       );
 
       if (strongMatches.length > 1) {
+        const collapsedAtTime = collapseCalendarEventCandidates(strongMatches);
+
+        logCalendarEventDeduplication({
+          stage: 'delete_resolution_ambiguous_at_time',
+          rawCount: activeEvents.length,
+          matchedBeforeDedupe: strongMatches.length,
+          matchedAfterDedupe: collapsedAtTime.length,
+        });
+
+        if (collapsedAtTime.length === 1) {
+          return {
+            match: collapsedAtTime[0],
+            titleQuery,
+            clockMinutes,
+            candidates: collapsedAtTime,
+            hasExplicitTime: true,
+            matchSource: resolved.matchSource,
+            notFoundReason: null,
+          };
+        }
+
         logDeleteNotFoundReason({
           reason: 'ambiguous_title_at_time',
           titleQuery,
           clockMinutes,
-          candidateCount: strongMatches.length,
+          candidateCount: collapsedAtTime.length,
         });
 
         return {
           match: null,
           titleQuery,
           clockMinutes,
-          candidates: strongMatches,
+          candidates: collapsedAtTime,
           hasExplicitTime: true,
           matchSource: 'none',
           notFoundReason: 'ambiguous_title_at_time',
@@ -893,23 +933,51 @@ export function findCalendarEventForDeleteFromEvents(params: {
   }
 
   if (candidates.length > 1) {
+    const collapsedDay = collapseCalendarEventCandidates(candidates);
+
+    logCalendarEventDeduplication({
+      stage: 'delete_resolution_ambiguous_day',
+      rawCount: activeEvents.length,
+      matchedBeforeDedupe: candidates.length,
+      matchedAfterDedupe: collapsedDay.length,
+    });
+
+    if (collapsedDay.length === 1) {
+      return {
+        match: collapsedDay[0],
+        titleQuery,
+        clockMinutes: null,
+        candidates: collapsedDay,
+        hasExplicitTime: false,
+        matchSource: 'title_only',
+        notFoundReason: null,
+      };
+    }
+
     logDeleteNotFoundReason({
       reason: 'ambiguous_title_on_day',
       titleQuery,
       clockMinutes: null,
-      candidateCount: candidates.length,
+      candidateCount: collapsedDay.length,
     });
 
     return {
       match: null,
       titleQuery,
       clockMinutes: null,
-      candidates,
+      candidates: collapsedDay,
       hasExplicitTime: false,
       matchSource: 'none',
       notFoundReason: 'ambiguous_title_on_day',
     };
   }
+
+  logCalendarEventDeduplication({
+    stage: 'delete_resolution_selected',
+    rawCount: activeEvents.length,
+    deduplicatedCount: activeEvents.length,
+    selectedEventId: candidates[0]?.id ?? null,
+  });
 
   return {
     match: candidates[0],

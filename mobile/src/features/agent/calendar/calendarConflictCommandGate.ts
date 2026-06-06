@@ -36,6 +36,7 @@ import { parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calend
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import { finalizeCalendarPendingStateAfterMutation } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 import { setLastCalendarCommandOutcome } from '@/src/features/agent/execution/calendarExecutionSession';
 import { formatDateKey } from '@/src/features/agent/calendarIntelligence/zonedEventTime';
 import {
@@ -210,6 +211,13 @@ export async function handleCalendarConflictFollowUp(params: {
 
       const verified = isVerifiedCalendarUpdateSuccess(outcome.tool);
 
+      finalizeCalendarPendingStateAfterMutation({
+        verified,
+        tool: outcome.tool,
+        reason: 'update_completed',
+        transcript: pending.sourceTranscript,
+      });
+
       return mapVerifiedOutcome({
         intent: 'update_calendar_event',
         tool: outcome.tool,
@@ -235,6 +243,13 @@ export async function handleCalendarConflictFollowUp(params: {
     clearPendingCalendarConflictContext();
 
     const verified = isVerifiedCalendarCreateSuccess(outcome.tool);
+
+    finalizeCalendarPendingStateAfterMutation({
+      verified,
+      tool: outcome.tool,
+      reason: 'create_completed',
+      transcript: pending.sourceTranscript,
+    });
 
     return mapVerifiedOutcome({
       intent: 'create_calendar_event',

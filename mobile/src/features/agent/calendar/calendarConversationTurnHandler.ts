@@ -20,6 +20,10 @@ import {
   tryMergePendingCalendarUpdateReply,
 } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import {
+  ensurePendingUpdateContextHydrated,
+  resolveStoredMoveClarificationReply,
+} from '@/src/features/agent/calendar/calendarMoveClarificationState';
+import {
   enrichTranscriptForActivePendingConflict,
   isExplicitDifferentCalendarCommand,
 } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
@@ -28,8 +32,10 @@ import {
   logPendingReplyClassified,
 } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { resolveStoredUpdateTargetFromPending } from '@/src/features/agent/calendar/calendarPendingConflictTarget';
+import { logCalendarPendingActionExecuted } from '@/src/features/agent/calendar/calendarMoveTraceLogger';
+import { clearMoveUpdateWorkflowState } from '@/src/features/agent/calendar/calendarMoveUpdateLifecycle';
 import {
-  clearPendingCalendarStateAfterVerifiedMutation,
+  finalizeCalendarPendingStateAfterMutation,
   dismissCalendarConflictConfirmationState,
 } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
@@ -303,8 +309,9 @@ async function executePendingMutation(params: ExecutePendingMutationParams) {
 
     const verified = isVerifiedCalendarDeleteSuccess(outcome.tool);
 
-    clearPendingCalendarStateAfterVerifiedMutation({
+    finalizeCalendarPendingStateAfterMutation({
       verified,
+      tool: outcome.tool,
       reason: 'delete_completed',
       transcript,
     });
@@ -326,6 +333,15 @@ async function executePendingMutation(params: ExecutePendingMutationParams) {
       : null;
 
     const updatePending = getPendingCalendarUpdateContext();
+    const selectedEventId = params.selectedEventId ?? updatePending?.selectedEventId ?? null;
+
+    if (selectedEventId) {
+      logCalendarPendingActionExecuted({
+        action: 'move',
+        selectedEventId,
+        sourceTranscript: transcript,
+      });
+    }
 
     const outcome = await executeCalendarUpdateEvent({
       transcript,
@@ -333,13 +349,14 @@ async function executePendingMutation(params: ExecutePendingMutationParams) {
       referenceNow: params.referenceNow,
       skipScheduleConflictCheck: params.skipScheduleConflictCheck,
       storedUpdateTarget: storedUpdateTarget ?? undefined,
-      selectedEventId: params.selectedEventId ?? updatePending?.selectedEventId ?? null,
+      selectedEventId,
     });
 
     const verified = isVerifiedCalendarUpdateSuccess(outcome.tool);
 
-    clearPendingCalendarStateAfterVerifiedMutation({
+    finalizeCalendarPendingStateAfterMutation({
       verified,
+      tool: outcome.tool,
       reason: 'update_completed',
       transcript,
     });
@@ -367,8 +384,9 @@ async function executePendingMutation(params: ExecutePendingMutationParams) {
 
   const verified = isVerifiedCalendarCreateSuccess(outcome.tool);
 
-  clearPendingCalendarStateAfterVerifiedMutation({
+  finalizeCalendarPendingStateAfterMutation({
     verified,
+    tool: outcome.tool,
     reason: 'create_completed',
     transcript,
   });
@@ -629,7 +647,7 @@ async function handleDeleteOrSelectionState(params: {
   transcript: string;
   referenceNow: Date;
   classification: ReturnType<typeof classifyPendingCalendarReply>;
-}) {
+}): Promise<CalendarConversationTurnResult | null> {
   const short = classifyCalendarShortReply(params.transcript);
 
   if (short === 'cancel_abort') {
@@ -659,13 +677,19 @@ async function handleDeleteOrSelectionState(params: {
   }
 
   const updatePending = getPendingCalendarUpdateContext();
+  const hydratedUpdatePending = updatePending ?? ensurePendingUpdateContextHydrated(params.referenceNow);
 
-  if (updatePending) {
-    const merged = tryMergePendingCalendarUpdateReply({
-      pending: updatePending,
-      reply: params.transcript,
-      referenceNow: params.referenceNow,
-    });
+  if (hydratedUpdatePending) {
+    const merged =
+      resolveStoredMoveClarificationReply({
+        reply: params.transcript,
+        referenceNow: params.referenceNow,
+      }) ??
+      tryMergePendingCalendarUpdateReply({
+        pending: hydratedUpdatePending,
+        reply: params.transcript,
+        referenceNow: params.referenceNow,
+      });
 
     if (merged) {
       setPendingCalendarUpdateContext(merged.context);
@@ -694,15 +718,9 @@ async function handleDeleteOrSelectionState(params: {
     });
   }
 
-  if (params.classification === 'unrelated') {
-    const combined = `${params.pending.sourceTranscript} ${params.transcript}`.replace(/\s+/g, ' ').trim();
-
-    return executePendingMutation({
-      pending: { ...params.pending, sourceTranscript: combined },
-      referenceNow: params.referenceNow,
-      calendarConnected: true,
-      transcriptOverride: combined,
-    });
+  if (params.classification === 'unrelated' || params.classification === 'new_calendar_command') {
+    clearMoveUpdateWorkflowState('unrelated_during_event_selection', params.transcript);
+    return null;
   }
 
   const intent = mapPendingActionTypeToCommandIntent(params.pending.action);
@@ -728,7 +746,7 @@ async function handleMoveConfirmation(params: {
   referenceNow: Date;
   calendarConnected: boolean;
   classification: ReturnType<typeof classifyPendingCalendarReply>;
-}) {
+}): Promise<CalendarConversationTurnResult | null> {
   const short = classifyCalendarShortReply(params.transcript);
 
   if (short === 'cancel_abort') {
@@ -771,15 +789,9 @@ async function handleMoveConfirmation(params: {
     });
   }
 
-  if (params.classification === 'unrelated') {
-    const combined = `${params.pending.sourceTranscript} ${params.transcript}`.replace(/\s+/g, ' ').trim();
-
-    return executePendingMutation({
-      pending: { ...params.pending, sourceTranscript: combined },
-      referenceNow: params.referenceNow,
-      calendarConnected: params.calendarConnected,
-      transcriptOverride: combined,
-    });
+  if (params.classification === 'unrelated' || params.classification === 'new_calendar_command') {
+    clearMoveUpdateWorkflowState('unrelated_during_move_confirmation', params.transcript);
+    return null;
   }
 
   return handleConflictDecisionState({
@@ -861,7 +873,7 @@ export async function handleCalendarConversationTurn(params: {
     detail: classification,
   });
 
-  let result: CalendarConversationTurnResult;
+  let result: CalendarConversationTurnResult | null;
 
   switch (snapshot.state) {
     case 'WAITING_CONFLICT_RESOLUTION':
@@ -901,6 +913,10 @@ export async function handleCalendarConversationTurn(params: {
       break;
     default:
       return null;
+  }
+
+  if (!result) {
+    return null;
   }
 
   logCalendarConversationEvent({

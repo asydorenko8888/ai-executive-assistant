@@ -1,4 +1,5 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
+import { deduplicateCalendarEvents } from '@/src/features/agent/calendar/calendarEventDeduplication';
 import { sortEventsChronologically } from '@/src/features/agent/calendar/calendarSchedule';
 
 let liveCalendarEvents: CalendarEvent[] = [];
@@ -13,7 +14,7 @@ export function getLiveCalendarEventsRefreshedAt() {
 }
 
 export function setLiveCalendarEvents(events: CalendarEvent[]) {
-  liveCalendarEvents = sortEventsChronologically([...events]);
+  liveCalendarEvents = deduplicateCalendarEvents(events);
   liveCalendarEventsRefreshedAt = Date.now();
 }
 
@@ -35,7 +36,7 @@ export function mergeCalendarEventLists(
     byId.set(event.id, event);
   }
 
-  return sortEventsChronologically([...byId.values()]);
+  return deduplicateCalendarEvents(sortEventsChronologically([...byId.values()]));
 }
 
 export function upsertLiveCalendarEvent(event: CalendarEvent) {

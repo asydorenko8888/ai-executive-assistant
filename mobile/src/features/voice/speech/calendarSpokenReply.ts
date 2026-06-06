@@ -381,5 +381,5 @@ export function buildHumanizedCalendarGuidanceLine(params: {
   const banned =
     'Companion voice: calm, slightly caring, practical. Structure — optional human opener, situation assessment, clear recommendation, travel/leave warning. No calendar dumps, no passive time-only answers. Never claim you already called, texted, or reached someone. No robotic refusals — if outreach is not wired yet, one soft line ("message is ready", "still need the contact") then the useful answer.';
 
-  return `${banned} ${buildSituationContextForLlm(situation)} Respond in ${locale === 'uk' ? 'Ukrainian' : locale === 'ru' ? 'Russian' : 'English'}.`;
+  return `${banned} ${buildSituationContextForLlm(situation, locale)} Respond in ${locale === 'uk' ? 'Ukrainian' : locale === 'ru' ? 'Russian' : 'English'}.`;
 }

@@ -8,6 +8,7 @@ import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calen
 import {
   assertCalendarReplyMatchesTool,
   buildFailureTerminalReply,
+  isCalendarMutationSuccessReply,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import { getLastCalendarCommandOutcome } from '@/src/features/agent/execution/calendarExecutionSession';
@@ -135,7 +136,7 @@ export function guardAgainstRepeatedAssistantResponse(params: {
   const isCalendarWrite = requiresCalendarToolExecution(userTranscript);
   const calendarIntent = detectCalendarCommandIntent(userTranscript);
 
-  if (isCalendarWrite) {
+  if (isCalendarWrite || isCalendarMutationSuccessReply(params.candidateReply)) {
     const lastOutcome = getLastCalendarCommandOutcome();
     const terminal =
       getCalendarCommandTerminalReply(userTranscript) ??

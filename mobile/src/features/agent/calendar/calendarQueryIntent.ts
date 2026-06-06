@@ -1,3 +1,4 @@
+import { isCalendarFreeTimeTodayQuery } from '@/src/features/agent/calendar/calendarFreeTimeQuery';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 
 const CALENDAR_CONTEXT =
@@ -23,6 +24,10 @@ export function isCalendarQueryOrFindIntent(transcript: string) {
 
   if (!normalized) {
     return false;
+  }
+
+  if (isCalendarFreeTimeTodayQuery(normalized)) {
+    return true;
   }
 
   if (VISIBILITY_PHRASE.test(normalized) || CALENDAR_VISIBILITY_COMPLAINT.test(normalized)) {

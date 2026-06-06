@@ -17,11 +17,14 @@ import {
   buildCalendarUpdateNoTimeChangeReply,
   buildCalendarUpdateNotFoundReply,
   buildCalendarUpdateTimeParseFailedReply,
+  buildCalendarUpdateVerificationFailedReply,
 } from '@/src/features/agent/calendar/calendarUpdateNaturalReplies';
 import { buildNaturalCalendarUpdateSuccessReply } from '@/src/features/agent/execution/calendarUpdateSuccessReply';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
-import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
-import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import {
+  getChatLocaleFromVoiceLanguage,
+  type VoiceLanguageCode,
+} from '@/src/features/chat/services/voiceLanguageLocale';
 
 export type CalendarUpdateToolReplyBundle = {
   tool: CalendarToolResponse;
@@ -66,6 +69,10 @@ function buildNaturalUpdateFailureReply(
 
   if (tool.errorCode === 'CALENDAR_DATE_PARSE_FAILED') {
     return buildCalendarUpdateTimeParseFailedReply(locale);
+  }
+
+  if (tool.errorCode === 'VERIFY_FAILED') {
+    return buildCalendarUpdateVerificationFailedReply(locale);
   }
 
   return null;
@@ -177,14 +184,16 @@ export function buildCalendarUpdateToolReplyBundle(
     };
   }
 
+  const locale = getChatLocaleFromVoiceLanguage(languageCode);
+  const verificationFailed = buildCalendarUpdateVerificationFailedReply(locale);
   const code = tool.errorCode ?? 'UNKNOWN';
   const detail = tool.error ?? 'unknown error';
   const text = `FAILURE: ${code}: ${detail}`;
 
   return {
     tool,
-    reply: text,
-    spokenReply: text,
+    reply: verificationFailed,
+    spokenReply: verificationFailed,
     executionState: mapToolStatusToExecutionState(tool),
     requiresCalendarAuth:
       tool.errorCode === 'CALENDAR_AUTH_REQUIRED' ||

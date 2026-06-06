@@ -395,13 +395,45 @@ googleCalendarRouter.delete('/google-calendar/events/:eventId', async (request, 
 });
 
 googleCalendarRouter.patch('/google-calendar/events/:eventId', async (request, response) => {
+  const entryTimestamp = new Date().toISOString();
+  const eventId = request.params.eventId?.trim() ?? '';
+  const body = request.body as {
+    start?: { dateTime?: string; timeZone?: string };
+    end?: { dateTime?: string; timeZone?: string };
+  };
+
+  console.error('CALENDAR_UPDATE_EXECUTOR_STARTED', {
+    pid: process.pid,
+    eventId,
+    requestedStart: body?.start?.dateTime ?? null,
+    requestedEnd: body?.end?.dateTime ?? null,
+    timestamp: entryTimestamp,
+  });
+
+  console.error('CALENDAR_UPDATE_ENTRY', {
+    pid: process.pid,
+    method: request.method,
+    url: request.originalUrl,
+    eventId,
+    requestedStart: body?.start?.dateTime ?? null,
+    requestedEnd: body?.end?.dateTime ?? null,
+    requestedTimeZone: body?.start?.timeZone ?? null,
+    oldStart: null,
+    oldEnd: null,
+    timestamp: entryTimestamp,
+  });
+
   const deviceId = requireDeviceId(request, response);
 
   if (!deviceId) {
+    console.error('CALENDAR_UPDATE_ENTRY_ABORT', {
+      pid: process.pid,
+      reason: 'missing_device_id',
+      eventId,
+      timestamp: new Date().toISOString(),
+    });
     return;
   }
-
-  const eventId = request.params.eventId?.trim();
 
   if (!eventId) {
     return response.status(400).json({
@@ -413,6 +445,12 @@ googleCalendarRouter.patch('/google-calendar/events/:eventId', async (request, r
   const parsedRequest = parseUpdateEventRequest(request.body);
 
   if (!parsedRequest) {
+    console.error('CALENDAR_UPDATE_ENTRY_ABORT', {
+      pid: process.pid,
+      reason: 'invalid_payload',
+      eventId,
+      timestamp: new Date().toISOString(),
+    });
     return response.status(400).json({
       message: 'Invalid Google Calendar event update payload.',
       code: 'GOOGLE_CALENDAR_EVENT_PAYLOAD_INVALID',
@@ -438,6 +476,17 @@ googleCalendarRouter.patch('/google-calendar/events/:eventId', async (request, r
   const result = await updateGoogleCalendarEventForDevice(deviceId, eventId, parsedRequest);
 
   if (!result.ok) {
+    console.error('CALENDAR_VERIFY_RESULT', {
+      pid: process.pid,
+      eventId,
+      ok: false,
+      errorCode: result.errorCode,
+      errorMessage: result.errorMessage,
+      verified: result.verified,
+      verificationFetched: result.verificationFetched,
+      timestamp: new Date().toISOString(),
+    });
+
     const statusCode =
       result.errorCode === 'calendar_not_connected'
         ? 401
@@ -458,6 +507,17 @@ googleCalendarRouter.patch('/google-calendar/events/:eventId', async (request, r
       executionState: result.executionState,
     });
   }
+
+  console.error('CALENDAR_VERIFY_RESULT', {
+    pid: process.pid,
+    eventId: result.event.id,
+    ok: true,
+    verified: result.verified,
+    verificationFetched: result.verificationFetched,
+    startsAt: result.event.startsAt,
+    endsAt: result.event.endsAt,
+    timestamp: new Date().toISOString(),
+  });
 
   return response.status(200).json({
     status: 'SUCCESS',

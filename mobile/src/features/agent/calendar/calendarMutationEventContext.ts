@@ -10,6 +10,7 @@ import {
 } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { clearPendingIntent } from '@/src/features/agent/calendar/calendarPendingIntent';
 import { clearPendingCalendarState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
+import { logCalendarMoveWorkflow } from '@/src/features/agent/calendar/calendarMoveWorkflowLogger';
 import { syncCalendarSnapshotAfterMutation } from '@/src/features/agent/calendar/calendarSnapshotSync';
 import type { LastCalendarEventActionType } from '@/src/features/agent/calendar/calendarLastEventContext';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -64,6 +65,11 @@ export function recordVerifiedCalendarEventContext(params: {
   }
 
   if (params.referenceNow) {
+    logCalendarMoveWorkflow('CALENDAR_REFRESH_START', {
+      eventId: params.eventId,
+      actionType: params.actionType,
+    });
+
     void syncCalendarSnapshotAfterMutation({
       referenceNow: params.referenceNow,
       eventId: params.eventId,
@@ -78,10 +84,27 @@ export function recordVerifiedCalendarEventContext(params: {
             : params.actionType === 'delete'
               ? 'post_delete'
               : 'post_mutation',
-    }).then((result) => {
-      if (result.ok) {
-        setLastCalendarSnapshot(result.events, 'verified_mutation_sync');
-      }
-    });
+    })
+      .then((result) => {
+        if (result.ok) {
+          logCalendarMoveWorkflow('CALENDAR_REFRESH_SUCCESS', {
+            eventId: params.eventId,
+            eventCount: result.events.length,
+          });
+          setLastCalendarSnapshot(result.events, 'verified_mutation_sync');
+          return;
+        }
+
+        console.log('[Calendar Move Workflow] CALENDAR_REFRESH_FAILED', {
+          eventId: params.eventId,
+          failureReply: result.failureReply,
+        });
+      })
+      .catch((error) => {
+        console.log('[Calendar Move Workflow] CALENDAR_REFRESH_FAILED', {
+          eventId: params.eventId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
   }
 }

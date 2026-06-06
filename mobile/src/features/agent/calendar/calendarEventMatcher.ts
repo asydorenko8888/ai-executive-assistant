@@ -1,5 +1,9 @@
 import { fetchCalendarEventsForMutationSearch } from '@/src/features/agent/calendar/calendarMutationEventSearch';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
+import {
+  deduplicateCalendarEvents,
+  logCalendarEventDeduplication,
+} from '@/src/features/agent/calendar/calendarEventDeduplication';
 import { logUpdateParsedRequest } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
 import {
   augmentEventsWithConversationContext,
@@ -70,10 +74,20 @@ export async function findCalendarEventForDelete(params: {
     };
   }
 
+  const augmentedEvents = augmentEventsWithConversationContext(events);
+  const dedupedEvents = deduplicateCalendarEvents(augmentedEvents);
+
+  logCalendarEventDeduplication({
+    stage: 'delete_matcher_fetch',
+    rawCount: events.length,
+    localStoredCount: augmentedEvents.length,
+    deduplicatedCount: dedupedEvents.length,
+  });
+
   const resolved = findCalendarEventForDeleteFromEvents({
     transcript: params.transcript,
     referenceNow: params.referenceNow,
-    events: augmentEventsWithConversationContext(events),
+    events: dedupedEvents,
     titleQuery,
     timeZone,
   });
@@ -192,11 +206,19 @@ export async function findCalendarEventForUpdate(params: {
   }
 
   const eventsForResolution = augmentEventsWithConversationContext(events);
+  const dedupedEvents = deduplicateCalendarEvents(eventsForResolution);
+
+  logCalendarEventDeduplication({
+    stage: 'update_matcher_fetch',
+    rawCount: events.length,
+    localStoredCount: eventsForResolution.length,
+    deduplicatedCount: dedupedEvents.length,
+  });
 
   const resolved = resolveCalendarUpdateIntent({
     transcript: params.transcript,
     referenceNow: params.referenceNow,
-    events: eventsForResolution,
+    events: dedupedEvents,
     timeZone,
   });
 

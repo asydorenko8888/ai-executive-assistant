@@ -12,6 +12,7 @@ import {
   resolveUpdateTargetMs,
   stripCalendarUpdateSchedulePhrases,
 } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import { calendarConversationTitlesMatch } from '@/src/features/agent/calendar/calendarConversationTitleMatch';
 import {
   isEventPronounReference,
   resolveEventTitleQueryForMemory,
@@ -100,6 +101,40 @@ export function extractUpdateEventTitle(transcript: string) {
   return text;
 }
 
+function shouldAnchorScheduleToConversationMemory(params: {
+  title: string | null;
+  extractedTitle: string | null;
+  memoryTitle: string | null;
+}) {
+  if (!params.memoryTitle) {
+    return false;
+  }
+
+  if (!params.title || isEventPronounReference(params.extractedTitle ?? params.title)) {
+    return true;
+  }
+
+  return calendarConversationTitlesMatch(params.title, params.memoryTitle);
+}
+
+/** Title + relative shift without an explicit move verb, e.g. "стоматолога на 2 часа раньше". */
+export function isBareRelativeRescheduleRequest(transcript: string, referenceNow = new Date()) {
+  const normalized = transcript.trim();
+
+  if (!normalized || UPDATE_COMMAND_PREFIX.test(normalized)) {
+    return false;
+  }
+
+  const timeZone = getExecutiveCalendarTimezone();
+  const schedule = parseCalendarUpdateSchedule(normalized, referenceNow, timeZone);
+
+  if (!schedule.ok || schedule.kind !== 'relative_offset') {
+    return false;
+  }
+
+  return Boolean(extractUpdateEventTitle(normalized));
+}
+
 export function extractCalendarUpdateParameters(
   transcript: string,
   referenceNow: Date,
@@ -121,6 +156,11 @@ export function extractCalendarUpdateParameters(
   const title = titleQuery || null;
   const memoryStartMs = memoryRef?.startISO ? Date.parse(memoryRef.startISO) : Number.NaN;
   const hasMemoryStart = !Number.isNaN(memoryStartMs);
+  const anchorToMemory = shouldAnchorScheduleToConversationMemory({
+    title,
+    extractedTitle,
+    memoryTitle: memoryRef?.title ?? null,
+  });
 
   let fromTime: string | null = null;
   let toTime: string | null = null;
@@ -139,7 +179,7 @@ export function extractCalendarUpdateParameters(
         timeZone,
       });
       toTime = formatUpdateScheduleToTime(schedule, timeZone, schedule.fromMs);
-    } else if (hasMemoryStart) {
+    } else if (hasMemoryStart && anchorToMemory) {
       fromMs = memoryStartMs;
       toMs = resolveUpdateTargetMs({
         schedule,
@@ -155,7 +195,11 @@ export function extractCalendarUpdateParameters(
     } else if (schedule.kind === 'destination') {
       toMs = schedule.toMs;
       toTime = formatUpdateScheduleToTime(schedule, timeZone);
-    } else {
+    } else if (
+      schedule.kind !== 'relative_offset' &&
+      schedule.kind !== 'day_preserve_time' &&
+      schedule.kind !== 'event_day_shift'
+    ) {
       toTime = formatUpdateScheduleToTime(schedule, timeZone);
     }
 
@@ -186,7 +230,12 @@ export function extractCalendarUpdateParameters(
     if (toMs === null || Number.isNaN(toMs)) {
       missingFields.push('toTime');
     }
-  } else if (toMs === null || Number.isNaN(toMs)) {
+  } else if (
+    schedule.kind !== 'relative_offset' &&
+    schedule.kind !== 'day_preserve_time' &&
+    schedule.kind !== 'event_day_shift' &&
+    (toMs === null || Number.isNaN(toMs))
+  ) {
     missingFields.push('toTime');
   }
 

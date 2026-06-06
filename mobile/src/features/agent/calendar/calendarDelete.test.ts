@@ -149,7 +149,7 @@ describe('calendar delete integration', () => {
     assert.equal(resolution.event.id, 'tea-late');
   });
 
-  it('returns ambiguous when duplicate title shares the same start time', () => {
+  it('collapses duplicate local copies with the same schedule into one delete target', () => {
     const first = chicagoEvent('tea-a', 'чаепитие', 19, 30, 30);
     const second = {
       ...chicagoEvent('tea-b', 'Чаепитие', 19, 30, 30),
@@ -158,8 +158,9 @@ describe('calendar delete integration', () => {
 
     const resolution = resolveDelete('удали чаепитие сегодня в 19:30', [first, second]);
 
-    assert.equal(resolution.status, 'ambiguous');
-    assert.ok(resolution.candidates.length >= 2);
+    assert.equal(resolution.status, 'unique');
+    assert.equal(resolution.candidates.length, 1);
+    assert.equal(resolution.event.id, 'tea-a');
   });
 
   it('returns not found when no event matches', () => {

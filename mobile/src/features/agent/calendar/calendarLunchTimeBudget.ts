@@ -1,4 +1,5 @@
 import type { CalendarSituationAnalysis } from '@/src/features/agent/calendar/calendarSituationalReasoning';
+import { isCalendarTimeUntilEventQuery } from '@/src/features/agent/calendar/calendarTimeUntilQuery';
 
 export type LunchTimeRiskLevel = 'safe' | 'moderate' | 'tight' | 'risky';
 
@@ -111,6 +112,10 @@ export function computeLunchTimeBudget(analysis: CalendarSituationAnalysis): Lun
 }
 
 export function wantsDetailedLunchTimeBreakdown(analysis: CalendarSituationAnalysis) {
+  if (isCalendarTimeUntilEventQuery(analysis.transcript)) {
+    return false;
+  }
+
   if (analysis.minutesUntilNextEvent === null) {
     return false;
   }

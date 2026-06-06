@@ -35,10 +35,12 @@ import {
   getConversationPayloadMessages,
   useExecutiveConversationStore,
 } from '@/src/features/chat/store/executiveConversationStore';
+import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
 import {
   blockLlmForCalendarMutation,
   requiresCalendarToolExecution,
 } from '@/src/features/agent/calendar/calendarToolExecutionGate';
+import { buildCalendarMoveExceptionReply } from '@/src/features/agent/calendar/calendarMoveExceptionReply';
 import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
 import {
   classifyCalendarAgendaQueryIntent,
@@ -267,9 +269,17 @@ export function useHomeVoiceAssistant() {
           enableVoiceShortcuts: true,
         });
 
-        if (turn.reply) {
-          const spokenLocal = turn.reply;
+        const spokenLocal =
+          turn.reply?.trim() ||
+          (requiresCalendarToolExecution(trimmedTranscript)
+            ? blockLlmForCalendarMutation({
+                transcript: trimmedTranscript,
+                reason: 'voice empty operational reply',
+              })
+            : null) ||
+          buildFailureTerminalReply('CALENDAR_EXECUTION_CONTRACT', 'assistant turn returned no reply');
 
+        if (spokenLocal) {
           warnIfFalseExecutionClaim(spokenLocal, turn.calendarVerified ? 'executed' : 'drafted');
 
           if (turn.calendarVerified) {
@@ -414,6 +424,15 @@ export function useHomeVoiceAssistant() {
 
         const apiError = toApiError(error);
         console.log('[Voice] Error', apiError.message);
+
+        const recovery =
+          requiresCalendarToolExecution(trimmedTranscript) &&
+          detectCalendarCommandIntent(trimmedTranscript) === 'update_calendar_event'
+            ? buildCalendarMoveExceptionReply(languageCodeRef.current, apiError.message)
+            : buildAssistantRecoveryMessage(apiError, 'failed');
+
+        const assistantMessage = finishAssistantTurn(recovery);
+        playAssistantResponse(recovery, assistantMessage.id);
         setVoiceStatus('error');
         setStatusText(apiError.message);
       } finally {

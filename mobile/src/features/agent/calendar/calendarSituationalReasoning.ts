@@ -1,4 +1,7 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
+import { buildTimeUntilLayerPromptForLlm } from '@/src/features/agent/calendar/calendarTimeUntilLayers';
+import { isCalendarTimeUntilEventQuery } from '@/src/features/agent/calendar/calendarTimeUntilQuery';
+import type { CalendarDurationLocale } from '@/src/features/agent/calendar/calendarDurationUntil';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import {
   computeLunchTimeBudget,
@@ -445,7 +448,18 @@ export function analyzeCalendarSituation(params: {
   return analysis;
 }
 
-export function buildSituationContextForLlm(analysis: CalendarSituationAnalysis): string {
+export function buildSituationContextForLlm(
+  analysis: CalendarSituationAnalysis,
+  locale: CalendarDurationLocale = 'en',
+): string {
+  if (isCalendarTimeUntilEventQuery(analysis.transcript)) {
+    return (
+      `${buildTimeUntilLayerPromptForLlm(locale)} ` +
+      'For this message: output FACTS only (time until the event). ' +
+      'Do not add CONTEXT, PREFERENCES, or RECOMMENDATIONS unless the user explicitly asked when to leave.'
+    );
+  }
+
   const destination = analysis.destinationEvent?.location ?? 'unknown';
   const free = analysis.modifiers.effectiveFreeMinutes;
   const travel = analysis.modifiers.estimatedTravelMinutes;

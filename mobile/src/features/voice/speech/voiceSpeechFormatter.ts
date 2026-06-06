@@ -1,4 +1,20 @@
+import {
+  formatTotalMinutesAsDuration,
+  type CalendarDurationLocale,
+} from '@/src/features/agent/calendar/calendarDurationUntil';
 import type { VoiceLanguageChatLocale } from '@/src/features/chat/services/voiceLanguage';
+
+function toDurationLocale(locale: VoiceLanguageChatLocale): CalendarDurationLocale {
+  if (locale === 'uk') {
+    return 'uk';
+  }
+
+  if (locale === 'ru') {
+    return 'ru';
+  }
+
+  return 'en';
+}
 
 export type SpokenUrgency = 'immediate' | 'soon' | 'relaxed' | 'free';
 
@@ -415,6 +431,10 @@ export function formatSpokenMinutesUntil(
 ) {
   const safeMinutes = Math.max(1, Math.round(minutes));
 
+  if (style === 'precise') {
+    return formatTotalMinutesAsDuration(safeMinutes, toDurationLocale(locale));
+  }
+
   if (style === 'soft') {
     if (safeMinutes < 10) {
       if (locale === 'uk') {
@@ -475,35 +495,5 @@ export function formatSpokenMinutesUntil(
     return 'about two hours';
   }
 
-  if (locale === 'uk') {
-    const mod10 = safeMinutes % 10;
-    const mod100 = safeMinutes % 100;
-
-    if (mod10 === 1 && mod100 !== 11) {
-      return `${safeMinutes} хвилина`;
-    }
-
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
-      return `${safeMinutes} хвилини`;
-    }
-
-    return `${safeMinutes} хвилин`;
-  }
-
-  if (locale === 'ru') {
-    const mod10 = safeMinutes % 10;
-    const mod100 = safeMinutes % 100;
-
-    if (mod10 === 1 && mod100 !== 11) {
-      return `${safeMinutes} минута`;
-    }
-
-    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
-      return `${safeMinutes} минуты`;
-    }
-
-    return `${safeMinutes} минут`;
-  }
-
-  return `${safeMinutes} minutes`;
+  return formatTotalMinutesAsDuration(safeMinutes, toDurationLocale(locale));
 }

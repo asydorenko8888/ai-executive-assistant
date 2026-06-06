@@ -84,27 +84,12 @@ export async function blockCalendarMutationOnScheduleConflict(params: {
     console.log('[Calendar Conflict Refresh]', {
       operation: params.operation,
       refreshAttempts: check.refreshAttempts ?? null,
-      proceedingWithoutConflictCheck: params.operation === 'create',
+      proceedingWithoutConflictCheck: true,
     });
 
-    if (params.operation === 'create') {
-      return {
-        block: null,
-        skippedConflictCheckDueToRefreshFailure: true,
-      };
-    }
-
-    const tool = createCalendarToolFailure(
-      'CALENDAR_READ_FAILED',
-      'Could not refresh Google Calendar before checking schedule conflicts.',
-    );
-
     return {
-      block: {
-        tool,
-        reply: tool.error ?? 'Calendar read failed',
-        spokenReply: tool.error ?? 'Calendar read failed',
-      },
+      block: null,
+      skippedConflictCheckDueToRefreshFailure: true,
     };
   }
 

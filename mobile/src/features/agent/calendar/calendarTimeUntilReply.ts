@@ -5,75 +5,67 @@ import {
   type CalendarDurationLocale,
 } from '@/src/features/agent/calendar/calendarDurationUntil';
 import {
+  assessEventDepartureLayers,
+  buildDepartureRecommendationText,
+  buildFactsOnlyTimeUntilReply,
+  isExplicitDeparturePlanningQuery,
+  logEventDepartureLayers,
+} from '@/src/features/agent/calendar/calendarTimeUntilLayers';
+import {
+  extractTimeUntilEventTitleQuery,
+  findAllTitleMatchingTimeUntilEvents,
+  findFutureMatchingTimeUntilEvents,
+  getTimeUntilNoFutureMatchMessage,
   isCalendarTimeUntilEventQuery,
-  resolveTimeUntilTargetEvent,
+  logTimeUntilEventSelection,
 } from '@/src/features/agent/calendar/calendarTimeUntilQuery';
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
-
-function buildTimeUntilReplyText(params: {
-  locale: CalendarDurationLocale;
-  eventTitle: string;
-  duration: NonNullable<ReturnType<typeof formatDurationUntilFromEventStartIso>>;
-}) {
-  const { duration, eventTitle, locale } = params;
-
-  if (duration.isPast) {
-    if (locale === 'uk') {
-      return `«${eventTitle}» уже почався.`;
-    }
-
-    if (locale === 'ru') {
-      return `«${eventTitle}» уже начался.`;
-    }
-
-    return `"${eventTitle}" has already started.`;
-  }
-
-  if (duration.isNow) {
-    if (locale === 'uk') {
-      return `«${eventTitle}» починається зараз.`;
-    }
-
-    if (locale === 'ru') {
-      return `«${eventTitle}» начинается прямо сейчас.`;
-    }
-
-    return `"${eventTitle}" starts right now.`;
-  }
-
-  if (locale === 'uk') {
-    return `До «${eventTitle}» залишилось ${duration.formattedDuration}.`;
-  }
-
-  if (locale === 'ru') {
-    return `До «${eventTitle}» осталось ${duration.formattedDuration}.`;
-  }
-
-  return `${duration.formattedDuration} until "${eventTitle}".`;
-}
 
 export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
   transcript: string;
   languageCode: VoiceLanguageCode;
   referenceNow: Date;
   events: CalendarEvent[];
+  /** Real route estimate (minutes), not a default guess. */
+  travelEvidenceMinutes?: number | null;
 }): string | null {
   if (!isCalendarTimeUntilEventQuery(params.transcript)) {
     return null;
   }
 
-  const targetEvent = resolveTimeUntilTargetEvent({
-    transcript: params.transcript,
+  const locale = getChatLocaleFromVoiceLanguage(params.languageCode) as CalendarDurationLocale;
+  const titleQuery = extractTimeUntilEventTitleQuery(params.transcript);
+
+  if (!titleQuery) {
+    return null;
+  }
+
+  const allMatching = findAllTitleMatchingTimeUntilEvents({
+    titleQuery,
+    events: params.events,
+  });
+  const futureMatching = findFutureMatchingTimeUntilEvents({
+    titleQuery,
     events: params.events,
     referenceNow: params.referenceNow,
   });
+
+  if (futureMatching.length === 0) {
+    if (allMatching.length > 0) {
+      return getTimeUntilNoFutureMatchMessage(locale);
+    }
+
+    return null;
+  }
+
+  const targetEvent = futureMatching[0] ?? null;
 
   if (!targetEvent) {
     return null;
   }
 
-  const locale = getChatLocaleFromVoiceLanguage(params.languageCode) as CalendarDurationLocale;
   const duration = formatDurationUntilFromEventStartIso({
     eventStartIso: targetEvent.startsAt,
     referenceNow: params.referenceNow,
@@ -84,6 +76,31 @@ export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
     return null;
   }
 
+  const layers = assessEventDepartureLayers({
+    event: targetEvent,
+    referenceNow: params.referenceNow,
+    locale,
+    timeZone: getExecutiveCalendarTimezone(),
+    travelEvidenceMinutes: params.travelEvidenceMinutes ?? null,
+  });
+
+  if (!layers) {
+    return null;
+  }
+
+  logTimeUntilEventSelection({
+    titleQuery,
+    referenceNow: params.referenceNow,
+    selectedEvent: targetEvent,
+    futureMatches: futureMatching,
+  });
+
+  logEventDepartureLayers({
+    transcript: params.transcript,
+    eventTitle: targetEvent.title,
+    layers,
+  });
+
   logCalendarTimeUntilDebug({
     query: params.transcript,
     referenceNowIso: params.referenceNow.toISOString(),
@@ -93,9 +110,27 @@ export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
     formattedDuration: duration.formattedDuration,
   });
 
-  return buildTimeUntilReplyText({
+  const factsReply = buildFactsOnlyTimeUntilReply({
     locale,
     eventTitle: targetEvent.title,
-    duration,
+    facts: layers.facts,
+    isPast: duration.isPast,
+    isNow: duration.isNow,
   });
+
+  if (!isExplicitDeparturePlanningQuery(params.transcript)) {
+    return factsReply;
+  }
+
+  const recommendation = buildDepartureRecommendationText({
+    locale,
+    eventTitle: targetEvent.title,
+    layers,
+  });
+
+  if (!recommendation) {
+    return factsReply;
+  }
+
+  return `${factsReply}\n\n${recommendation}`;
 }

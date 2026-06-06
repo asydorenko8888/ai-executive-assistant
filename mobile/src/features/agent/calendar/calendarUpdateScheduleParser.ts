@@ -439,7 +439,15 @@ function parseRelativeOffset(transcript: string): CalendarUpdateSchedule | null 
   }
 
   if (laterMinutes) {
-    const amount = laterMinutes[1] ? Number(laterMinutes[1]) : 15;
+    if (!laterMinutes[1]) {
+      return null;
+    }
+
+    const amount = Number(laterMinutes[1]);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return null;
+    }
 
     return {
       ok: true,
@@ -450,7 +458,15 @@ function parseRelativeOffset(transcript: string): CalendarUpdateSchedule | null 
   }
 
   if (earlierMinutes) {
-    const amount = earlierMinutes[1] ? Number(earlierMinutes[1]) : 15;
+    if (!earlierMinutes[1]) {
+      return null;
+    }
+
+    const amount = Number(earlierMinutes[1]);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return null;
+    }
 
     return {
       ok: true,

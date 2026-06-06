@@ -19,11 +19,25 @@ import {
 } from '@/src/features/agent/calendar/calendarMutationDiagnostics';
 import { logUpdateSuccess } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import { logUpdateNotFound } from '@/src/features/agent/calendar/calendarUpdateResolutionDiagnostics';
+import { ensureVisibleCalendarMoveReply } from '@/src/features/agent/calendar/calendarMoveExceptionReply';
 import { recordVerifiedCalendarEventContext } from '@/src/features/agent/calendar/calendarMutationEventContext';
+import { clearPendingCalendarState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 import { blockCalendarMutationOnScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflictGuard';
 import { updateGoogleCalendarEvent } from '@/src/features/agent/calendar/googleCalendarUpdateService';
 import { resolveCalendarWriteAccessState } from '@/src/features/agent/calendar/calendarWriteAccess';
 import { logCalendarDecision } from '@/src/features/agent/calendar/calendarDecisionLogger';
+import {
+  logCalendarMoveTargetEvent,
+  logCalendarMoveWorkflow,
+} from '@/src/features/agent/calendar/calendarMoveWorkflowLogger';
+import {
+  logCalendarExecutionBlocked,
+  logCalendarMoveEventSelected,
+  logCalendarMoveExecutorCalled,
+  logCalendarMoveTargetTimeResolved,
+  logCalendarPendingActionCreated,
+  logCalendarUpdateExecutorStarted,
+} from '@/src/features/agent/calendar/calendarMoveTraceLogger';
 import {
   logCalendarUpdateFailed,
   logCalendarUpdateIntent,
@@ -74,6 +88,7 @@ async function guardUpdateScheduleConflict(params: {
   matchedEndsAt: string;
   payloadResult: Extract<CalendarUpdatePayloadBuildResult, { ok: true }>;
   skipScheduleConflictCheck?: boolean;
+  endOperation: (failed: boolean, failureReason?: string | null) => void;
 }): Promise<CalendarUpdateExecutionOutcome | null> {
   const matchedStartMs = Date.parse(params.matchedStartsAt);
   const matchedEndMs = Date.parse(params.matchedEndsAt);
@@ -96,10 +111,21 @@ async function guardUpdateScheduleConflict(params: {
   });
 
   if (!conflictGate.block) {
+    if (conflictGate.skippedConflictCheckDueToRefreshFailure) {
+      console.log('[Calendar Conflict Refresh]', {
+        stage: 'pre_update_conflict_check_skipped',
+        reason: 'calendar_refresh_failed',
+      });
+    }
+
     return null;
   }
 
-  endCalendarOperation({ failed: true });
+  params.endOperation(true, 'schedule_conflict_blocked');
+  logCalendarMoveWorkflow('MOVE_COMPLETE', {
+    success: false,
+    reason: 'schedule_conflict_blocked',
+  });
 
   return {
     ...buildCalendarUpdateToolReplyBundle(conflictGate.block.tool, params.languageCode, {
@@ -116,9 +142,11 @@ async function executeVerifiedCalendarUpdate(params: {
   referenceNow: Date;
   payloadResult: Extract<CalendarUpdatePayloadBuildResult, { ok: true }>;
   matchedStartsAt: string;
+  matchedEndsAt: string;
   matchedTitle: string;
   requestedEventTitle?: string | null;
   conflictOverride?: boolean;
+  endOperation: (failed: boolean, failureReason?: string | null) => void;
 }): Promise<CalendarUpdateExecutionOutcome> {
   logCalendarUpdateIntent({
     eventId: params.payloadResult.eventId,
@@ -126,112 +154,189 @@ async function executeVerifiedCalendarUpdate(params: {
     toMs: params.payloadResult.toMs,
   });
 
-  const tool: CalendarToolResponse = await updateGoogleCalendarEvent(
-    params.payloadResult.eventId,
-    params.payloadResult.payload,
-    { originalStartsAt: params.matchedStartsAt, languageCode: params.languageCode },
-  );
+  logCalendarMoveTargetEvent({
+    eventId: params.payloadResult.eventId,
+    title: params.matchedTitle,
+    startsAt: params.matchedStartsAt,
+    endsAt: params.matchedEndsAt,
+  });
 
-  if (tool.status === 'SUCCESS' && tool.verified) {
-    logCalendarMutationAudit(
-      {
-        operationType: 'MOVE',
-        requestedEvent: params.requestedEventTitle ?? params.matchedTitle,
-        resolvedEvent: tool.event?.summary ?? params.matchedTitle,
-        eventId: tool.eventId ?? params.payloadResult.eventId,
-        oldTime: params.matchedStartsAt,
-        newTime: tool.event?.startsAt ?? params.payloadResult.payload.start.dateTime ?? null,
-        conflictDetected: Boolean(params.conflictOverride),
-        conflictOverride: Boolean(params.conflictOverride),
-        status: 'success',
-      },
-      { languageCode: params.languageCode, referenceNow: params.referenceNow },
-    );
-    logUpdateSuccess({
-      eventId: params.payloadResult.eventId,
-      title: params.matchedTitle,
-      fromStart: params.matchedStartsAt,
-      toStart: tool.event?.startsAt ?? params.matchedStartsAt,
+  logCalendarMoveEventSelected({
+    eventId: params.payloadResult.eventId,
+    title: params.matchedTitle,
+    startsAt: params.matchedStartsAt,
+    endsAt: params.matchedEndsAt,
+  });
+
+  logCalendarMoveTargetTimeResolved({
+    eventId: params.payloadResult.eventId,
+    requestedStart: params.payloadResult.payload.start.dateTime ?? '',
+    requestedEnd: params.payloadResult.payload.end.dateTime ?? '',
+  });
+
+  try {
+    logCalendarMoveExecutorCalled({
+      executor: 'updateGoogleCalendarEvent',
+      transcript: params.payloadResult.payload.summary ?? params.matchedTitle,
     });
-    clearPendingCalendarUpdateIntent();
-    clearPendingCalendarConflictContext();
-    endCalendarOperation({ failed: false });
-    if (tool.eventId && tool.event) {
-      recordVerifiedCalendarEventContext({
-        eventId: tool.eventId,
-        title: tool.event.summary ?? params.matchedTitle,
-        startISO: tool.event.startsAt,
-        endISO: tool.event.endsAt,
-        actionType: 'update',
-        clearPendingReason: 'update_completed',
-        referenceNow: params.referenceNow,
-        languageCode: params.languageCode,
-        previousStartISO: params.matchedStartsAt,
+
+    const tool: CalendarToolResponse = await updateGoogleCalendarEvent(
+      params.payloadResult.eventId,
+      params.payloadResult.payload,
+      { originalStartsAt: params.matchedStartsAt, languageCode: params.languageCode },
+    );
+
+    logCalendarMoveWorkflow('MOVE_VERIFY_RESULT', {
+      status: tool.status,
+      verified: tool.verified ?? false,
+      verificationFetched: tool.verificationFetched ?? false,
+      eventId: tool.eventId ?? params.payloadResult.eventId,
+      errorCode: tool.errorCode ?? null,
+    });
+
+    if (tool.status === 'SUCCESS' && tool.verified) {
+      logCalendarMutationAudit(
+        {
+          operationType: 'MOVE',
+          requestedEvent: params.requestedEventTitle ?? params.matchedTitle,
+          resolvedEvent: tool.event?.summary ?? params.matchedTitle,
+          eventId: tool.eventId ?? params.payloadResult.eventId,
+          oldTime: params.matchedStartsAt,
+          newTime: tool.event?.startsAt ?? params.payloadResult.payload.start.dateTime ?? null,
+          conflictDetected: Boolean(params.conflictOverride),
+          conflictOverride: Boolean(params.conflictOverride),
+          status: 'success',
+        },
+        { languageCode: params.languageCode, referenceNow: params.referenceNow },
+      );
+      logUpdateSuccess({
+        eventId: params.payloadResult.eventId,
+        title: params.matchedTitle,
+        fromStart: params.matchedStartsAt,
+        toStart: tool.event?.startsAt ?? params.matchedStartsAt,
       });
+      clearPendingCalendarUpdateIntent();
+      clearPendingCalendarConflictContext();
+      params.endOperation(false);
+      if (tool.eventId && tool.event) {
+        recordVerifiedCalendarEventContext({
+          eventId: tool.eventId,
+          title: tool.event.summary ?? params.matchedTitle,
+          startISO: tool.event.startsAt,
+          endISO: tool.event.endsAt,
+          actionType: 'update',
+          clearPendingReason: 'update_completed',
+          referenceNow: params.referenceNow,
+          languageCode: params.languageCode,
+          previousStartISO: params.matchedStartsAt,
+        });
+      } else {
+        clearPendingCalendarState('update_completed_without_event_payload');
+      }
+      logCalendarMutationVerification({
+        intent: 'update_calendar_event',
+        verified: true,
+        verificationFetched: tool.verificationFetched,
+        eventId: tool.eventId ?? null,
+      });
+      logCalendarMoveWorkflow('MOVE_VERIFY_SUCCESS', {
+        eventId: tool.eventId ?? params.payloadResult.eventId,
+      });
+      logCalendarMoveWorkflow('MOVE_COMPLETE', {
+        success: true,
+        eventId: tool.eventId ?? params.payloadResult.eventId,
+      });
+      return {
+        ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
+          referenceNow: params.referenceNow,
+          previousStartsAt: params.matchedStartsAt,
+        }),
+        verified: true,
+      };
     }
-    logCalendarMutationVerification({
-      intent: 'update_calendar_event',
-      verified: true,
-      verificationFetched: tool.verificationFetched,
-      eventId: tool.eventId ?? null,
+
+    if (tool.status === 'SUCCESS' && !tool.verified) {
+      params.endOperation(true);
+      logCalendarMutationAudit(
+        {
+          operationType: 'MOVE',
+          requestedEvent: params.requestedEventTitle ?? params.matchedTitle,
+          resolvedEvent: params.matchedTitle,
+          eventId: params.payloadResult.eventId,
+          oldTime: params.matchedStartsAt,
+          newTime: params.payloadResult.payload.start.dateTime ?? null,
+          conflictDetected: Boolean(params.conflictOverride),
+          conflictOverride: Boolean(params.conflictOverride),
+          status: 'failed',
+          detail: 'verification_failed',
+        },
+        { languageCode: params.languageCode, referenceNow: params.referenceNow },
+      );
+      const unverified = createCalendarToolFailure(
+        'VERIFY_FAILED',
+        'Google Calendar did not confirm the update.',
+      );
+      logCalendarMutationVerification({
+        intent: 'update_calendar_event',
+        verified: false,
+        verificationFetched: tool.verificationFetched,
+        eventId: tool.eventId ?? null,
+        detail: 'unverified_success',
+      });
+      logCalendarMoveWorkflow('MOVE_COMPLETE', {
+        success: false,
+        reason: 'verification_failed',
+        eventId: params.payloadResult.eventId,
+      });
+      return {
+        ...buildCalendarUpdateToolReplyBundle(unverified, params.languageCode, {
+          referenceNow: params.referenceNow,
+        }),
+        verified: false,
+      };
+    }
+
+    params.endOperation(true);
+    logCalendarUpdateFailed({
+      reason: 'executor_tool_failure',
+      errorCode: tool.errorCode ?? null,
+      error: tool.error ?? null,
+    });
+    logCalendarMoveWorkflow('MOVE_FAILED', {
+      reason: tool.errorCode ?? 'tool_failure',
+      eventId: params.payloadResult.eventId,
+    });
+    logCalendarMoveWorkflow('MOVE_COMPLETE', {
+      success: false,
+      reason: tool.errorCode ?? 'tool_failure',
+      eventId: params.payloadResult.eventId,
     });
     return {
       ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
         referenceNow: params.referenceNow,
-        previousStartsAt: params.matchedStartsAt,
       }),
-      verified: true,
-    };
-  }
-
-  if (tool.status === 'SUCCESS' && !tool.verified) {
-    endCalendarOperation({ failed: true });
-    logCalendarMutationAudit(
-      {
-        operationType: 'MOVE',
-        requestedEvent: params.requestedEventTitle ?? params.matchedTitle,
-        resolvedEvent: params.matchedTitle,
-        eventId: params.payloadResult.eventId,
-        oldTime: params.matchedStartsAt,
-        newTime: params.payloadResult.payload.start.dateTime ?? null,
-        conflictDetected: Boolean(params.conflictOverride),
-        conflictOverride: Boolean(params.conflictOverride),
-        status: 'failed',
-        detail: 'verification_failed',
-      },
-      { languageCode: params.languageCode, referenceNow: params.referenceNow },
-    );
-    const unverified = createCalendarToolFailure(
-      'VERIFY_FAILED',
-      'Google Calendar did not confirm the update.',
-    );
-    logCalendarMutationVerification({
-      intent: 'update_calendar_event',
       verified: false,
-      verificationFetched: tool.verificationFetched,
-      eventId: tool.eventId ?? null,
-      detail: 'unverified_success',
+    };
+  } catch (error) {
+    params.endOperation(true);
+    logCalendarUpdateFailed({
+      reason: 'verified_update_exception',
+      message: error instanceof Error ? error.message : 'Calendar update error',
+    });
+    const message = error instanceof Error ? error.message : 'Calendar update error';
+    const failureTool = createCalendarToolFailure('CALENDAR_OPERATION_ERROR', message);
+    logCalendarMoveWorkflow('MOVE_COMPLETE', {
+      success: false,
+      reason: 'verified_update_exception',
+      eventId: params.payloadResult.eventId,
     });
     return {
-      ...buildCalendarUpdateToolReplyBundle(unverified, params.languageCode, {
+      ...buildCalendarUpdateToolReplyBundle(failureTool, params.languageCode, {
         referenceNow: params.referenceNow,
       }),
       verified: false,
     };
   }
-
-  endCalendarOperation({ failed: true });
-  logCalendarUpdateFailed({
-    reason: 'executor_tool_failure',
-    errorCode: tool.errorCode ?? null,
-    error: tool.error ?? null,
-  });
-  return {
-    ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
-      referenceNow: params.referenceNow,
-    }),
-    verified: false,
-  };
 }
 
 export type CalendarUpdateExecutionOutcome = CalendarUpdateToolReplyBundle & {
@@ -241,6 +346,48 @@ export type CalendarUpdateExecutionOutcome = CalendarUpdateToolReplyBundle & {
 export async function executeCalendarUpdateEvent(
   params: CalendarUpdateExecutionParams,
 ): Promise<CalendarUpdateExecutionOutcome> {
+  try {
+    return await executeCalendarUpdateEventUnsafe(params);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'неизвестная ошибка';
+
+    logCalendarMoveWorkflow('MOVE_EXCEPTION', {
+      phase: 'executeCalendarUpdateEvent',
+      reason,
+      transcriptPreview: params.transcript.slice(0, 120),
+    });
+
+    const failureTool = createCalendarToolFailure('CALENDAR_OPERATION_ERROR', reason);
+    const bundle = buildCalendarUpdateToolReplyBundle(failureTool, params.languageCode, {
+      referenceNow: params.referenceNow,
+    });
+    const reply = ensureVisibleCalendarMoveReply({
+      reply: bundle.reply,
+      languageCode: params.languageCode,
+      fallbackReason: reason,
+    });
+
+    return {
+      ...bundle,
+      reply,
+      spokenReply: reply,
+      verified: false,
+    };
+  }
+}
+
+async function executeCalendarUpdateEventUnsafe(
+  params: CalendarUpdateExecutionParams,
+): Promise<CalendarUpdateExecutionOutcome> {
+  logCalendarUpdateExecutorStarted({
+    transcript: params.transcript,
+    selectedEventId: params.selectedEventId ?? null,
+    storedUpdateTargetId: params.storedUpdateTarget?.eventId ?? null,
+  });
+  logCalendarMoveExecutorCalled({
+    executor: 'executeCalendarUpdateEvent',
+    transcript: params.transcript,
+  });
   logUpdateExecutionStarted({
     action: 'executeCalendarUpdateEvent',
     transcriptPreview: params.transcript.slice(0, 120),
@@ -303,6 +450,23 @@ export async function executeCalendarUpdateEvent(
     };
   }
 
+  let operationEnded = false;
+  const endOperation = (failed: boolean, failureReason?: string | null) => {
+    if (!operationEnded) {
+      endCalendarOperation({
+        failed,
+        failureReason: failureReason ?? null,
+      });
+      operationEnded = true;
+    }
+  };
+
+  logCalendarMoveWorkflow('MOVE_START', {
+    transcript: params.transcript.slice(0, 120),
+    storedUpdateTarget: params.storedUpdateTarget?.eventId ?? null,
+    selectedEventId: params.selectedEventId ?? null,
+  });
+
   try {
     if (params.storedUpdateTarget) {
       const payloadResult = buildCalendarUpdatePayloadFromStoredTarget({
@@ -316,7 +480,11 @@ export async function executeCalendarUpdateEvent(
       });
 
       if (!payloadResult.ok) {
-        endCalendarOperation({ failed: true });
+        endOperation(true);
+        logCalendarMoveWorkflow('MOVE_COMPLETE', {
+          success: false,
+          reason: payloadResult.reason,
+        });
         const tool = createCalendarToolFailure(
           payloadResult.reason === 'date_parse_failed'
             ? 'CALENDAR_DATE_PARSE_FAILED'
@@ -342,22 +510,28 @@ export async function executeCalendarUpdateEvent(
         matchedEndsAt: params.storedUpdateTarget.originalEndsAt,
         payloadResult,
         skipScheduleConflictCheck: params.skipScheduleConflictCheck,
+        endOperation,
       });
 
       if (conflictOutcome) {
         return conflictOutcome;
       }
 
-      return executeVerifiedCalendarUpdate({
+      return await executeVerifiedCalendarUpdate({
         languageCode: params.languageCode,
         referenceNow: params.referenceNow,
         payloadResult,
         matchedStartsAt: params.storedUpdateTarget.originalStartsAt,
+        matchedEndsAt: params.storedUpdateTarget.originalEndsAt,
         matchedTitle: params.storedUpdateTarget.title,
+        endOperation,
       });
     }
 
     if (params.selectedEventId) {
+      logCalendarMoveWorkflow('MOVE_EVENT_SELECTED', {
+        eventId: params.selectedEventId,
+      });
       const pendingUpdate = getPendingCalendarUpdateContext();
       const scheduleTranscript = pendingUpdate?.sourceTranscript.trim() || params.transcript;
       const memoryRef = getActiveCalendarEvent(params.referenceNow) ?? resolveMoveEventReference(params.referenceNow);
@@ -405,7 +579,11 @@ export async function executeCalendarUpdateEvent(
       });
 
       if (!payloadResult.ok) {
-        endCalendarOperation({ failed: true });
+        endOperation(true);
+        logCalendarMoveWorkflow('MOVE_COMPLETE', {
+          success: false,
+          reason: payloadResult.reason,
+        });
         const tool = createCalendarToolFailure(
           payloadResult.reason === 'date_parse_failed'
             ? 'CALENDAR_DATE_PARSE_FAILED'
@@ -434,18 +612,21 @@ export async function executeCalendarUpdateEvent(
         matchedEndsAt: matchedEvent.endsAt,
         payloadResult,
         skipScheduleConflictCheck: params.skipScheduleConflictCheck,
+        endOperation,
       });
 
       if (conflictOutcome) {
         return conflictOutcome;
       }
 
-      return executeVerifiedCalendarUpdate({
+      return await executeVerifiedCalendarUpdate({
         languageCode: params.languageCode,
         referenceNow: params.referenceNow,
         payloadResult,
         matchedStartsAt: matchedEvent.startsAt,
+        matchedEndsAt: matchedEvent.endsAt,
         matchedTitle: matchedEvent.title,
+        endOperation,
       });
     }
 
@@ -458,7 +639,11 @@ export async function executeCalendarUpdateEvent(
       matchResult.requestedEventName ?? matchResult.titleQuery ?? null;
 
     if (!matchResult.fetchOk) {
-      endCalendarOperation({ failed: true });
+      endOperation(true);
+      logCalendarMoveWorkflow('MOVE_COMPLETE', {
+        success: false,
+        reason: 'event_search_fetch_failed',
+      });
       const tool = createCalendarToolFailure(
         'CALENDAR_READ_FAILED',
         'Could not refresh Google Calendar before update.',
@@ -479,10 +664,19 @@ export async function executeCalendarUpdateEvent(
     }
 
     if (matchResult.resolutionFailureReason) {
-      endCalendarOperation({ failed: true });
       const reason = matchResult.resolutionFailureReason;
 
+      logCalendarExecutionBlocked({
+        reason,
+        intent: 'update_calendar_event',
+        eventId: matchResult.match?.id ?? null,
+        title: requestedTitle ?? matchResult.match?.title ?? null,
+        transcript: params.transcript,
+        source: 'executeCalendarUpdateEvent',
+      });
+
       if (reason === 'ambiguous') {
+        endOperation(false);
         const extracted = extractCalendarUpdateParameters(params.transcript, params.referenceNow);
         const candidates = calendarEventsToDisambiguationCandidates(matchResult.candidates);
         const pendingUpdate = {
@@ -494,6 +688,14 @@ export async function executeCalendarUpdateEvent(
           candidates,
         };
         setPendingCalendarUpdateContext(pendingUpdate);
+        logCalendarPendingActionCreated({
+          action: 'move',
+          sourceTranscript: params.transcript,
+          title: extracted.title,
+          candidateCount: candidates.length,
+          candidateEventIds: candidates.map((candidate) => candidate.eventId),
+          toStartISO: extracted.toStartISO,
+        });
         syncConversationStateForUpdateSelection(pendingUpdate, params.languageCode);
         const tool = createCalendarToolFailure(
           'CALENDAR_EVENT_AMBIGUOUS',
@@ -506,6 +708,10 @@ export async function executeCalendarUpdateEvent(
           eventId: null,
           detail: 'ambiguous_candidates',
         });
+        logCalendarMoveWorkflow('MOVE_COMPLETE', {
+          success: false,
+          reason: 'ambiguous_candidates',
+        });
         return {
           ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
             referenceNow: params.referenceNow,
@@ -517,6 +723,7 @@ export async function executeCalendarUpdateEvent(
       }
 
       if (reason === 'no_time_change' && matchResult.match) {
+        endOperation(true);
         logCalendarMutationAudit(
           {
             operationType: 'MOVE',
@@ -536,6 +743,10 @@ export async function executeCalendarUpdateEvent(
           'CALENDAR_NO_TIME_CHANGE',
           matchResult.resolutionDetail ?? 'Requested time matches current start.',
         );
+        logCalendarMoveWorkflow('MOVE_COMPLETE', {
+          success: false,
+          reason: 'no_time_change',
+        });
         return {
           ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
             referenceNow: params.referenceNow,
@@ -546,10 +757,15 @@ export async function executeCalendarUpdateEvent(
       }
 
       if (reason === 'time_parse_failed') {
+        endOperation(true);
         const tool = createCalendarToolFailure(
           'CALENDAR_DATE_PARSE_FAILED',
           matchResult.resolutionDetail ?? 'Could not parse destination time.',
         );
+        logCalendarMoveWorkflow('MOVE_COMPLETE', {
+          success: false,
+          reason: 'time_parse_failed',
+        });
         return {
           ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
             referenceNow: params.referenceNow,
@@ -558,6 +774,8 @@ export async function executeCalendarUpdateEvent(
           verified: false,
         };
       }
+
+      endOperation(true);
 
       const formatClock = (ms: number) => {
         const date = new Date(ms);
@@ -582,6 +800,10 @@ export async function executeCalendarUpdateEvent(
         eventId: matchResult.match?.id ?? null,
         detail: reason,
       });
+      logCalendarMoveWorkflow('MOVE_COMPLETE', {
+        success: false,
+        reason,
+      });
       return {
         ...buildCalendarUpdateToolReplyBundle(tool, params.languageCode, {
           referenceNow: params.referenceNow,
@@ -592,7 +814,11 @@ export async function executeCalendarUpdateEvent(
     }
 
     if (!matchResult.resolvedIntent || !matchResult.match) {
-      endCalendarOperation({ failed: true });
+      endOperation(true);
+      logCalendarMoveWorkflow('MOVE_COMPLETE', {
+        success: false,
+        reason: 'unresolved_intent',
+      });
       const tool = createCalendarToolFailure(
         'CALENDAR_EVENT_NOT_FOUND',
         'Could not resolve calendar update intent.',
@@ -612,7 +838,11 @@ export async function executeCalendarUpdateEvent(
     });
 
     if (!payloadResult.ok) {
-      endCalendarOperation({ failed: true });
+      endOperation(true);
+      logCalendarMoveWorkflow('MOVE_COMPLETE', {
+        success: false,
+        reason: 'payload_build_failed',
+      });
       const tool = createCalendarToolFailure(
         'CALENDAR_OPERATION_ERROR',
         payloadResult.detail,
@@ -626,6 +856,13 @@ export async function executeCalendarUpdateEvent(
       };
     }
 
+    logCalendarMoveWorkflow('MOVE_NEW_TIME_PARSED', {
+      eventId: payloadResult.eventId,
+      toMs: payloadResult.toMs,
+      start: payloadResult.payload.start.dateTime ?? null,
+      end: payloadResult.payload.end.dateTime ?? null,
+    });
+
     const integrity = assertResolvedTargetMatchesPayload({
       resolution: matchResult.resolvedIntent,
       payloadEventId: payloadResult.eventId,
@@ -633,7 +870,11 @@ export async function executeCalendarUpdateEvent(
     });
 
     if (!integrity.ok) {
-      endCalendarOperation({ failed: true });
+      endOperation(true);
+      logCalendarMoveWorkflow('MOVE_COMPLETE', {
+        success: false,
+        reason: 'target_integrity_failed',
+      });
       const tool = createCalendarToolFailure(
         'CALENDAR_OPERATION_ERROR',
         integrity.detail,
@@ -663,34 +904,49 @@ export async function executeCalendarUpdateEvent(
       matchedEndsAt: matchResult.match.endsAt,
       payloadResult,
       skipScheduleConflictCheck: params.skipScheduleConflictCheck,
+      endOperation,
     });
 
     if (conflictOutcome) {
       return conflictOutcome;
     }
 
-    return executeVerifiedCalendarUpdate({
+    return await executeVerifiedCalendarUpdate({
       languageCode: params.languageCode,
       referenceNow: params.referenceNow,
       payloadResult,
       matchedStartsAt: matchResult.match.startsAt,
+      matchedEndsAt: matchResult.match.endsAt,
       matchedTitle: matchResult.match.title,
       requestedEventTitle: matchResult.resolvedIntent.requestedEventName,
       conflictOverride: params.skipScheduleConflictCheck,
+      endOperation,
     });
   } catch (error) {
-    endCalendarOperation({ failed: true });
+    endOperation(true);
     logCalendarUpdateFailed({
       reason: 'executor_exception',
       message: error instanceof Error ? error.message : 'Calendar update error',
     });
     const message = error instanceof Error ? error.message : 'Calendar update error';
     const failureTool = createCalendarToolFailure('CALENDAR_OPERATION_ERROR', message);
+    logCalendarMoveWorkflow('MOVE_COMPLETE', {
+      success: false,
+      reason: 'executor_exception',
+    });
     return {
       ...buildCalendarUpdateToolReplyBundle(failureTool, params.languageCode, {
         referenceNow: params.referenceNow,
       }),
       verified: false,
     };
+  } finally {
+    if (!operationEnded) {
+      endOperation(true, 'operation_lock_leaked');
+      logCalendarMoveWorkflow('MOVE_COMPLETE', {
+        success: false,
+        reason: 'operation_lock_leaked',
+      });
+    }
   }
 }

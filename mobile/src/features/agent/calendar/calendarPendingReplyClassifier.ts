@@ -11,10 +11,11 @@ import {
   isCalendarConflictDecisionState,
 } from '@/src/features/agent/calendar/calendarConversationState';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
-import { resolveDisambiguationSelection } from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import { resolveDisambiguationSelection, inferCalendarDisambiguationLocale } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import { titlesReferToSameEvent } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
+import { getStoredMoveClarificationCandidates } from '@/src/features/agent/calendar/calendarMoveClarificationState';
 import {
   getPendingCalendarDeleteContext,
   getPendingCalendarUpdateContext,
@@ -71,8 +72,13 @@ function isPendingEventDisambiguationActive() {
 
   const updatePending = getPendingCalendarUpdateContext();
   const deletePending = getPendingCalendarDeleteContext();
+  const storedMoveCandidates = getStoredMoveClarificationCandidates();
 
-  return Boolean(updatePending?.candidates?.length || deletePending?.candidates?.length);
+  return Boolean(
+    updatePending?.candidates?.length ||
+      deletePending?.candidates?.length ||
+      storedMoveCandidates.length > 0,
+  );
 }
 
 export function isNewCalendarCommandMessage(transcript: string) {
@@ -175,7 +181,7 @@ function looksLikeAlternateTimeReply(transcript: string) {
   return /^[1-9]\d*$/.test(normalized) || /^(?:вариант|option|варіант)\s+[1-9]\d*$/iu.test(normalized);
 }
 
-function isAwaitingEventDisambiguationSelectionReply(transcript: string) {
+export function isAwaitingEventDisambiguationSelectionReply(transcript: string) {
   const snapshot = getCalendarConversationSnapshot();
 
   if (
@@ -187,17 +193,28 @@ function isAwaitingEventDisambiguationSelectionReply(transcript: string) {
 
   const updatePending = getPendingCalendarUpdateContext();
   const deletePending = getPendingCalendarDeleteContext();
-  const candidates = updatePending?.candidates ?? deletePending?.candidates;
+  const storedMoveCandidates = getStoredMoveClarificationCandidates();
+  const candidates =
+    updatePending?.candidates ?? deletePending?.candidates ?? storedMoveCandidates;
 
   if (!candidates?.length) {
     return false;
   }
+
+  const locale = inferCalendarDisambiguationLocale({
+    sourceTranscript:
+      updatePending?.sourceTranscript ??
+      deletePending?.sourceTranscript ??
+      snapshot.pendingAction?.sourceTranscript,
+  });
 
   if (
     resolveDisambiguationSelection({
       reply: transcript,
       candidates,
       referenceNow: new Date(),
+      locale,
+      pendingTitle: updatePending?.title ?? deletePending?.title,
     })
   ) {
     return true;

@@ -1,7 +1,8 @@
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
+import { isVerifiedCalendarCreateSuccess } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { buildFactualCalendarToolReplies } from '@/src/features/agent/execution/factualCalendarReplies';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
-import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguageLocale';
 
 export type CalendarToolReplyBundle = {
   tool: CalendarToolResponse;
@@ -36,12 +37,14 @@ export function buildCalendarToolReplyBundle(
     languageCode,
     referenceNow: options?.referenceNow,
   });
+  const blockedUnverifiedSuccess =
+    tool.status === 'SUCCESS' && !isVerifiedCalendarCreateSuccess(tool);
 
   return {
     tool,
     reply: copy.reply,
     spokenReply: copy.spokenReply,
-    executionState: mapToolStatusToExecutionState(tool),
+    executionState: blockedUnverifiedSuccess ? 'failed' : mapToolStatusToExecutionState(tool),
     requiresCalendarAuth:
       tool.errorCode === 'CALENDAR_AUTH_REQUIRED' ||
       tool.errorCode === 'WRITE_SCOPE_MISSING' ||

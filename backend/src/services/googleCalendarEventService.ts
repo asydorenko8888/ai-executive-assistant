@@ -7,6 +7,9 @@ import {
 } from './googleCalendarTokenStore.js';
 
 import { fetchGoogleCalendarApiJson } from './googleCalendarApiClient.js';
+import {
+  verifyUpdatedEventWithRetries,
+} from './googleCalendarUpdateVerification.js';
 
 const GOOGLE_CALENDAR_EVENTS_ENDPOINT = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
 
@@ -543,137 +546,6 @@ function toCreateFallbackFromUpdate(payload: UpdateGoogleCalendarEventBody): Cre
   };
 }
 
-const UPDATE_VERIFY_TOLERANCE_MS = 60_000;
-
-type WallClockParts = {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-};
-
-function parseWallClock(dateTime: string): WallClockParts | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})/.exec(dateTime.trim());
-
-  if (!match) {
-    return null;
-  }
-
-  return {
-    year: Number(match[1]),
-    month: Number(match[2]),
-    day: Number(match[3]),
-    hour: Number(match[4]),
-    minute: Number(match[5]),
-    second: Number(match[6]),
-  };
-}
-
-function getZonedParts(instant: Date, timeZone: string): WallClockParts {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(instant);
-
-  return {
-    year: Number(parts.find((part) => part.type === 'year')?.value),
-    month: Number(parts.find((part) => part.type === 'month')?.value),
-    day: Number(parts.find((part) => part.type === 'day')?.value),
-    hour: Number(parts.find((part) => part.type === 'hour')?.value),
-    minute: Number(parts.find((part) => part.type === 'minute')?.value),
-    second: Number(parts.find((part) => part.type === 'second')?.value),
-  };
-}
-
-function wallClockToUtcMs(parts: WallClockParts, timeZone: string): number | null {
-  if (
-    !Number.isFinite(parts.year) ||
-    !Number.isFinite(parts.month) ||
-    !Number.isFinite(parts.day) ||
-    !Number.isFinite(parts.hour)
-  ) {
-    return null;
-  }
-
-  let utcGuess = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
-
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    const zoned = getZonedParts(new Date(utcGuess), timeZone);
-    const desiredAsUtc = Date.UTC(
-      parts.year,
-      parts.month - 1,
-      parts.day,
-      parts.hour,
-      parts.minute,
-      parts.second,
-    );
-    const actualAsUtc = Date.UTC(
-      zoned.year,
-      zoned.month - 1,
-      zoned.day,
-      zoned.hour,
-      zoned.minute,
-      zoned.second,
-    );
-    const delta = desiredAsUtc - actualAsUtc;
-
-    if (delta === 0) {
-      return utcGuess;
-    }
-
-    utcGuess += delta;
-  }
-
-  return utcGuess;
-}
-
-function payloadInstant(dateTime: string, timeZone: string): number | null {
-  const wallClock = parseWallClock(dateTime);
-
-  if (!wallClock) {
-    return null;
-  }
-
-  return wallClockToUtcMs(wallClock, timeZone);
-}
-
-function parseGoogleInstant(isoValue: string): number | null {
-  const trimmed = isoValue.trim();
-
-  if (!trimmed) {
-    return null;
-  }
-
-  const parsed = Date.parse(trimmed);
-
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-function instantsMatch(left: number | null, right: number | null) {
-  if (left === null || right === null || Number.isNaN(left) || Number.isNaN(right)) {
-    return false;
-  }
-
-  return Math.abs(left - right) <= UPDATE_VERIFY_TOLERANCE_MS;
-}
-
-function updateEventsRoughlyMatch(fetched: CreatedGoogleCalendarEvent, payload: UpdateGoogleCalendarEventBody) {
-  const expectedStart = payloadInstant(payload.start.dateTime, payload.start.timeZone);
-  const expectedEnd = payloadInstant(payload.end.dateTime, payload.end.timeZone);
-  const actualStart = parseGoogleInstant(fetched.startsAt);
-  const actualEnd = parseGoogleInstant(fetched.endsAt);
-
-  return instantsMatch(expectedStart, actualStart) && instantsMatch(expectedEnd, actualEnd);
-}
-
 export async function updateGoogleCalendarEventForDevice(
   deviceId: string,
   eventId: string,
@@ -684,6 +556,8 @@ export async function updateGoogleCalendarEventForDevice(
   console.log('[Calendar Update Patch Request]', {
     deviceId: deviceId.slice(0, 8),
     eventId,
+    requestedStart: payload.start.dateTime,
+    requestedEnd: payload.end.dateTime,
     payload,
   });
 
@@ -731,7 +605,24 @@ export async function updateGoogleCalendarEventForDevice(
     };
   }
 
+  console.error('CALENDAR_PATCH_REQUEST', {
+    pid: process.pid,
+    deviceId: deviceId.slice(0, 8),
+    eventId,
+    oldStart: existing.event.startsAt,
+    oldEnd: existing.event.endsAt,
+    requestedStart: payload.start.dateTime,
+    requestedEnd: payload.end.dateTime,
+    timestamp: new Date().toISOString(),
+  });
+
   logCalendarPipeline('patch_payload', { eventId, payload });
+
+  console.error('CALENDAR_PATCH_BEFORE', {
+    pid: process.pid,
+    eventId,
+    timestamp: new Date().toISOString(),
+  });
 
   const patchResult = await fetchGoogleCalendarJson(
     `${GOOGLE_CALENDAR_EVENTS_ENDPOINT}/${encodeURIComponent(eventId)}`,
@@ -750,6 +641,14 @@ export async function updateGoogleCalendarEventForDevice(
     },
     'events.patch',
   );
+
+  console.error('CALENDAR_PATCH_AFTER', {
+    pid: process.pid,
+    eventId,
+    patchOk: patchResult.ok,
+    httpStatus: patchResult.ok ? patchResult.status : patchResult.status ?? null,
+    timestamp: new Date().toISOString(),
+  });
 
   if (!patchResult.ok) {
     return {
@@ -784,23 +683,47 @@ export async function updateGoogleCalendarEventForDevice(
     };
   }
 
-  console.log('[Calendar Update Patch Response]', {
+  console.error('CALENDAR_PATCH_RESPONSE', {
+    pid: process.pid,
     eventId: patched.id,
-    summary: patched.summary,
-    startsAt: patched.startsAt,
-    endsAt: patched.endsAt,
+    patchedStart: patched.startsAt,
+    patchedEnd: patched.endsAt,
+    requestedStart: payload.start.dateTime,
+    requestedEnd: payload.end.dateTime,
+    timestamp: new Date().toISOString(),
   });
 
-  const getResult = await getGoogleCalendarEventById(tokens, eventId, fallback);
-
-  console.log('[Calendar Update Verify Fetch]', {
-    ok: getResult.ok,
+  const verification = await verifyUpdatedEventWithRetries({
     eventId,
-    startsAt: getResult.event?.startsAt ?? null,
-    endsAt: getResult.event?.endsAt ?? null,
+    payload,
+    oldStartsAt: existing.event.startsAt,
+    oldEndsAt: existing.event.endsAt,
+    readEvent: async () => {
+      const getResult = await getGoogleCalendarEventById(tokens, eventId, fallback);
+
+      if (!getResult.ok || !isReadableCalendarEvent(getResult.event)) {
+        return null;
+      }
+
+      return getResult.event;
+    },
   });
 
-  if (!getResult.ok || !isReadableCalendarEvent(getResult.event)) {
+  if (!verification.verified || !verification.event) {
+    console.error('CALENDAR_VERIFY_FAILED', {
+      pid: process.pid,
+      eventId,
+      oldStart: existing.event.startsAt,
+      oldEnd: existing.event.endsAt,
+      requestedStart: payload.start.dateTime,
+      requestedEnd: payload.end.dateTime,
+      patchedStart: patched.startsAt,
+      patchedEnd: patched.endsAt,
+      attempts: verification.attempts.length,
+      finalMismatch: verification.finalMismatch,
+      timestamp: new Date().toISOString(),
+    });
+
     return {
       ok: false as const,
       executionState: 'failed' as const,
@@ -809,31 +732,16 @@ export async function updateGoogleCalendarEventForDevice(
       errorCode: 'VERIFY_FAILED',
       errorMessage: 'Patch succeeded but verification failed.',
       patchedEventId: patched.id,
+      verificationAttempts: verification.attempts,
+      verificationMismatch: verification.finalMismatch,
     };
   }
-
-  if (!updateEventsRoughlyMatch(getResult.event, payload)) {
-    console.log('[Calendar Update Verified Mismatch]', {
-      eventId,
-      expectedStart: payload.start.dateTime,
-      expectedEnd: payload.end.dateTime,
-      actualStart: getResult.event.startsAt,
-      actualEnd: getResult.event.endsAt,
-    });
-  }
-
-  console.log('[Calendar Update Verified]', {
-    eventId: getResult.event.id,
-    summary: getResult.event.summary,
-    startsAt: getResult.event.startsAt,
-    endsAt: getResult.event.endsAt,
-  });
 
   return {
     ok: true as const,
     executionState: 'success' as const,
     verified: true,
     verificationFetched: true,
-    event: getResult.event,
+    event: verification.event,
   };
 }

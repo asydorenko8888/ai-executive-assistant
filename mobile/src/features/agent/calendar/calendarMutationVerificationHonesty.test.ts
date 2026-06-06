@@ -13,6 +13,9 @@ import {
   buildAuthoritativeUpdateToolResponseCore,
 } from '@/src/features/agent/calendar/calendarAuthoritativeMutationCore';
 import type { GoogleCalendarCreateApiResponse } from '@/src/features/agent/calendar/googleCalendarBackendApi';
+import { buildCalendarToolReplyBundle } from '@/src/features/agent/execution/calendarToolResponses';
+import { buildCalendarDeleteToolReplyBundle } from '@/src/features/agent/execution/calendarDeleteToolResponses';
+import { buildCalendarUpdateToolReplyBundle } from '@/src/features/agent/execution/calendarUpdateToolResponses';
 import { buildNaturalCalendarCreateSuccessReply } from '@/src/features/agent/execution/calendarCreateSuccessReply';
 import { buildNaturalCalendarUpdateSuccessReply } from '@/src/features/agent/execution/calendarUpdateSuccessReply';
 import type { VerifiedCalendarEvent } from '@/src/features/agent/execution/actionExecutionTypes';
@@ -59,9 +62,9 @@ describe('calendar mutation verification honesty', () => {
       referenceNow,
     });
 
-    assert.match(reply, /Фактическое время:.*19:00–20:00/);
+    assert.match(reply, /19:00–20:00/);
     assert.doesNotMatch(reply, /20:30/);
-    assert.ok(reply.startsWith('Событие создано успешно:'));
+    assert.ok(reply.startsWith('Событие создано:'));
   });
 
   it('update success reply reports actual Friday 18:00–19:00 when API differs from +90min request', () => {
@@ -74,9 +77,8 @@ describe('calendar mutation verification honesty', () => {
       previousStartsAt: '2026-06-05T19:00:00-05:00',
     });
 
-    assert.match(reply, /Фактическое время:.*18:00–19:00/);
+    assert.match(reply, /18:00–19:00/);
     assert.doesNotMatch(reply, /20:30/);
-    assert.doesNotMatch(reply, /Стало:.*20:30/);
     assert.ok(reply.startsWith('Событие перенесено:'));
   });
 
@@ -232,6 +234,63 @@ describe('calendar mutation verification honesty', () => {
     assert.equal(tool.status, 'SUCCESS');
     assert.equal(tool.verified, true);
     assert.equal(tool.eventId, event.id);
+  });
+
+  it('blocks create success copy when tool status is SUCCESS but verification flags are false', () => {
+    const event = verifiedDinnerOnFriday({ startHour: 19, endHour: 20 });
+    const bundle = buildCalendarToolReplyBundle(
+      {
+        status: 'SUCCESS',
+        eventId: event.id,
+        event,
+        verified: false,
+        verificationFetched: false,
+      },
+      'ru-RU',
+      { referenceNow },
+    );
+
+    assert.match(bundle.reply, /FAILURE: CALENDAR_EXECUTION_CONTRACT/);
+    assert.equal(bundle.executionState, 'failed');
+    assert.doesNotMatch(bundle.reply, /Событие создано:/);
+  });
+
+  it('blocks update success copy when tool status is SUCCESS but verification flags are false', () => {
+    const event = verifiedDinnerOnFriday({ startHour: 18, endHour: 19 });
+    const bundle = buildCalendarUpdateToolReplyBundle(
+      {
+        status: 'SUCCESS',
+        eventId: event.id,
+        event,
+        verified: false,
+        verificationFetched: false,
+      },
+      'ru-RU',
+      { referenceNow },
+    );
+
+    assert.match(bundle.reply, /FAILURE: CALENDAR_EXECUTION_CONTRACT/);
+    assert.equal(bundle.executionState, 'failed');
+    assert.doesNotMatch(bundle.reply, /Событие перенесено:/);
+  });
+
+  it('blocks delete success copy when tool status is SUCCESS but verification flags are false', () => {
+    const event = verifiedDinnerOnFriday({ startHour: 18, endHour: 19 });
+    const bundle = buildCalendarDeleteToolReplyBundle(
+      {
+        status: 'SUCCESS',
+        eventId: event.id,
+        event,
+        verified: false,
+        verificationFetched: false,
+      },
+      'ru-RU',
+      { referenceNow },
+    );
+
+    assert.match(bundle.reply, /FAILURE: CALENDAR_EXECUTION_CONTRACT/);
+    assert.equal(bundle.executionState, 'failed');
+    assert.doesNotMatch(bundle.reply, /Событие удалено:/);
   });
 
   it('rejects unreadable backend events for authoritative confirmation', () => {

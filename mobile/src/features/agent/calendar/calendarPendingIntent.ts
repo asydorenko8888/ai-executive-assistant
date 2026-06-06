@@ -2,12 +2,17 @@ import type { CalendarPendingAction } from '@/src/features/agent/calendar/calend
 import {
   getCalendarConversationSnapshot,
   isCalendarConflictDecisionState,
+  isCalendarConversationAwaitingInput,
 } from '@/src/features/agent/calendar/calendarConversationState';
 import {
   CONVERSATION_CONTEXT_MAX_TURNS,
   isCalendarConversationContextFresh,
   touchCalendarConversationContext,
 } from '@/src/features/agent/calendar/calendarConversationContext';
+import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
+import { isCalendarMoveUpdateSelectionState } from '@/src/features/agent/calendar/calendarMoveUpdateLifecycle';
+import { isAwaitingEventDisambiguationSelectionReply } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
+import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 
 export type PendingIntentType = 'CREATE_EVENT' | 'MOVE_EVENT' | 'DELETE_EVENT';
@@ -127,6 +132,38 @@ export function mergeTranscriptWithPendingIntent(transcript: string) {
   const snapshot = getCalendarConversationSnapshot();
 
   if (isCalendarConflictDecisionState(snapshot.state)) {
+    return normalized;
+  }
+
+  if (isCalendarMoveUpdateSelectionState(snapshot.state) && isNewCalendarCommandMessage(normalized)) {
+    return normalized;
+  }
+
+  if (
+    isCalendarMoveUpdateSelectionState(snapshot.state) &&
+    isAwaitingEventDisambiguationSelectionReply(normalized)
+  ) {
+    return normalized;
+  }
+
+  if (!snapshot.pendingAction && pending.intent === 'MOVE_EVENT') {
+    const looksLikeMoveFollowUp =
+      /\b(?:later|earlier|позже|пізніше|раньше|раніше)\b/iu.test(normalized) ||
+      /\d{1,2}:\d{2}/.test(normalized);
+
+    if (!looksLikeMoveFollowUp) {
+      if (
+        isNewCalendarCommandMessage(normalized) ||
+        detectCalendarCommandIntent(normalized) === 'none'
+      ) {
+        return normalized;
+      }
+    }
+  }
+
+  // Never auto-continue a stale pendingAction workflow; only merge for clarification
+  // intent or when the conversation is explicitly awaiting user input.
+  if (snapshot.pendingAction && !isCalendarConversationAwaitingInput()) {
     return normalized;
   }
 

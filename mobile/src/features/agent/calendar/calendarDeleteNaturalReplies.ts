@@ -53,6 +53,18 @@ export function buildCalendarDeleteRecurringNotSupportedReply(locale: CalendarDe
   return 'Recurring events are not supported for deletion yet. Please specify a single event.';
 }
 
+export function buildCalendarDeleteVerificationFailedReply(locale: CalendarDeleteLocale) {
+  if (locale === 'uk') {
+    return 'Не вдалося видалити подію. Календар не підтвердив зміну.';
+  }
+
+  if (locale === 'ru') {
+    return 'Не удалось удалить событие. Календарь не подтвердил изменение.';
+  }
+
+  return 'Could not delete the event. Calendar did not confirm the change.';
+}
+
 export function buildCalendarDeleteAllDayNotSupportedReply(locale: CalendarDeleteLocale) {
   if (locale === 'uk') {
     return 'Події на весь день поки не підтримуються для видалення.';

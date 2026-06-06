@@ -7,14 +7,19 @@ import { logUpdateClarificationMerged } from '@/src/features/agent/calendar/cale
 import {
   applyClockLabelToEventStartIso,
   formatClockLabelFromInstantMs,
+  parseCalendarUpdateSchedule,
+  resolveUpdateTargetMs,
 } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
-import { parseCalendarUpdateSchedule } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import type { PendingCalendarUpdateContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import {
   buildTranscriptFromSelectedDisambiguationCandidate,
+  inferCalendarDisambiguationLocale,
   resolveDisambiguationSelection,
 } from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import {
+  logCalendarPendingActionResolved,
+} from '@/src/features/agent/calendar/calendarMoveTraceLogger';
 import type { CalendarDisambiguationCandidate } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 
 const TIME_ONLY_REPLY = /^(\d{1,2}:\d{2})$/;
@@ -95,6 +100,46 @@ function resolveMoveDeltaMsFromSource(params: {
   }
 
   return null;
+}
+
+export function resolvePendingUpdateTargetStartISO(params: {
+  pending: PendingCalendarUpdateContext;
+  selectedStartISO: string;
+  referenceNow: Date;
+}): string | null {
+  if (params.pending.toStartISO) {
+    return params.pending.toStartISO;
+  }
+
+  const timeZone = getExecutiveCalendarTimezone();
+  const matchedEventStartMs = Date.parse(params.selectedStartISO);
+
+  if (!Number.isFinite(matchedEventStartMs)) {
+    return null;
+  }
+
+  const schedule = parseCalendarUpdateSchedule(
+    params.pending.sourceTranscript,
+    params.referenceNow,
+    timeZone,
+  );
+
+  if (!schedule.ok) {
+    return null;
+  }
+
+  const toMs = resolveUpdateTargetMs({
+    schedule,
+    matchedEventStartMs,
+    referenceNow: params.referenceNow,
+    timeZone,
+  });
+
+  if (toMs === null || Number.isNaN(toMs)) {
+    return null;
+  }
+
+  return new Date(toMs).toISOString();
 }
 
 export function pendingContextFromExtraction(params: {
@@ -189,10 +234,15 @@ export function tryMergePendingCalendarUpdateReply(params: {
   }
 
   if (params.pending.candidates && params.pending.candidates.length > 0) {
+    const locale = inferCalendarDisambiguationLocale({
+      sourceTranscript: params.pending.sourceTranscript,
+    });
     const selected = resolveDisambiguationSelection({
       reply,
       candidates: params.pending.candidates,
       referenceNow: params.referenceNow,
+      locale,
+      pendingTitle: params.pending.title,
     });
 
     if (selected) {
@@ -216,6 +266,27 @@ export function tryMergePendingCalendarUpdateReply(params: {
           next.toStartISO = new Date(fromMs + next.moveDeltaMs).toISOString();
         }
       }
+
+      if (!next.toStartISO) {
+        const resolvedToStartISO = resolvePendingUpdateTargetStartISO({
+          pending: params.pending,
+          selectedStartISO: selected.startsAt,
+          referenceNow: params.referenceNow,
+        });
+
+        if (resolvedToStartISO) {
+          next.toStartISO = resolvedToStartISO;
+        }
+      }
+
+      logCalendarPendingActionResolved({
+        action: 'move',
+        selectedEventId: selected.eventId,
+        fromStartISO: next.fromStartISO,
+        toStartISO: next.toStartISO,
+        replyPreview: reply.slice(0, 120),
+        sourceTranscriptPreview: params.pending.sourceTranscript.slice(0, 120),
+      });
 
       return {
         context: next,

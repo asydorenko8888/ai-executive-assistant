@@ -32,15 +32,33 @@ import {
 import { tryBuildFactualTimeReply } from '@/src/features/agent/factual/factualTimeReply';
 import { buildActionModeFailureReply } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
-import { detectCalendarCommandIntent, requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
+import {
+  detectCalendarCommandIntent,
+  requiresCalendarCommandExecution,
+  type CalendarCommandKind,
+} from '@/src/features/agent/calendar/calendarCommandTypes';
+import {
+  logCalendarExecutionBlocked,
+  logCalendarMoveExecutionGate,
+  logCalendarMoveIntentDetected,
+  logCalendarMovePipelineTurn,
+  logCalendarMoveRequiresExecution,
+} from '@/src/features/agent/calendar/calendarMoveTraceLogger';
+import { ensureVisibleCalendarMoveReply, buildCalendarExecutionBlockedReply } from '@/src/features/agent/calendar/calendarMoveExceptionReply';
+import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { executeCalendarCommand } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import { assertCalendarReplyMatchesTool } from '@/src/features/agent/calendar/calendarExecutionContract';
-import { getLastCalendarCommandOutcome, getPendingCalendarUpdateContext, setPendingCalendarUpdateContext } from '@/src/features/agent/execution/calendarExecutionSession';
+import { getLastCalendarCommandOutcome, getPendingCalendarUpdateContext, setPendingCalendarUpdateContext, clearLastCalendarCommandOutcomeIfTranscriptChanged } from '@/src/features/agent/execution/calendarExecutionSession';
 import { extractCalendarUpdateParameters } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import {
   logCalendarUpdateClarification,
   logUpdateClarificationStored,
 } from '@/src/features/agent/calendar/calendarUpdateLogger';
+import {
+  getCalendarConversationSnapshot,
+  isAwaitingCalendarConflictResolution,
+  isCalendarConflictDecisionState,
+} from '@/src/features/agent/calendar/calendarConversationState';
 import { syncConversationStateForMoveClarification } from '@/src/features/agent/calendar/calendarConversationSync';
 import { pendingContextFromExtraction } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import {
@@ -364,6 +382,151 @@ function resolutionDefaults(
   };
 }
 
+async function tryExecuteReadyCalendarMutation(params: {
+  actionTranscript: string;
+  userTranscript: string;
+  languageCode: VoiceLanguageCode;
+  calendarConnected: boolean;
+  referenceNow: Date;
+  behaviorMode: AssistantBehaviorMode;
+  calendarCommandIntent: CalendarCommandKind;
+  selectedTool: string;
+  intent: AssistantIntentAnalysis;
+  behaviorPrompt: string | null;
+  userMessage: ChatMessage | null;
+  factualGroundingStatus: FactualGroundingStatus;
+}): Promise<AssistantTurnResolution | null> {
+  const requiresExecution = requiresCalendarCommandExecution(params.actionTranscript);
+
+  logCalendarMoveRequiresExecution({
+    allowed: requiresExecution,
+    transcript: params.actionTranscript,
+    reason: requiresExecution ? 'calendar_write_or_pending_follow_up' : 'not_calendar_command',
+  });
+
+  if (params.calendarCommandIntent === 'none' || !requiresExecution) {
+    logCalendarMoveExecutionGate({
+      allowed: false,
+      blockedBy: params.calendarCommandIntent === 'none' ? 'no_calendar_intent' : 'requires_execution_false',
+      intent: params.calendarCommandIntent,
+      behaviorMode: params.behaviorMode,
+      transcript: params.actionTranscript,
+    });
+    return null;
+  }
+
+  const conversationSnapshot = getCalendarConversationSnapshot();
+
+  if (
+    isAwaitingCalendarConflictResolution() ||
+    isCalendarConflictDecisionState(conversationSnapshot.state)
+  ) {
+    logCalendarMoveExecutionGate({
+      allowed: false,
+      blockedBy: 'awaiting_conflict_confirmation',
+      intent: params.calendarCommandIntent,
+      behaviorMode: params.behaviorMode,
+      transcript: params.actionTranscript,
+    });
+    return null;
+  }
+
+  logCalendarMoveIntentDetected({
+    intent: params.calendarCommandIntent,
+    transcript: params.actionTranscript,
+    source: 'assistantTurnPipeline',
+  });
+
+  clearLastCalendarCommandOutcomeIfTranscriptChanged(params.actionTranscript);
+
+  logCalendarMoveExecutionGate({
+    allowed: true,
+    blockedBy: null,
+    intent: params.calendarCommandIntent,
+    behaviorMode: params.behaviorMode,
+    transcript: params.actionTranscript,
+  });
+
+  logTurnPipeline('calendar command executor — tool-first', {
+    behaviorMode: params.behaviorMode,
+    intent: params.calendarCommandIntent,
+    transcriptPreview: params.actionTranscript.slice(0, 120),
+    route: 'ready_mutation_early',
+  });
+
+  const commandResult = await executeCalendarCommand({
+    transcript: params.actionTranscript,
+    titleSourceTranscript: params.userTranscript,
+    languageCode: params.languageCode,
+    calendarConnected: params.calendarConnected,
+    referenceNow: params.referenceNow,
+  });
+
+  const lastOutcome = getLastCalendarCommandOutcome();
+  const guardEmptyReply = (reply: string, reason: string) => {
+    if (reply.trim()) {
+      return reply;
+    }
+
+    if (params.calendarCommandIntent === 'update_calendar_event') {
+      return ensureVisibleCalendarMoveReply({
+        reply,
+        languageCode: params.languageCode,
+        fallbackReason: reason,
+      });
+    }
+
+    return buildFailureTerminalReply('CALENDAR_EXECUTION_CONTRACT', reason);
+  };
+
+  const visibleCommandReply = guardEmptyReply(
+    commandResult.reply,
+    'календарная команда не вернула ответ',
+  );
+
+  const calendarReply = assertCalendarReplyMatchesTool({
+    userTranscript: params.actionTranscript,
+    candidateReply: visibleCommandReply,
+    terminalReply: visibleCommandReply,
+    tool: lastOutcome?.tool ?? null,
+    intent: params.calendarCommandIntent,
+  });
+
+  const resolvedCalendarReply = guardEmptyReply(
+    calendarReply,
+    'пустой ответ после проверки календарного контракта',
+  );
+
+  logTurnPipeline('route selected', {
+    route: 'operational_local',
+    behaviorMode: params.behaviorMode,
+    intent: params.calendarCommandIntent,
+    toolStatus: commandResult.toolStatus,
+    emotionalFallback: false,
+    blockLlm: true,
+    eventId: commandResult.eventId ?? null,
+    readyMutationEarly: true,
+  });
+
+  return {
+    route: 'operational_local',
+    intent: params.intent,
+    reply: resolvedCalendarReply,
+    intentPrompt: params.behaviorPrompt ?? '',
+    userTranscript: params.userTranscript,
+    latestUserMessageId: params.userMessage?.id ?? null,
+    executionState: commandResult.executionState,
+    operationalStarted: true,
+    requiresCalendarAuth: commandResult.requiresCalendarAuth,
+    spokenReply: guardEmptyReply(commandResult.spokenReply, resolvedCalendarReply),
+    calendarVerified: commandResult.verified,
+    responseMode: 'operational',
+    factualGroundingStatus: params.factualGroundingStatus,
+    behaviorMode: params.behaviorMode,
+    selectedTool: params.selectedTool,
+  };
+}
+
 export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): Promise<AssistantTurnResolution> {
   const userMessage = getLatestUserMessage(params.messages);
   const userTranscript = userMessage?.content.trim() ?? '';
@@ -421,6 +584,31 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   });
   const suppressCalendarAgendaMemory =
     isCalendarAgendaQuery(userTranscript) || isDeterministicCalendarReadQuery(userTranscript);
+
+  logCalendarMovePipelineTurn({
+    userTranscript,
+    actionTranscript,
+    behaviorMode: behavior.mode,
+  });
+
+  const readyCalendarMutation = await tryExecuteReadyCalendarMutation({
+    actionTranscript,
+    userTranscript,
+    languageCode: params.languageCode,
+    calendarConnected,
+    referenceNow: params.referenceNow,
+    behaviorMode: behavior.mode,
+    calendarCommandIntent,
+    selectedTool: behavior.selectedTool,
+    intent,
+    behaviorPrompt,
+    userMessage,
+    factualGroundingStatus: factualGrounding.snapshot.status,
+  });
+
+  if (readyCalendarMutation) {
+    return readyCalendarMutation;
+  }
 
   if (isDeterministicCalendarReadQuery(userTranscript) && calendarConnected) {
     const deterministicCalendarReply = await tryBuildDeterministicCalendarReply({
@@ -563,13 +751,39 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     });
 
     const lastOutcome = getLastCalendarCommandOutcome();
+    const guardEmptyReply = (reply: string, reason: string) => {
+      if (reply.trim()) {
+        return reply;
+      }
+
+      if (calendarCommandIntent === 'update_calendar_event') {
+        return ensureVisibleCalendarMoveReply({
+          reply,
+          languageCode: params.languageCode,
+          fallbackReason: reason,
+        });
+      }
+
+      return buildFailureTerminalReply('CALENDAR_EXECUTION_CONTRACT', reason);
+    };
+
+    const visibleCommandReply = guardEmptyReply(
+      commandResult.reply,
+      'календарная команда не вернула ответ',
+    );
+
     const calendarReply = assertCalendarReplyMatchesTool({
       userTranscript: actionTranscript,
-      candidateReply: commandResult.reply,
-      terminalReply: commandResult.reply,
+      candidateReply: visibleCommandReply,
+      terminalReply: visibleCommandReply,
       tool: lastOutcome?.tool ?? null,
       intent: calendarCommandIntent === 'none' ? 'create_calendar_event' : calendarCommandIntent,
     });
+
+    const resolvedCalendarReply = guardEmptyReply(
+      calendarReply,
+      'пустой ответ после проверки календарного контракта',
+    );
 
     logTurnPipeline('route selected', {
       route: 'operational_local',
@@ -584,14 +798,14 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     return {
       route: 'operational_local',
       intent,
-      reply: calendarReply,
+      reply: resolvedCalendarReply,
       intentPrompt: behaviorPrompt,
       userTranscript,
       latestUserMessageId: userMessage?.id ?? null,
       executionState: commandResult.executionState,
       operationalStarted: true,
       requiresCalendarAuth: commandResult.requiresCalendarAuth,
-      spokenReply: commandResult.spokenReply,
+      spokenReply: guardEmptyReply(commandResult.spokenReply, resolvedCalendarReply),
       calendarVerified: commandResult.verified,
       responseMode: 'operational',
       factualGroundingStatus: factualGrounding.snapshot.status,

@@ -1,3 +1,4 @@
+import { isCalendarFreeTimeTodayQuery } from '@/src/features/agent/calendar/calendarFreeTimeQuery';
 import { isCalendarQueryOrFindIntent } from '@/src/features/agent/calendar/calendarQueryIntent';
 import { isTemporalOnlyTitle } from '@/src/features/agent/calendar/calendarTemporalWords';
 import { hasSpokenTimeHint, parseSpokenTimeFragment } from '@/src/features/agent/calendar/calendarSpokenTime';
@@ -85,6 +86,7 @@ export function detectCalendarCreateByTitleTimePattern(
 
   if (
     !normalized ||
+    isCalendarFreeTimeTodayQuery(normalized) ||
     isCalendarQueryOrFindIntent(normalized) ||
     QUESTION_START.test(normalized) ||
     BLOCKED_DELETE_START.test(normalized) ||

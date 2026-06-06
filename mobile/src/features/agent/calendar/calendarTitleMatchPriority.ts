@@ -1,3 +1,5 @@
+import { collapseCalendarEventCandidates } from '@/src/features/agent/calendar/calendarEventDeduplication';
+
 export type TitleMatchTier = 'exact' | 'case_insensitive' | 'substring' | 'fuzzy' | 'none';
 
 const TIER_RANK: Record<TitleMatchTier, number> = {
@@ -200,12 +202,23 @@ export function selectBestEventByTitlePriority<T extends { id: string; title: st
   if (tierPool.length > 1) {
     const topScore = tierPool[0].score;
     const close = tierPool.filter((entry) => topScore - entry.score <= 5);
-    const distinctEvents = new Set(close.map((entry) => entry.event.id));
+    const collapsed = collapseCalendarEventCandidates(close.map((entry) => entry.event));
 
-    if (close.length > 1 && distinctEvents.size > 1) {
+    if (collapsed.length === 1) {
+      return {
+        match: collapsed[0],
+        candidates: [collapsed[0]],
+        ambiguous: false,
+        tier: bestTier,
+      };
+    }
+
+    const distinctEvents = new Set(collapsed.map((event) => event.id));
+
+    if (collapsed.length > 1 && distinctEvents.size > 1) {
       return {
         match: null,
-        candidates: close.map((entry) => entry.event),
+        candidates: collapsed,
         ambiguous: true,
         tier: bestTier,
       };

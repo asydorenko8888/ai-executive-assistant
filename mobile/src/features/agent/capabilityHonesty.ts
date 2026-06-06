@@ -2,6 +2,7 @@ import type { AgentCapabilitySnapshot, ExecutiveAgentSnapshot } from '@/src/feat
 import { containsFakeOperationalSuccessClaim } from '@/src/features/agent/execution/operationalExecutionHonesty';
 import type { CalendarAuthCapabilities } from '@/src/features/agent/calendar/calendarAuthCapabilities';
 import { isCalendarWriteAvailableInSession } from '@/src/features/agent/calendar/calendarWriteSession';
+import { isCalendarMutationSuccessReply } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { enforceCalendarToolReply, requiresCalendarToolExecution } from '@/src/features/agent/calendar/calendarToolExecutionGate';
 
 /** How the assistant should frame an offered or completed action in conversation. */
@@ -77,6 +78,7 @@ export function buildCapabilityHonestySystemPrompt(
     'Outbound SMS/iMessage/WhatsApp/Telegram: not connected yet — drafts only',
     'Outbound email send: not connected yet',
     'Calendar create from chat/voice: only when Google Calendar write scope is granted and tool returns verified event id',
+    'Calendar create/update/delete success messages are tool-owned — never write "Created event:", "Событие создано:", "Событие перенесено:", "Event deleted:", or any paraphrase claiming the mutation succeeded; you may explain failures or ask clarifying questions only',
     'Client directory: only what the user shares in conversation',
   ];
 
@@ -158,7 +160,10 @@ export function enforceCalendarReplyIfNeeded(params: {
   candidateReply: string;
   executionState: ConversationExecutionState;
 }) {
-  if (requiresCalendarToolExecution(params.userTranscript)) {
+  if (
+    requiresCalendarToolExecution(params.userTranscript) ||
+    isCalendarMutationSuccessReply(params.candidateReply)
+  ) {
     return enforceCalendarToolReply({
       userTranscript: params.userTranscript,
       candidateReply: params.candidateReply,

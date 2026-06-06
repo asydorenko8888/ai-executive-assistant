@@ -59,5 +59,11 @@ protectedApiRouter.use(speechRouter);
 app.use('/api', protectedApiRouter);
 
 app.listen(backendEnv.PORT, () => {
+  console.error('CALENDAR_BACKEND_STARTED', {
+    pid: process.pid,
+    port: backendEnv.PORT,
+    timestamp: new Date().toISOString(),
+    cwd: process.cwd(),
+  });
   console.log(`Executive AI backend listening on http://localhost:${backendEnv.PORT}`);
 });

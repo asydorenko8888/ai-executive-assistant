@@ -8,7 +8,9 @@ import {
 } from '@/src/features/agent/calendar/calendarUpdateVerbs';
 import { isCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
 import { hasSpokenTimeHint } from '@/src/features/agent/calendar/calendarSpokenTime';
+import { isCalendarFreeTimeTodayQuery } from '@/src/features/agent/calendar/calendarFreeTimeQuery';
 import { isCalendarQueryOrFindIntent } from '@/src/features/agent/calendar/calendarQueryIntent';
+import { isBareRelativeRescheduleRequest } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 
 function isExactTimeReadQuery(transcript: string) {
@@ -99,6 +101,10 @@ export function isOperationalCalendarUpdateRequest(transcript: string) {
     return false;
   }
 
+  if (isBareRelativeRescheduleRequest(normalized)) {
+    return true;
+  }
+
   if (!UPDATE_WRITE_VERBS.test(normalized)) {
     return false;
   }
@@ -120,6 +126,7 @@ export function isOperationalCalendarCreateRequest(transcript: string) {
 
   if (
     !normalized ||
+    isCalendarFreeTimeTodayQuery(normalized) ||
     isCalendarQueryOrFindIntent(normalized) ||
     isExactTimeReadQuery(normalized) ||
     isOperationalCalendarDeleteRequest(normalized) ||

@@ -1,5 +1,6 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import { calendarConversationTitlesMatch } from '@/src/features/agent/calendar/calendarConversationTitleMatch';
+import { deduplicateCalendarEvents } from '@/src/features/agent/calendar/calendarEventDeduplication';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import { getExecutiveCalendarTimezone, resolveZonedDayOffsetForInstant } from '@/src/features/agent/calendar/calendarTimezone';
 import { parseCalendarClockMinutes } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
@@ -18,7 +19,10 @@ export type CalendarDisambiguationCandidate = {
 const DISAMBIGUATION_CLOCK_TOLERANCE_MINUTES = 90;
 
 const CYRILLIC_ORDINAL_REPLY =
-  /^(?:the\s+)?(перв(?:ое|ый|а|ую)|перш(?:е|ий|а|у)|втор(?:ое|ой|а|у)|друг(?:ое|ой|а|у)|треть(?:е|я|ь|ю)|четверт(?:ое|ый|а|ю)|третє|четверте)(?:\s+one|\s+option|\s+event)?\.?$/iu;
+  /^(?:the\s+)?(перв(?:ое|ый|ая|а|ую)|перш(?:е|ий|а|у)|втор(?:ое|ой|ая|а|у)|друг(?:ое|ой|ая|а|у)|треть(?:е|я|ь|ю)|четверт(?:ое|ый|ая|а|ю)|третє|четверте)(?:\s+one|\s+option|\s+event)?\.?$/iu;
+
+const CYRILLIC_ORDINAL_WITH_TITLE =
+  /^(?:the\s+)?(перв(?:ое|ый|ая|а|ую)|перш(?:е|ий|а|у)|втор(?:ое|ой|ая|а|у)|друг(?:ое|ой|ая|а|у)|треть(?:е|я|ь|ю)|четверт(?:ое|ый|ая|а|ю)|третє|четверте|first|second|third|fourth|1st|2nd|3rd|4th)\s+(.+?)\.?$/iu;
 
 function getCandidateLocalClockMinutes(startsAt: string, timeZone: string): number | null {
   const startMs = Date.parse(startsAt);
@@ -128,15 +132,54 @@ function pickClosestClockMatch(
 
 export type CalendarDisambiguationLocale = 'en' | 'uk' | 'ru';
 
+export function inferCalendarDisambiguationLocale(params: {
+  sourceTranscript?: string | null;
+  languageCode?: string | null;
+}): CalendarDisambiguationLocale {
+  if (params.languageCode === 'uk-UA') {
+    return 'uk';
+  }
+
+  if (params.languageCode === 'ru-RU') {
+    return 'ru';
+  }
+
+  const source = params.sourceTranscript?.trim() ?? '';
+
+  if (/[іїєґ]/iu.test(source)) {
+    return 'uk';
+  }
+
+  if (/[а-яё]/iu.test(source)) {
+    return 'ru';
+  }
+
+  return 'en';
+}
+
 export function calendarEventsToDisambiguationCandidates(
   events: CalendarEvent[],
 ): CalendarDisambiguationCandidate[] {
-  return events.map((event) => ({
-    eventId: event.id,
-    title: event.title,
-    startsAt: event.startsAt,
-    endsAt: event.endsAt,
-  }));
+  const uniqueEvents = deduplicateCalendarEvents(events);
+  const seen = new Set<string>();
+
+  return uniqueEvents
+    .map((event) => ({
+      eventId: event.id,
+      title: event.title,
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+    }))
+    .filter((candidate) => {
+      const key = `${candidate.title}|${candidate.startsAt}|${candidate.endsAt}`;
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
 }
 
 function dayLabelForEvent(startsAt: string, referenceNow: Date, timeZone: string, locale: CalendarDisambiguationLocale) {
@@ -304,6 +347,45 @@ export function resolveDisambiguationSelection(params: {
     }
   }
 
+  const ordinalWithTitle = reply.match(CYRILLIC_ORDINAL_WITH_TITLE);
+
+  if (ordinalWithTitle) {
+    const token = ordinalWithTitle[1].toLowerCase();
+    const titleHint = ordinalWithTitle[2]?.trim() ?? '';
+    const index =
+      /^(?:перв|перш|first|1st)/iu.test(token)
+        ? 0
+        : /^(?:втор|друг|second|2nd)/iu.test(token)
+          ? 1
+          : /^(?:трет|треть|third|3rd)/iu.test(token)
+            ? 2
+            : 3;
+
+    if (index >= 0 && index < params.candidates.length) {
+      const titleScoped = titleHint
+        ? scopedCandidates.filter(
+            (candidate) =>
+              calendarConversationTitlesMatch(titleHint, candidate.title) ||
+              (params.pendingTitle
+                ? calendarConversationTitlesMatch(titleHint, params.pendingTitle)
+                : false),
+          )
+        : scopedCandidates;
+
+      if (titleScoped.length === 1) {
+        return titleScoped[0] ?? null;
+      }
+
+      if (titleScoped.length === 0 && index < params.candidates.length) {
+        return params.candidates[index] ?? null;
+      }
+
+      if (index < titleScoped.length) {
+        return titleScoped[index] ?? null;
+      }
+    }
+  }
+
   const labelMatches = scopedCandidates.filter((candidate) =>
     replyMatchesOptionLabel({
       reply,
@@ -319,9 +401,37 @@ export function resolveDisambiguationSelection(params: {
   }
 
   const day = resolveTargetDayContext(reply, params.referenceNow, timeZone);
-  const clockMinutes = parseCalendarClockMinutes(reply, day);
+  let clockMinutes = parseCalendarClockMinutes(reply, day);
+
+  if (clockMinutes === null) {
+    const neutralDay = resolveTargetDayContext('', params.referenceNow, timeZone);
+    clockMinutes = parseCalendarClockMinutes(reply, neutralDay);
+  }
 
   if (clockMinutes !== null) {
+    const clockVariants = new Set<number>([clockMinutes]);
+
+    if (clockMinutes < 12 * 60) {
+      clockVariants.add(clockMinutes + 12 * 60);
+    }
+
+    for (const candidateClock of clockVariants) {
+      const exactClockMatches = scopedCandidates.filter((candidate) => {
+        const eventClock = getCandidateLocalClockMinutes(candidate.startsAt, timeZone);
+
+        return eventClock === candidateClock;
+      });
+
+      if (exactClockMatches.length === 1) {
+        return exactClockMatches[0] ?? null;
+      }
+
+      if (exactClockMatches.length > 1) {
+        clockMinutes = candidateClock;
+        break;
+      }
+    }
+
     const exactClockMatches = scopedCandidates.filter((candidate) => {
       const candidateClock = getCandidateLocalClockMinutes(candidate.startsAt, timeZone);
 
@@ -345,10 +455,12 @@ export function resolveDisambiguationSelection(params: {
           })
         : exactClockMatches;
 
-    const closest = pickClosestClockMatch(dayScoped, clockMinutes, timeZone);
+    for (const candidateClock of clockVariants) {
+      const closest = pickClosestClockMatch(dayScoped, candidateClock, timeZone);
 
-    if (closest) {
-      return closest;
+      if (closest) {
+        return closest;
+      }
     }
   }
 

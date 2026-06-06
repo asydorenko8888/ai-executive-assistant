@@ -3,8 +3,10 @@ import { describe, it } from 'node:test';
 
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import {
+  computeDurationUntilDiffMs,
   computeDurationUntilMinutes,
   formatDurationUntil,
+  formatTotalMinutesAsDuration,
 } from '@/src/features/agent/calendar/calendarDurationUntil';
 import { resolveTimeUntilTargetEvent } from '@/src/features/agent/calendar/calendarTimeUntilQuery';
 
@@ -21,6 +23,19 @@ function lunchEvent(startHour: number, startMinute = 0): CalendarEvent {
     isAllDay: false,
   };
 }
+
+describe('formatTotalMinutesAsDuration', () => {
+  it('uses minutes only below 60', () => {
+    assert.equal(formatTotalMinutesAsDuration(42, 'en'), '42 minutes');
+    assert.equal(formatTotalMinutesAsDuration(15, 'en'), '15 minutes');
+  });
+
+  it('converts 60+ minutes to hours and minutes (EN)', () => {
+    assert.equal(formatTotalMinutesAsDuration(110, 'en'), '1 hour 50 minutes');
+    assert.equal(formatTotalMinutesAsDuration(145, 'en'), '2 hours 25 minutes');
+    assert.equal(formatTotalMinutesAsDuration(250, 'en'), '4 hours 10 minutes');
+  });
+});
 
 describe('formatDurationUntil', () => {
   const referenceNow = chicagoReference(11, 40);
@@ -50,11 +65,13 @@ describe('formatDurationUntil', () => {
     assert.equal(result.formattedDuration, '15 минут');
   });
 
-  it('11:40 -> 11:40 = right now (RU)', () => {
+  it('11:40 -> 11:40 = already started (RU)', () => {
     const result = formatDurationUntil(referenceNow, referenceNow, 'ru');
 
-    assert.equal(result.isNow, true);
-    assert.equal(result.formattedDuration, 'прямо сейчас');
+    assert.equal(computeDurationUntilDiffMs(referenceNow, referenceNow), 0);
+    assert.equal(result.isPast, true);
+    assert.equal(result.isNow, false);
+    assert.equal(result.formattedDuration, 'Событие уже началось или завершилось');
   });
 
   it('EN: how long until lunch at 14:00 from 11:40', () => {
@@ -63,11 +80,73 @@ describe('formatDurationUntil', () => {
     assert.equal(result.formattedDuration, '2 hours 20 minutes');
   });
 
+  it('EN: 110 minutes until dinner at 5:40 PM', () => {
+    const referenceNow = chicagoReference(17, 40);
+    const targetStart = chicagoReference(19, 30);
+
+    assert.equal(computeDurationUntilMinutes(targetStart, referenceNow), 110);
+
+    const result = formatDurationUntil(targetStart, referenceNow, 'en');
+
+    assert.equal(result.formattedDuration, '1 hour 50 minutes');
+  });
+
   it('UK: time until lunch at 14:00 from 11:40', () => {
     const result = formatDurationUntil(chicagoReference(14, 0), referenceNow, 'uk');
 
     assert.equal(result.formattedDuration, '2 години 20 хвилин');
   });
+});
+
+describe('calendar time-until arithmetic (required)', () => {
+  it('12:17 -> 14:00 = 1 hour 43 minutes (RU)', () => {
+    const referenceNow = chicagoReference(12, 17);
+    const targetStart = chicagoReference(14, 0);
+    const diffMs = computeDurationUntilDiffMs(targetStart, referenceNow);
+
+    assert.equal(diffMs, 103 * 60 * 1000);
+    assert.equal(computeDurationUntilMinutes(targetStart, referenceNow), 103);
+
+    const result = formatDurationUntil(targetStart, referenceNow, 'ru');
+
+    assert.equal(result.formattedDuration, '1 час 43 минуты');
+    assert.equal(result.isPast, false);
+  });
+
+  it('12:16 -> 20:00 = 7 hours 44 minutes (RU)', () => {
+    const referenceNow = chicagoReference(12, 16);
+    const targetStart = chicagoReference(20, 0);
+
+    assert.equal(computeDurationUntilMinutes(targetStart, referenceNow), 7 * 60 + 44);
+
+    const result = formatDurationUntil(targetStart, referenceNow, 'ru');
+
+    assert.equal(result.formattedDuration, '7 часов 44 минуты');
+  });
+
+  it('21:58 -> 22:00 = 2 minutes (RU)', () => {
+    const referenceNow = chicagoReference(21, 58);
+    const targetStart = chicagoReference(22, 0);
+
+    assert.equal(computeDurationUntilMinutes(targetStart, referenceNow), 2);
+
+    const result = formatDurationUntil(targetStart, referenceNow, 'ru');
+
+    assert.equal(result.formattedDuration, '2 минуты');
+  });
+
+  it('22:05 -> 22:00 = already started (RU)', () => {
+    const referenceNow = chicagoReference(22, 5);
+    const targetStart = chicagoReference(22, 0);
+
+    assert.ok(computeDurationUntilDiffMs(targetStart, referenceNow) < 0);
+
+    const result = formatDurationUntil(targetStart, referenceNow, 'ru');
+
+    assert.equal(result.isPast, true);
+    assert.equal(result.formattedDuration, 'Событие уже началось или завершилось');
+  });
+
 });
 
 describe('calendar time-until lunch regression', () => {

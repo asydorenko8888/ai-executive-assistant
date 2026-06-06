@@ -1,4 +1,9 @@
 import {
+  assessCalendarCreateReadiness,
+  assessCalendarDeleteReadiness,
+  assessCalendarUpdateReadiness,
+} from '@/src/features/agent/calendar/calendarAmbiguousCommandSafety';
+import {
   extractCalendarCommand,
   getCalendarExtractionConfidenceThreshold,
   isCalendarExtractionExecutable,
@@ -15,6 +20,7 @@ import {
   isOperationalCalendarUpdateRequest,
 } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { detectCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
+import { isCalendarFreeTimeTodayQuery } from '@/src/features/agent/calendar/calendarFreeTimeQuery';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
@@ -45,7 +51,7 @@ function mapUpdateMissingFields(missingFields: CalendarUpdateMissingField[]): Ac
 }
 
 function detectActionKind(transcript: string): ActionFieldValidation['actionKind'] {
-  if (isCalendarExactTimeReadQuery(transcript)) {
+  if (isCalendarExactTimeReadQuery(transcript) || isCalendarFreeTimeTodayQuery(transcript)) {
     return 'none';
   }
 
@@ -95,24 +101,29 @@ export function validateActionFields(params: {
   }
 
   if (actionKind === 'delete_calendar_event') {
+    const readiness = assessCalendarDeleteReadiness(params);
+
     return {
       actionKind,
-      requiredFields: [],
-      missingFields: [],
-      readyToExecute: true,
-      extractionConfidence: 1,
+      requiredFields: ['title'],
+      missingFields: readiness.ready ? [] : ['title'],
+      readyToExecute: readiness.ready,
+      extractionConfidence: readiness.ready ? 1 : 0,
     };
   }
 
   if (actionKind === 'update_calendar_event') {
+    const readiness = assessCalendarUpdateReadiness(params);
     const extracted = extractCalendarUpdateParameters(params.transcript, params.referenceNow);
-    const missingFields = mapUpdateMissingFields(extracted.missingFields);
+    const missingFields = readiness.ready
+      ? []
+      : mapUpdateMissingFields(extracted.missingFields);
 
     return {
       actionKind,
       requiredFields: ['title', 'time'],
       missingFields,
-      readyToExecute: extracted.readyToExecute,
+      readyToExecute: readiness.ready,
       extractionConfidence: extracted.title ? 1 : 0,
     };
   }
@@ -121,24 +132,22 @@ export function validateActionFields(params: {
     transcript: params.transcript,
     referenceNow: params.referenceNow,
   });
-
+  const readiness = assessCalendarCreateReadiness(params);
   const threshold = getCalendarExtractionConfidenceThreshold();
 
   const requiredFields: ActionRequiredField[] = ['title', 'date', 'time', 'confidence'];
   const missingFields: ActionRequiredField[] = [];
 
-  if (!extraction.title || extraction.title.length < 2) {
-    missingFields.push('title');
-  }
-
-  const schedule = parseCalendarCreateSchedule(params.transcript, params.referenceNow);
-
-  if (!schedule.ok) {
-    if (!schedule.detail.includes('start time')) {
-      missingFields.push('date');
+  if (!readiness.ready) {
+    for (const field of readiness.missingFields) {
+      if (field === 'title') {
+        missingFields.push('title');
+      } else if (field === 'date') {
+        missingFields.push('date');
+      } else {
+        missingFields.push('time');
+      }
     }
-
-    missingFields.push('time');
   }
 
   if (extraction.confidence < threshold) {
@@ -146,6 +155,7 @@ export function validateActionFields(params: {
   }
 
   const titleTimePattern = detectCalendarCreateByTitleTimePattern(params.transcript);
+  const schedule = parseCalendarCreateSchedule(params.transcript, params.referenceNow);
   const readyFromExtraction = isCalendarExtractionExecutable(extraction);
   const readyFromTitleTime =
     Boolean(titleTimePattern) &&
@@ -167,8 +177,8 @@ export function validateActionFields(params: {
   return {
     actionKind,
     requiredFields,
-    missingFields: readyFromTitleTime ? [] : missingFields,
-    readyToExecute: readyFromExtraction || readyFromTitleTime,
+    missingFields: readiness.ready || readyFromTitleTime ? [] : [...new Set(missingFields)],
+    readyToExecute: readiness.ready && (readyFromExtraction || readyFromTitleTime),
     extractionConfidence: readyFromTitleTime
       ? Math.max(extraction.confidence, threshold)
       : extraction.confidence,

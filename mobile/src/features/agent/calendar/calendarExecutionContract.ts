@@ -1,8 +1,23 @@
 import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
+import {
+  enforceCalendarMutationSuccessReplyPolicy,
+  isCalendarMutationSuccessReply,
+  isVerifiedCalendarCreateSuccess,
+  isVerifiedCalendarDeleteSuccess,
+  isVerifiedCalendarMutationForIntent,
+  isVerifiedCalendarUpdateSuccess,
+} from '@/src/features/agent/calendar/calendarMutationSuccessReplyGuard';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import { containsFakeOperationalSuccessClaim } from '@/src/features/agent/execution/operationalExecutionHonesty';
 import { isSoftCalendarRefusalReply } from '@/src/features/agent/execution/calendarSoftRefusalGuard';
+
+export {
+  isCalendarMutationSuccessReply,
+  isVerifiedCalendarCreateSuccess,
+  isVerifiedCalendarDeleteSuccess,
+  isVerifiedCalendarUpdateSuccess,
+} from '@/src/features/agent/calendar/calendarMutationSuccessReplyGuard';
 
 const FAKE_CALENDAR_CLAIM_PATTERNS = [
   /подготов/i,
@@ -40,15 +55,7 @@ export function isTerminalCalendarToolReply(text: string) {
   return (
     normalized.startsWith('FAILURE:') ||
     normalized.startsWith('PENDING:') ||
-    normalized.startsWith('Event created successfully:') ||
-    normalized.startsWith('Событие создано успешно:') ||
-    normalized.startsWith('Подію створено успішно:') ||
-    normalized.startsWith('Event removed successfully:') ||
-    normalized.startsWith('Событие удалено успешно:') ||
-    normalized.startsWith('Подію видалено успішно:') ||
-    normalized.startsWith('Event updated successfully:') ||
-    normalized.startsWith('Событие обновлено успешно:') ||
-    normalized.startsWith('Подію оновлено успішно:') ||
+    isCalendarMutationSuccessReply(normalized) ||
     normalized.startsWith('Событие перенесено:') ||
     normalized.startsWith('Подію перенесено:') ||
     normalized.includes(' moved successfully.\n') ||
@@ -67,38 +74,6 @@ export function isTerminalCalendarToolReply(text: string) {
     normalized.includes('Я нашёл несколько похожих') ||
     normalized.includes('I could not find that event') ||
     normalized.includes('I found several similar events')
-  );
-}
-
-export function isVerifiedCalendarCreateSuccess(tool: CalendarToolResponse | null | undefined) {
-  return Boolean(
-    tool &&
-      tool.status === 'SUCCESS' &&
-      tool.verified &&
-      tool.verificationFetched &&
-      tool.eventId &&
-      tool.event?.id,
-  );
-}
-
-export function isVerifiedCalendarDeleteSuccess(tool: CalendarToolResponse | null | undefined) {
-  return Boolean(
-    tool &&
-      tool.status === 'SUCCESS' &&
-      tool.verified &&
-      tool.verificationFetched &&
-      tool.eventId,
-  );
-}
-
-export function isVerifiedCalendarUpdateSuccess(tool: CalendarToolResponse | null | undefined) {
-  return Boolean(
-    tool &&
-      tool.status === 'SUCCESS' &&
-      tool.verified &&
-      tool.verificationFetched &&
-      tool.eventId &&
-      tool.event?.id,
   );
 }
 
@@ -122,20 +97,19 @@ export function isFakeCalendarAssistantReply(text: string, tool: CalendarToolRes
   }
 
   if (
-    (normalized.startsWith('Готово.') ||
-      normalized.startsWith('Done.') ||
-      normalized.startsWith('Event created successfully:') ||
-      normalized.startsWith('Событие создано успешно:') ||
-      normalized.startsWith('Подію створено успішно:') ||
-      normalized.startsWith('Event removed successfully:') ||
-      normalized.startsWith('Событие удалено успешно:') ||
-      normalized.startsWith('Подію видалено успішно:') ||
-      normalized.startsWith('Event updated successfully:') ||
-      normalized.startsWith('Событие обновлено успешно:') ||
-      normalized.startsWith('Подію оновлено успішно:')) &&
-    !isVerifiedCalendarCreateSuccess(tool) &&
-    !isVerifiedCalendarDeleteSuccess(tool) &&
-    !isVerifiedCalendarUpdateSuccess(tool)
+    isCalendarMutationSuccessReply(normalized) &&
+    !isVerifiedCalendarMutationForIntent(tool, 'create_calendar_event') &&
+    !isVerifiedCalendarMutationForIntent(tool, 'update_calendar_event') &&
+    !isVerifiedCalendarMutationForIntent(tool, 'delete_calendar_event')
+  ) {
+    return true;
+  }
+
+  if (
+    (normalized.startsWith('Готово.') || normalized.startsWith('Done.')) &&
+    !isVerifiedCalendarMutationForIntent(tool, 'create_calendar_event') &&
+    !isVerifiedCalendarMutationForIntent(tool, 'update_calendar_event') &&
+    !isVerifiedCalendarMutationForIntent(tool, 'delete_calendar_event')
   ) {
     return true;
   }
@@ -154,8 +128,19 @@ export function assertCalendarReplyMatchesTool(params: {
   tool: CalendarToolResponse | null | undefined;
   intent: CalendarCommandKind;
 }) {
+  const mutationSuccessGuarded = enforceCalendarMutationSuccessReplyPolicy({
+    candidateReply: params.candidateReply,
+    terminalReply: params.terminalReply,
+    tool: params.tool,
+    intent: params.intent,
+  });
+
   if (!isOperationalCalendarWriteRequest(params.userTranscript)) {
-    return params.candidateReply;
+    return mutationSuccessGuarded;
+  }
+
+  if (mutationSuccessGuarded !== params.candidateReply) {
+    return mutationSuccessGuarded;
   }
 
   if (isFakeCalendarAssistantReply(params.candidateReply, params.tool)) {
@@ -169,31 +154,19 @@ export function assertCalendarReplyMatchesTool(params: {
     return params.terminalReply;
   }
 
+  if (isVerifiedCalendarMutationForIntent(params.tool, params.intent)) {
+    return params.terminalReply;
+  }
+
   if (params.tool?.status === 'SUCCESS') {
-    if (params.intent === 'create_calendar_event' && !isVerifiedCalendarCreateSuccess(params.tool)) {
-      return buildFailureTerminalReply(
-        'CALENDAR_EXECUTION_CONTRACT',
-        'create success reply blocked — missing verified eventId',
-      );
-    }
+    return buildFailureTerminalReply(
+      'CALENDAR_EXECUTION_CONTRACT',
+      `${params.intent} success reply blocked — missing verified tool confirmation`,
+    );
+  }
 
-    if (params.intent === 'update_calendar_event' && !isVerifiedCalendarUpdateSuccess(params.tool)) {
-      return buildFailureTerminalReply(
-        'CALENDAR_EXECUTION_CONTRACT',
-        'update success reply blocked — missing verified eventId',
-      );
-    }
-
-    if (params.intent === 'delete_calendar_event' && !isVerifiedCalendarDeleteSuccess(params.tool)) {
-      return buildFailureTerminalReply(
-        'CALENDAR_EXECUTION_CONTRACT',
-        'delete success reply blocked — missing verified delete confirmation',
-      );
-    }
-
-    if (!isTerminalCalendarToolReply(params.candidateReply)) {
-      return params.terminalReply;
-    }
+  if (params.tool?.status === 'FAILURE' && isCalendarMutationSuccessReply(params.candidateReply)) {
+    return params.terminalReply;
   }
 
   if (params.tool?.status === 'FAILURE' && !params.candidateReply.startsWith('FAILURE:')) {

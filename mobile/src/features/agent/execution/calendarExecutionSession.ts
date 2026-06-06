@@ -6,13 +6,20 @@ import { logCalendarCreateDedupeDecision } from '@/src/features/agent/calendar/c
 import { MAX_CALENDAR_TOOL_RETRIES, type CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import {
+  logCalendarUpdateFailed,
+  logCalendarUpdateFinished,
+  logCalendarUpdateStarted,
+  logCalendarUpdateStateReset,
+} from '@/src/features/agent/calendar/calendarUpdateStateLogger';
 import { logExecutionAudit } from '@/src/features/agent/execution/executionAuditLogger';
 import { recordCalendarExecutionDebug } from '@/src/features/settings/storage/calendarExecutionDebugStore';
 import type { CalendarDisambiguationCandidate } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 
 let calendarOperationInProgress = false;
 let calendarOperationStartedAtMs: number | null = null;
-const CALENDAR_OPERATION_LOCK_MS = 45_000;
+let calendarOperationKey: string | null = null;
+export const CALENDAR_OPERATION_LOCK_MS = 30_000;
 let calendarRetryCount = 0;
 let lastOperationKey: string | null = null;
 let lastCreateDedupeKey: string | null = null;
@@ -83,6 +90,7 @@ let lastCommandOutcome: {
   tool: CalendarToolResponse;
   terminalReply: string;
   verified: boolean;
+  sourceTranscript?: string;
 } | null = null;
 
 export function getLastCalendarCommandOutcome() {
@@ -163,9 +171,21 @@ export function setLastCalendarCommandOutcome(outcome: {
   tool: CalendarToolResponse;
   terminalReply: string;
   verified: boolean;
+  sourceTranscript?: string;
 }) {
   lastCommandOutcome = outcome;
   setLastCalendarToolResponse(outcome.tool);
+}
+
+export function clearLastCalendarCommandOutcomeIfTranscriptChanged(transcript: string) {
+  const normalized = transcript.trim();
+
+  if (
+    lastCommandOutcome?.sourceTranscript &&
+    lastCommandOutcome.sourceTranscript.trim() !== normalized
+  ) {
+    lastCommandOutcome = null;
+  }
 }
 
 function normalizeOperationKey(transcript: string) {
@@ -192,33 +212,97 @@ export function setLastCalendarToolResponse(response: CalendarToolResponse) {
   });
 }
 
-export function tryBeginCalendarOperation(transcript: string) {
-  if (
-    calendarOperationInProgress &&
-    calendarOperationStartedAtMs !== null &&
-    Date.now() - calendarOperationStartedAtMs > CALENDAR_OPERATION_LOCK_MS
-  ) {
-    console.log('[Calendar Operation] stale lock released');
-    calendarOperationInProgress = false;
-    calendarOperationStartedAtMs = null;
+export function getCalendarOperationLockSnapshot() {
+  return {
+    inProgress: calendarOperationInProgress,
+    startedAtMs: calendarOperationStartedAtMs,
+    operationKey: calendarOperationKey,
+    retryCount: calendarRetryCount,
+    lastOperationKey,
+  };
+}
+
+export function forceResetCalendarOperationLock(reason: string) {
+  const hadLock = calendarOperationInProgress || calendarOperationStartedAtMs !== null;
+
+  if (!hadLock) {
+    return false;
   }
+
+  logCalendarUpdateStateReset({
+    reason,
+    operationKey: calendarOperationKey,
+    lockAgeMs:
+      calendarOperationStartedAtMs !== null ? Date.now() - calendarOperationStartedAtMs : null,
+  });
+
+  calendarOperationInProgress = false;
+  calendarOperationStartedAtMs = null;
+  calendarOperationKey = null;
+
+  return true;
+}
+
+export function ensureCalendarOperationLockReleasedIfStale(source: string) {
+  if (
+    !calendarOperationInProgress ||
+    calendarOperationStartedAtMs === null ||
+    Date.now() - calendarOperationStartedAtMs <= CALENDAR_OPERATION_LOCK_MS
+  ) {
+    return false;
+  }
+
+  logCalendarUpdateStateReset({
+    reason: 'emergency_timeout',
+    source,
+    operationKey: calendarOperationKey,
+    lockAgeMs: Date.now() - calendarOperationStartedAtMs,
+  });
+
+  calendarOperationInProgress = false;
+  calendarOperationStartedAtMs = null;
+  calendarOperationKey = null;
+
+  return true;
+}
+
+export function tryBeginCalendarOperation(transcript: string) {
+  ensureCalendarOperationLockReleasedIfStale('tryBeginCalendarOperation');
+
+  const operationKey = normalizeOperationKey(transcript);
 
   if (calendarOperationInProgress) {
     logExecutionAudit('tool_call', {
       blocked: true,
       reason: 'calendarOperationInProgress',
+      operationKey: operationKey.slice(0, 80),
+      lockAgeMs:
+        calendarOperationStartedAtMs !== null ? Date.now() - calendarOperationStartedAtMs : null,
+    });
+    logCalendarUpdateFailed({
+      reason: 'operation_in_progress',
+      operationKey,
+      lockAgeMs:
+        calendarOperationStartedAtMs !== null ? Date.now() - calendarOperationStartedAtMs : null,
     });
 
     return false;
   }
 
-  const operationKey = normalizeOperationKey(transcript);
-
-  if (lastOperationKey === operationKey && calendarRetryCount >= MAX_CALENDAR_TOOL_RETRIES && lastToolResponse?.status === 'FAILURE') {
+  if (
+    lastOperationKey === operationKey &&
+    calendarRetryCount >= MAX_CALENDAR_TOOL_RETRIES &&
+    lastToolResponse?.status === 'FAILURE'
+  ) {
     logExecutionAudit('tool_call', {
       blocked: true,
       reason: 'max_retries_exceeded',
       operationKey: operationKey.slice(0, 80),
+    });
+    logCalendarUpdateFailed({
+      reason: 'max_retries_exceeded',
+      operationKey,
+      retryCount: calendarRetryCount,
     });
 
     return false;
@@ -231,6 +315,12 @@ export function tryBeginCalendarOperation(transcript: string) {
 
   calendarOperationInProgress = true;
   calendarOperationStartedAtMs = Date.now();
+  calendarOperationKey = operationKey;
+
+  logCalendarUpdateStarted({
+    operationKey,
+    retryCount: calendarRetryCount,
+  });
 
   logExecutionAudit('tool_call', {
     started: true,
@@ -244,13 +334,22 @@ export function tryBeginCalendarOperation(transcript: string) {
 /** User approved a schedule-conflict override — allow the same mutation to run once more. */
 export function acknowledgeCalendarConflictConfirmation() {
   calendarRetryCount = 0;
-  calendarOperationInProgress = false;
+  forceResetCalendarOperationLock('conflict_confirmation_acknowledged');
   clearPendingCalendarConflictContext();
 }
 
-export function endCalendarOperation(params: { failed: boolean; createdEventId?: string | null }) {
+export function endCalendarOperation(params: {
+  failed: boolean;
+  createdEventId?: string | null;
+  failureReason?: string | null;
+}) {
+  const endedOperationKey = calendarOperationKey;
+  const lockAgeMs =
+    calendarOperationStartedAtMs !== null ? Date.now() - calendarOperationStartedAtMs : null;
+
   calendarOperationInProgress = false;
   calendarOperationStartedAtMs = null;
+  calendarOperationKey = null;
 
   if (params.createdEventId) {
     currentCalendarOperationEventId = params.createdEventId;
@@ -258,19 +357,43 @@ export function endCalendarOperation(params: { failed: boolean; createdEventId?:
 
   if (params.failed) {
     const transientFailure = isTransientCalendarToolErrorCode(lastToolResponse?.errorCode);
+    const awaitingConflictConfirmation =
+      lastToolResponse?.errorCode === 'CALENDAR_SCHEDULE_CONFLICT' ||
+      params.failureReason === 'schedule_conflict_blocked';
 
-    if (!transientFailure) {
-      calendarRetryCount += 1;
-    } else {
+    if (awaitingConflictConfirmation || transientFailure) {
       calendarRetryCount = 0;
+    } else {
+      calendarRetryCount += 1;
     }
+
+    logCalendarUpdateFailed({
+      reason: params.failureReason ?? lastToolResponse?.errorCode ?? 'operation_failed',
+      operationKey: endedOperationKey,
+      lockAgeMs,
+      retryCount: calendarRetryCount,
+    });
   } else {
     calendarRetryCount = 0;
+
+    logCalendarUpdateFinished({
+      operationKey: endedOperationKey,
+      lockAgeMs,
+      eventId: params.createdEventId ?? currentCalendarOperationEventId,
+    });
+
+    logCalendarUpdateStateReset({
+      reason: 'operation_finished',
+      operationKey: endedOperationKey,
+      lockAgeMs,
+    });
   }
 
   logExecutionAudit('tool_call', {
     ended: true,
     retryCount: calendarRetryCount,
+    failed: params.failed,
+    operationKey: endedOperationKey?.slice(0, 80) ?? null,
   });
 }
 
@@ -393,8 +516,7 @@ export function endCalendarCreateOperation(params: {
 }
 
 export function resetCalendarExecutionSession() {
-  calendarOperationInProgress = false;
-  calendarOperationStartedAtMs = null;
+  forceResetCalendarOperationLock('session_reset');
   calendarRetryCount = 0;
   lastOperationKey = null;
   lastCreateDedupeKey = null;

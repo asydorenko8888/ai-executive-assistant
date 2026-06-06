@@ -20,6 +20,11 @@ import {
   resolveUpdateTargetMs,
   type CalendarUpdateSchedule,
 } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
+import {
+  collapseCalendarEventCandidates,
+  deduplicateCalendarEvents,
+  logCalendarEventDeduplication,
+} from '@/src/features/agent/calendar/calendarEventDeduplication';
 import { normalizeCalendarEvents } from '@/src/features/agent/calendarIntelligence/normalizeEvents';
 import { getEventsStartingAtTime } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligence/resolveTargetDay';
@@ -93,7 +98,7 @@ export function resolveCalendarUpdateIntent(params: {
   timeZone?: string;
 }): CalendarUpdateResolvedIntent {
   const timeZone = params.timeZone ?? getExecutiveCalendarTimezone();
-  const activeEvents = params.events.filter((event) => !event.isCancelled);
+  const activeEvents = deduplicateCalendarEvents(params.events.filter((event) => !event.isCancelled));
   const extractedTitle = extractUpdateEventTitle(params.transcript);
   const memoryRef = resolveMoveEventReference(params.referenceNow);
   const requestedEventName = resolveEventTitleQueryForMemory({
@@ -125,13 +130,28 @@ export function resolveCalendarUpdateIntent(params: {
         resolutionTier = classifyTitleMatchTier(requestedEventName, fromTimePick.title);
         candidates = [fromTimePick];
       } else {
-        return {
-          ok: false,
-          reason: 'ambiguous',
-          requestedEventName,
-          candidates: selection.candidates,
-          detail: `Multiple events match "${requestedEventName}"`,
-        };
+        const collapsed = collapseCalendarEventCandidates(selection.candidates);
+
+        logCalendarEventDeduplication({
+          stage: 'update_resolution_ambiguous',
+          rawCount: activeEvents.length,
+          matchedBeforeDedupe: selection.candidates.length,
+          matchedAfterDedupe: collapsed.length,
+        });
+
+        if (collapsed.length === 1) {
+          target = collapsed[0];
+          resolutionTier = classifyTitleMatchTier(requestedEventName, collapsed[0].title);
+          candidates = [collapsed[0]];
+        } else {
+          return {
+            ok: false,
+            reason: 'ambiguous',
+            requestedEventName,
+            candidates: collapsed,
+            detail: `Multiple events match "${requestedEventName}"`,
+          };
+        }
       }
     } else if (selection.match) {
       target = selection.match;
@@ -250,6 +270,13 @@ export function resolveCalendarUpdateIntent(params: {
 
   const durationMs = Math.max(originalEndMs - originalStartMs, 30 * 60_000);
   const requestedEndMs = requestedStartMs + durationMs;
+
+  logCalendarEventDeduplication({
+    stage: 'update_resolution_selected',
+    rawCount: activeEvents.length,
+    deduplicatedCount: activeEvents.length,
+    selectedEventId: target.id,
+  });
 
   console.log('[CALENDAR UPDATE RESOLUTION]');
   console.log(

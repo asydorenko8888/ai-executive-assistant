@@ -13,6 +13,7 @@ import {
   CALENDAR_WORD_EDGE,
   CALENDAR_WORD_END,
 } from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
+import { isCalendarFreeTimeTodayQuery } from '@/src/features/agent/calendar/calendarFreeTimeQuery';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import { logIntentClassified } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import {
@@ -34,6 +35,7 @@ const LIST_DAY_PATTERNS = [
   new RegExp(`${CALENDAR_WORD_EDGE}(?:завтра|tomorrow)${CALENDAR_WORD_END}`, 'iu'),
   /\b(?:які|which|what).{0,24}(?:задачі|tasks?|events?|meetings?)/i,
   /(?:какие|какая|які|what|which|сколько|скільки).{0,32}(?:задач|tasks?|events?|meetings?)/iu,
+  /(?:что|що).{0,24}(?:у\s+меня|у\s+мене|do\s+i\s+have).{0,20}(?:сегодня|сьогодні|today)/iu,
 ];
 
 function isListDayQuery(transcript: string) {
@@ -123,7 +125,9 @@ export function classifyCalendarQueryIntent(transcript: string): CalendarQueryIn
 
   let intent: CalendarQueryIntent = null;
 
-  if (COUNT_AT_TIME_PATTERNS.some((pattern) => pattern.test(normalized))) {
+  if (isCalendarFreeTimeTodayQuery(transcript)) {
+    intent = 'free_time_query';
+  } else if (COUNT_AT_TIME_PATTERNS.some((pattern) => pattern.test(normalized))) {
     intent = 'count_at_time';
   } else {
     const readTimeKind = classifyCalendarReadTimeKind(transcript);

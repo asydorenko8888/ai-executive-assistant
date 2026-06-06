@@ -41,6 +41,18 @@ export function buildCalendarUpdateTimeParseFailedReply(locale: CalendarUpdateLo
   return 'I could not tell what time you want. Try again, for example: "to 8 PM" or "one hour later".';
 }
 
+export function buildCalendarUpdateVerificationFailedReply(locale: CalendarUpdateLocale) {
+  if (locale === 'uk') {
+    return 'Не вдалося перенести подію. Календар не підтвердив зміну.';
+  }
+
+  if (locale === 'ru') {
+    return 'Не удалось перенести событие. Календарь не подтвердил изменение.';
+  }
+
+  return 'Could not move the event. Calendar did not confirm the change.';
+}
+
 export function buildCalendarUpdateNotFoundReply(locale: CalendarUpdateLocale) {
   if (locale === 'uk') {
     return 'Я не знайшов таку подію в календарі.';

@@ -10,8 +10,13 @@ import type {
   PendingCalendarDeleteContext,
   PendingCalendarUpdateContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
+import { touchCalendarConversationContext } from '@/src/features/agent/calendar/calendarConversationContext';
 import { setPendingEventFromAction } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { setPendingIntentFromAction } from '@/src/features/agent/calendar/calendarPendingIntent';
+import {
+  buildMoveClarificationPendingActionFields,
+  recordMoveClarificationStarted,
+} from '@/src/features/agent/calendar/calendarMoveClarificationState';
 
 function persistPendingEventAsActiveContext(pending: CalendarPendingAction) {
   setPendingEventFromAction(pending);
@@ -206,15 +211,19 @@ export function syncConversationStateForUpdateSelection(
   context: PendingCalendarUpdateContext,
   languageCode: CalendarPendingAction['languageCode'],
 ) {
+  const candidates =
+    context.candidates?.map((candidate) => ({
+      eventId: candidate.eventId,
+      title: candidate.title,
+      startsAt: candidate.startsAt,
+      endsAt: candidate.endsAt,
+    })) ?? [];
+  const clarificationFields = buildMoveClarificationPendingActionFields(
+    context.candidates ?? [],
+  );
   const pendingAction = {
     ...updateContextToPendingAction(context, languageCode),
-    conflictEvents:
-      context.candidates?.map((candidate) => ({
-        eventId: candidate.eventId,
-        title: candidate.title,
-        startsAt: candidate.startsAt,
-        endsAt: candidate.endsAt,
-      })) ?? [],
+    ...clarificationFields,
   };
 
   transitionCalendarConversationState({
@@ -223,4 +232,11 @@ export function syncConversationStateForUpdateSelection(
     reason: 'update_event_ambiguous',
   });
   persistPendingEventAsActiveContext(pendingAction);
+  recordMoveClarificationStarted({
+    pendingAction,
+    candidates: context.candidates ?? [],
+    sourceTranscript: context.sourceTranscript,
+    title: context.title,
+  });
+  touchCalendarConversationContext();
 }

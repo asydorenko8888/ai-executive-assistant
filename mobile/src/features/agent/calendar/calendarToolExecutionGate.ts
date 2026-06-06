@@ -1,7 +1,11 @@
-import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
+import {
+  detectCalendarCommandIntent,
+  requiresCalendarCommandExecution,
+} from '@/src/features/agent/calendar/calendarCommandTypes';
 import {
   assertCalendarReplyMatchesTool,
   buildFailureTerminalReply,
+  isCalendarMutationSuccessReply,
 } from '@/src/features/agent/calendar/calendarExecutionContract';
 import { getCalendarCommandTerminalReply } from '@/src/features/agent/calendar/calendarCommandExecutor';
 import {
@@ -10,9 +14,6 @@ import {
   getPendingCalendarDeleteContext,
   getPendingCalendarUpdateContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
-import {
-  isOperationalCalendarWriteRequest,
-} from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { logCalendarContractEnforced, logCalendarLlmBlocked } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
 
 /**
@@ -20,17 +21,7 @@ import { logCalendarContractEnforced, logCalendarLlmBlocked } from '@/src/featur
  * Conversation-only replies are invalid for these intents.
  */
 export function requiresCalendarToolExecution(transcript: string) {
-  const trimmed = transcript.trim();
-
-  if (isOperationalCalendarWriteRequest(trimmed)) {
-    return true;
-  }
-
-  return Boolean(
-    getPendingCalendarUpdateContext() ||
-      getPendingCalendarDeleteContext() ||
-      getPendingCalendarConflictContext(),
-  );
+  return requiresCalendarCommandExecution(transcript);
 }
 
 export function blockLlmForCalendarMutation(params: {
@@ -64,6 +55,7 @@ export function enforceCalendarToolReply(params: {
   const pendingConflict = getPendingCalendarConflictContext();
   const requiresTool =
     requiresCalendarToolExecution(params.userTranscript) ||
+    isCalendarMutationSuccessReply(params.candidateReply) ||
     Boolean(pendingUpdate || pendingDelete || pendingConflict);
 
   if (!requiresTool) {

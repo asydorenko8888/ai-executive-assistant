@@ -1,10 +1,15 @@
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import {
+  buildFailureTerminalReply,
+  isVerifiedCalendarDeleteSuccess,
+} from '@/src/features/agent/calendar/calendarExecutionContract';
+import {
   buildCalendarDeleteAllDayNotSupportedReply,
   buildCalendarDeleteAmbiguousReply,
   buildCalendarDeleteApiFailureReply,
   buildCalendarDeleteNotFoundReply,
   buildCalendarDeleteRecurringNotSupportedReply,
+  buildCalendarDeleteVerificationFailedReply,
 } from '@/src/features/agent/calendar/calendarDeleteNaturalReplies';
 import {
   buildCalendarApiUnavailableReply,
@@ -17,8 +22,10 @@ import {
 } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import { buildNaturalCalendarDeleteSuccessReply } from '@/src/features/agent/execution/calendarDeleteSuccessReply';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
-import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
-import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import {
+  getChatLocaleFromVoiceLanguage,
+  type VoiceLanguageCode,
+} from '@/src/features/chat/services/voiceLanguageLocale';
 
 export type CalendarDeleteToolReplyBundle = {
   tool: CalendarToolResponse;
@@ -77,6 +84,10 @@ function buildNaturalDeleteFailureReply(
     return buildCalendarDeleteAllDayNotSupportedReply(locale);
   }
 
+  if (tool.errorCode === 'VERIFY_FAILED') {
+    return buildCalendarDeleteVerificationFailedReply(locale);
+  }
+
   if (tool.status === 'FAILURE' && tool.error) {
     return buildCalendarDeleteApiFailureReply(locale, tool.error);
   }
@@ -93,7 +104,7 @@ export function buildCalendarDeleteToolReplyBundle(
     eventTitle?: string | null;
   },
 ): CalendarDeleteToolReplyBundle {
-  if (tool.status === 'SUCCESS' && tool.event) {
+  if (tool.status === 'SUCCESS' && isVerifiedCalendarDeleteSuccess(tool) && tool.event) {
     const copy = buildNaturalCalendarDeleteSuccessReply({
       event: tool.event,
       languageCode,
@@ -105,6 +116,21 @@ export function buildCalendarDeleteToolReplyBundle(
       reply: copy.reply,
       spokenReply: copy.spokenReply,
       executionState: 'success',
+      requiresCalendarAuth: false,
+    };
+  }
+
+  if (tool.status === 'SUCCESS') {
+    const text = buildFailureTerminalReply(
+      'CALENDAR_EXECUTION_CONTRACT',
+      'API success without verified delete confirmation — delete success reply blocked',
+    );
+
+    return {
+      tool,
+      reply: text,
+      spokenReply: text,
+      executionState: 'failed',
       requiresCalendarAuth: false,
     };
   }

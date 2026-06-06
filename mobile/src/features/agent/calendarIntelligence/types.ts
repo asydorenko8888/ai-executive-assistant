@@ -34,6 +34,7 @@ export type CalendarQueryIntent =
   | 'next_event'
   | 'last_event'
   | 'free_windows'
+  | 'free_time_query'
   | 'best_slot'
   | 'overlaps'
   | 'combine_activity'

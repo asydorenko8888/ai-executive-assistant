@@ -2,6 +2,10 @@ import type { CalendarEvent } from '@/src/entities/calendar/types';
 import type { ConversationEventRecord } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { fetchCalendarEventsForZonedDay } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import { resolveMutationSearchDayOffset } from '@/src/features/agent/calendar/calendarActiveEventContext';
+import {
+  deduplicateCalendarEvents,
+  logCalendarEventDeduplication,
+} from '@/src/features/agent/calendar/calendarEventDeduplication';
 import { mergeCalendarEventLists } from '@/src/features/agent/calendar/calendarLiveState';
 import { parseCalendarUpdateSchedule } from '@/src/features/agent/calendar/calendarUpdateScheduleParser';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
@@ -49,10 +53,17 @@ export async function fetchCalendarEventsForMutationSearch(params: {
     fetchCalendarEventsForZonedDay(params.referenceNow, 1),
   ]);
   const fetchOk = today.fetchOk && tomorrow.fetchOk;
-  const events = mergeCalendarEventLists(today.events, tomorrow.events);
+  const mergedEvents = mergeCalendarEventLists(today.events, tomorrow.events);
+  const dedupedEvents = deduplicateCalendarEvents(mergedEvents);
+
+  logCalendarEventDeduplication({
+    stage: 'mutation_search_fetch',
+    rawCount: mergedEvents.length,
+    deduplicatedCount: dedupedEvents.length,
+  });
 
   return {
-    events,
+    events: dedupedEvents,
     fetchOk,
     timeMin: today.range.timeMin,
     timeMax: tomorrow.range.timeMax,

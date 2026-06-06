@@ -5,6 +5,11 @@ import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calen
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import { tryMergePendingCalendarDeleteReply } from '@/src/features/agent/calendar/calendarDeletePendingContext';
 import { tryMergePendingCalendarUpdateReply } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
+import {
+  ensurePendingUpdateContextHydrated,
+  getStoredMoveClarificationCandidates,
+  resolveStoredMoveClarificationReply,
+} from '@/src/features/agent/calendar/calendarMoveClarificationState';
 import { isOperationalCalendarUpdateRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import {
   getPendingCalendarDeleteContext,
@@ -54,8 +59,11 @@ export function mergeActionContextFromHistory(params: {
   const normalized = params.transcript.trim();
   const pendingUpdateForGate = getPendingCalendarUpdateContext();
   const pendingDeleteForGate = getPendingCalendarDeleteContext();
+  const storedMoveCandidates = getStoredMoveClarificationCandidates();
   const awaitingMoveOrDeleteSelection = Boolean(
-    pendingUpdateForGate?.candidates?.length || pendingDeleteForGate?.candidates?.length,
+    pendingUpdateForGate?.candidates?.length ||
+      pendingDeleteForGate?.candidates?.length ||
+      storedMoveCandidates.length > 0,
   );
 
   if (!awaitingMoveOrDeleteSelection && isCalendarExactTimeReadQuery(normalized)) {
@@ -88,14 +96,19 @@ export function mergeActionContextFromHistory(params: {
     }
   }
 
-  const pendingUpdate = getPendingCalendarUpdateContext();
+  const pendingUpdate = ensurePendingUpdateContextHydrated(params.referenceNow);
 
   if (pendingUpdate) {
-    const mergedPending = tryMergePendingCalendarUpdateReply({
-      pending: pendingUpdate,
-      reply: normalized,
-      referenceNow: params.referenceNow,
-    });
+    const mergedPending =
+      resolveStoredMoveClarificationReply({
+        reply: normalized,
+        referenceNow: params.referenceNow,
+      }) ??
+      tryMergePendingCalendarUpdateReply({
+        pending: pendingUpdate,
+        reply: normalized,
+        referenceNow: params.referenceNow,
+      });
 
     if (mergedPending) {
       setPendingCalendarUpdateContext(mergedPending.context);

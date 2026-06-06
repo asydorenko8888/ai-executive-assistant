@@ -1,4 +1,6 @@
+import { getZonedTimeParts } from '@/src/features/agent/calendar/calendarTimezone';
 import { formatTimeInExecutiveTimezone } from '@/src/features/agent/calendar/calendarTime';
+import { isExplicitPastAgendaQuery } from '@/src/features/agent/calendar/calendarPastAgendaQuery';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import { formatWallClockLabel } from '@/src/features/agent/calendarIntelligence/calendarWallClockLabel';
 import type {
@@ -7,6 +9,7 @@ import type {
   CalendarQueryIntent,
   NormalizedCalendarEvent,
 } from '@/src/features/agent/calendarIntelligence/types';
+import { splitDayEventsByPastAndFuture } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import { formatAgendaListForDisplay } from '@/src/features/voice/speech/voiceSpeechFormatter';
 import type { VoiceLanguageChatLocale } from '@/src/features/chat/services/voiceLanguage';
 
@@ -35,6 +38,13 @@ function formatEventLine(event: NormalizedCalendarEvent, index: number, timeZone
   return `${index + 1}. ${time} — ${event.title}${locationSuffix}`;
 }
 
+function formatCompletedEventBullet(event: NormalizedCalendarEvent, timeZone: string) {
+  const time = formatTimeInExecutiveTimezone(event.startISO, timeZone);
+  const locationSuffix = event.location ? ` — ${event.location}` : '';
+
+  return `• ${event.title} — ${time}${locationSuffix}`;
+}
+
 function dayLabel(day: CalendarDayContext, locale: VoiceLanguageChatLocale) {
   if (day.dayOffset === 1) {
     return locale === 'uk' ? 'завтра' : locale === 'ru' ? 'завтра' : 'tomorrow';
@@ -54,6 +64,114 @@ function formatSlot(slot: CalendarFreeSlot, day: CalendarDayContext) {
   return `${start}–${end} (${slot.durationMinutes} min)`;
 }
 
+function nowMinutesOnDay(day: CalendarDayContext, referenceNow: Date) {
+  const parts = getZonedTimeParts(referenceNow, day.timezone);
+
+  return parts.hour * 60 + parts.minute;
+}
+
+function formatFreeTimeClock(
+  minutes: number,
+  day: CalendarDayContext,
+  locale: VoiceLanguageChatLocale,
+) {
+  if (locale === 'ru' || locale === 'uk') {
+    const hour = Math.floor(minutes / 60);
+    const minute = String(minutes % 60).padStart(2, '0');
+
+    return `${hour}:${minute}`;
+  }
+
+  return formatClock(minutes, day);
+}
+
+function formatFreeTimeSlotBullet(params: {
+  slot: CalendarFreeSlot;
+  index: number;
+  total: number;
+  day: CalendarDayContext;
+  locale: VoiceLanguageChatLocale;
+  nowMinutes: number;
+}) {
+  const { slot, index, total, day, locale, nowMinutes } = params;
+  const endClock = formatFreeTimeClock(slot.endMinutes, day, locale);
+  const startClock = formatFreeTimeClock(slot.startMinutes, day, locale);
+  const startsNow = slot.startMinutes <= nowMinutes;
+  const openEnded = slot.endMinutes >= 24 * 60;
+
+  if (locale === 'uk') {
+    if (startsNow && index === 0) {
+      return `- зараз до ${endClock}`;
+    }
+
+    if (openEnded && index === total - 1) {
+      return `- після ${startClock}`;
+    }
+
+    return `- з ${startClock} до ${endClock}`;
+  }
+
+  if (locale === 'ru') {
+    if (startsNow && index === 0) {
+      return `- сейчас до ${endClock}`;
+    }
+
+    if (openEnded && index === total - 1) {
+      return `- после ${startClock}`;
+    }
+
+    return `- с ${startClock} до ${endClock}`;
+  }
+
+  if (startsNow && index === 0) {
+    return `- now until ${endClock}`;
+  }
+
+  if (openEnded && index === total - 1) {
+    return `- after ${startClock}`;
+  }
+
+  return `- from ${startClock} to ${endClock}`;
+}
+
+function formatFreeTimeTodayReply(params: {
+  day: CalendarDayContext;
+  locale: VoiceLanguageChatLocale;
+  freeSlots: CalendarFreeSlot[];
+  referenceNow: Date;
+}) {
+  const { day, locale, freeSlots, referenceNow } = params;
+  const nowMinutes = nowMinutesOnDay(day, referenceNow);
+
+  if (freeSlots.length === 0) {
+    return locale === 'uk'
+      ? 'Сьогодні вільного часу більше немає.'
+      : locale === 'ru'
+        ? 'Сегодня свободного времени больше нет.'
+        : 'You have no more free time today.';
+  }
+
+  const header =
+    locale === 'uk'
+      ? 'Сьогодні у тебе вільно:'
+      : locale === 'ru'
+        ? 'Сегодня у тебя свободно:'
+        : 'You are free today:';
+
+  const lines = freeSlots.map((slot, index) =>
+    formatFreeTimeSlotBullet({
+      slot,
+      index,
+      total: freeSlots.length,
+      day,
+      locale,
+      nowMinutes,
+    }),
+  );
+
+  return `${header}\n${lines.join('\n')}`;
+}
+
 export function formatDeterministicCalendarReply(params: {
   intent: CalendarQueryIntent;
   day: CalendarDayContext;
@@ -68,13 +186,16 @@ export function formatDeterministicCalendarReply(params: {
   overlaps?: Array<{ first: NormalizedCalendarEvent; second: NormalizedCalendarEvent }>;
   requestedDurationMinutes?: number;
   userTranscript?: string;
+  referenceNow?: Date;
 }): string {
   const { intent, day, locale, events } = params;
   const label = dayLabel(day, locale);
-  const sampleIso = events[0]?.startISO ?? new Date(day.range.rangeStartMs).toISOString();
 
   if (intent === 'list_day') {
-    if (events.length === 0) {
+    const referenceNow = params.referenceNow ?? new Date();
+    const { pastEvents, futureEvents } = splitDayEventsByPastAndFuture(events, day, referenceNow);
+
+    if (futureEvents.length === 0 && pastEvents.length === 0) {
       const empty =
         locale === 'uk'
           ? `На ${label} більше немає запланованих подій.`
@@ -89,16 +210,50 @@ export function formatDeterministicCalendarReply(params: {
       });
     }
 
-    const intro =
-      locale === 'uk'
-        ? `На ${label} у тебе заплановано ${events.length} задачі:`
-        : locale === 'ru'
-          ? `На ${label} у тебя запланированы следующие задачи (${events.length}):`
-          : `You have ${events.length} items ${label}:`;
+    const sections: string[] = [];
 
-    const body = events.map((event, index) => formatEventLine(event, index, day.timezone)).join('\n');
+    if (futureEvents.length > 0) {
+      const remainingHeader =
+        locale === 'uk'
+          ? 'Залишилось сьогодні:'
+          : locale === 'ru'
+            ? 'Осталось сегодня:'
+            : 'Remaining today:';
 
-    return formatAgendaListForDisplay(`${intro}\n${body}`, {
+      sections.push(
+        `${remainingHeader}\n${futureEvents
+          .map((event, index) => formatEventLine(event, index, day.timezone))
+          .join('\n')}`,
+      );
+    } else {
+      sections.push(
+        locale === 'uk'
+          ? `На ${label} усі заплановані події вже завершились.`
+          : locale === 'ru'
+            ? `На ${label} все запланированные задачи уже завершены.`
+            : `Everything scheduled for ${label} is already finished.`,
+      );
+    }
+
+    const showCompleted =
+      params.userTranscript !== undefined && isExplicitPastAgendaQuery(params.userTranscript);
+
+    if (showCompleted && pastEvents.length > 0) {
+      const completedHeader =
+        locale === 'uk'
+          ? 'Завершено сьогодні:'
+          : locale === 'ru'
+            ? 'Завершено сегодня:'
+            : 'Completed today:';
+
+      sections.push(
+        `${completedHeader}\n${pastEvents
+          .map((event) => formatCompletedEventBullet(event, day.timezone))
+          .join('\n')}`,
+      );
+    }
+
+    return formatAgendaListForDisplay(sections.join('\n\n'), {
       preserveFullCalendarList: true,
       disableVoiceShortening: true,
       userTranscript: params.userTranscript,
@@ -195,6 +350,22 @@ export function formatDeterministicCalendarReply(params: {
       : locale === 'ru'
         ? `Последняя задача ${label}: ${time} — ${last.title}.`
         : `Your last event ${label} is ${time} — ${last.title}.`;
+  }
+
+  if (intent === 'free_time_query') {
+    const referenceNow = params.referenceNow ?? new Date();
+    const body = formatFreeTimeTodayReply({
+      day,
+      locale,
+      freeSlots: params.freeSlots ?? [],
+      referenceNow,
+    });
+
+    return formatAgendaListForDisplay(body, {
+      preserveFullCalendarList: true,
+      disableVoiceShortening: true,
+      userTranscript: params.userTranscript,
+    });
   }
 
   if (intent === 'free_windows' || intent === 'best_slot' || intent === 'combine_activity') {

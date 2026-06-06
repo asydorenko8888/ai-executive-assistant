@@ -10,6 +10,11 @@ import {
   type CalendarDeleteResolution,
 } from '@/src/features/agent/calendar/calendarDeleteResolution';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
+import { augmentEventsWithConversationContext } from '@/src/features/agent/calendar/calendarConversationStore';
+import {
+  deduplicateCalendarEvents,
+  logCalendarEventDeduplication,
+} from '@/src/features/agent/calendar/calendarEventDeduplication';
 import {
   getActiveCalendarEvent,
   resolveMutationSearchDayOffset,
@@ -84,9 +89,19 @@ export async function resolveCalendarDeleteTarget(params: {
     };
   }
 
+  const augmentedEvents = augmentEventsWithConversationContext(events);
+  const dedupedEvents = deduplicateCalendarEvents(augmentedEvents);
+
+  logCalendarEventDeduplication({
+    stage: 'delete_resolution_fetch',
+    rawCount: events.length,
+    localStoredCount: augmentedEvents.length,
+    deduplicatedCount: dedupedEvents.length,
+  });
+
   logCalendarMutationCandidates({
-    count: events.length,
-    candidates: events.map((event) => ({
+    count: dedupedEvents.length,
+    candidates: dedupedEvents.map((event) => ({
       id: event.id,
       title: event.title,
       startsAt: event.startsAt,
@@ -95,7 +110,7 @@ export async function resolveCalendarDeleteTarget(params: {
   });
 
   const resolution = resolveCalendarDeleteTargetFromEvents({
-    events,
+    events: dedupedEvents,
     titleQuery,
     transcript: params.transcript,
     referenceNow: params.referenceNow,

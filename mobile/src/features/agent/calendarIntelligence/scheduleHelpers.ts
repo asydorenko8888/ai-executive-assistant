@@ -62,6 +62,47 @@ export function getEventsForDay(
   return events.filter((event) => event.dateKey === day.dateKey);
 }
 
+export function splitDayEventsByPastAndFuture(
+  events: NormalizedCalendarEvent[],
+  day: CalendarDayContext,
+  referenceNow: Date,
+) {
+  const nowMs = referenceNow.getTime();
+  const pastEvents: NormalizedCalendarEvent[] = [];
+  const futureEvents: NormalizedCalendarEvent[] = [];
+
+  for (const event of getEventsForDay(events, day)) {
+    const endMs = parseGoogleCalendarInstant(event.endISO);
+
+    if (endMs === null) {
+      continue;
+    }
+
+    if (endMs <= nowMs) {
+      pastEvents.push(event);
+      continue;
+    }
+
+    futureEvents.push(event);
+  }
+
+  return { pastEvents, futureEvents };
+}
+
+function getBusyEventsForFreeTime(
+  events: NormalizedCalendarEvent[],
+  day: CalendarDayContext,
+  referenceNow: Date,
+) {
+  const nowMs = referenceNow.getTime();
+
+  return getEventsForDay(events, day).filter((event) => {
+    const endMs = parseGoogleCalendarInstant(event.endISO);
+
+    return endMs !== null && endMs > nowMs;
+  });
+}
+
 export function getEventsActiveAtTime(
   events: NormalizedCalendarEvent[],
   day: CalendarDayContext,
@@ -115,18 +156,9 @@ export function getNextEvent(
   day: CalendarDayContext,
   referenceNow: Date,
 ): NormalizedCalendarEvent | null {
-  const nowMs = referenceNow.getTime();
-  const dayEvents = getEventsForDay(events, day);
+  const { futureEvents } = splitDayEventsByPastAndFuture(events, day, referenceNow);
 
-  for (const event of dayEvents) {
-    const startMs = parseGoogleCalendarInstant(event.startISO);
-
-    if (startMs !== null && startMs > nowMs) {
-      return event;
-    }
-  }
-
-  return null;
+  return futureEvents[0] ?? null;
 }
 
 export function getLastEvent(
@@ -169,15 +201,25 @@ function minutesFromReferenceOnDay(referenceNow: Date, day: CalendarDayContext) 
   return parts.hour * 60 + parts.minute;
 }
 
+export type GetFreeWindowsOptions = {
+  dayEndMinutes?: number;
+  minDurationMinutes?: number;
+  futureBusyEventsOnly?: boolean;
+};
+
 export function getFreeWindows(
   events: NormalizedCalendarEvent[],
   day: CalendarDayContext,
   referenceNow: Date,
   minDurationMinutes = 15,
+  options?: GetFreeWindowsOptions,
 ): CalendarFreeSlot[] {
-  const dayEvents = getEventsForDay(events, day);
+  const dayEvents = options?.futureBusyEventsOnly
+    ? getBusyEventsForFreeTime(events, day, referenceNow)
+    : getEventsForDay(events, day);
   const dayStartMinutes = 0;
-  const dayEndMinutes = DEFAULT_SCHEDULING_DAY_END_MINUTES;
+  const dayEndMinutes = options?.dayEndMinutes ?? DEFAULT_SCHEDULING_DAY_END_MINUTES;
+  const minGap = options?.minDurationMinutes ?? minDurationMinutes;
   const cursorStart = Math.max(dayStartMinutes, minutesFromReferenceOnDay(referenceNow, day));
   const slots: CalendarFreeSlot[] = [];
   let cursor = cursorStart;
@@ -186,7 +228,7 @@ export function getFreeWindows(
     if (event.startMinutes > cursor) {
       const durationMinutes = event.startMinutes - cursor;
 
-      if (durationMinutes >= minDurationMinutes) {
+      if (durationMinutes >= minGap) {
         slots.push(buildFreeSlot(day, cursor, event.startMinutes));
       }
     }
@@ -194,7 +236,7 @@ export function getFreeWindows(
     cursor = Math.max(cursor, event.endMinutes);
   }
 
-  if (dayEndMinutes - cursor >= minDurationMinutes) {
+  if (dayEndMinutes - cursor >= minGap) {
     slots.push(buildFreeSlot(day, cursor, dayEndMinutes));
   }
 

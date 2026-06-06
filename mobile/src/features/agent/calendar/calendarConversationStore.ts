@@ -20,6 +20,10 @@ function logPendingStateCreated(pending: CalendarPendingAction) {
   );
 }
 import {
+  deduplicateCalendarEvents,
+  logCalendarEventDeduplication,
+} from '@/src/features/agent/calendar/calendarEventDeduplication';
+import {
   getLiveCalendarEvents,
   mergeCalendarEventLists,
   replaceLiveCalendarEvents,
@@ -94,6 +98,8 @@ export type CalendarPendingAction = {
   updateToStartISO?: string | null;
   updateFromEndISO?: string | null;
   proceedDespiteConflict?: boolean;
+  clarificationKind?: 'move_event' | 'delete_event' | null;
+  selectionCandidates?: CalendarPendingConflictEvent[];
 };
 
 export type ConversationEventPointer = {
@@ -415,6 +421,8 @@ export function buildCalendarPendingAction(params: {
   updateToStartISO?: string | null;
   updateFromEndISO?: string | null;
   proceedDespiteConflict?: boolean;
+  clarificationKind?: 'move_event' | 'delete_event' | null;
+  selectionCandidates?: CalendarPendingConflictEvent[];
   pendingActionId?: string;
   createdAtMs?: number;
 }): CalendarPendingAction {
@@ -459,6 +467,8 @@ export function buildCalendarPendingAction(params: {
     updateToStartISO: params.updateToStartISO ?? null,
     updateFromEndISO: params.updateFromEndISO ?? null,
     proceedDespiteConflict: params.proceedDespiteConflict ?? false,
+    clarificationKind: params.clarificationKind ?? null,
+    selectionCandidates: params.selectionCandidates ?? params.conflictEvents ?? [],
   };
 }
 
@@ -733,14 +743,22 @@ export function commitVerifiedCalendarMutation(params: {
 }
 
 export function setLastCalendarSnapshot(events: CalendarEvent[], reason: string) {
+  const deduplicated = mergeCalendarEventLists(events, []);
+
+  logCalendarEventDeduplication({
+    stage: 'set_last_calendar_snapshot',
+    rawCount: events.length,
+    deduplicatedCount: deduplicated.length,
+  });
+
   workingMemory = syncFlatIds({
     ...workingMemory,
-    lastCalendarSnapshot: mergeCalendarEventLists(events, []),
+    lastCalendarSnapshot: deduplicated,
     snapshotRefreshedAtMs: Date.now(),
   });
 
   console.log('[CALENDAR CONVERSATION STORE] snapshot updated');
-  console.log(JSON.stringify({ reason, eventCount: events.length }));
+  console.log(JSON.stringify({ reason, eventCount: deduplicated.length }));
 }
 
 function upsertPointerInSnapshot(pointer: ConversationEventPointer) {
@@ -792,12 +810,23 @@ export function augmentEventsWithConversationContext(fetchedEvents: CalendarEven
     )
     .map(pointerToCalendarEvent);
 
-  return filterOutDeletedTombstones(
+  const merged = filterOutDeletedTombstones(
     mergeCalendarEventLists(
       mergeCalendarEventLists(fetchedEvents, workingMemory.lastCalendarSnapshot),
       pinned,
     ),
   );
+
+  const deduplicated = deduplicateCalendarEvents(merged);
+
+  logCalendarEventDeduplication({
+    stage: 'augment_conversation_context',
+    rawCount: fetchedEvents.length,
+    localStoredCount: workingMemory.lastCalendarSnapshot.length,
+    deduplicatedCount: deduplicated.length,
+  });
+
+  return deduplicated;
 }
 
 export function resolveExplicitTitleFromMemory(

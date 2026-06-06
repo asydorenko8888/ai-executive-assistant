@@ -73,6 +73,7 @@ export async function tryBuildDeterministicCalendarReply(params: {
     day: answer.day,
     locale,
     events: answer.events,
+    referenceNow: params.referenceNow,
     userTranscript: params.transcript,
     atTimeEvents: payload.atTimeEvents as NormalizedCalendarEvent[] | undefined,
     clockMinutes: payload.clockMinutes as number | null | undefined,

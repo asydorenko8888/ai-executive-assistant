@@ -9,8 +9,13 @@ export type FormatDurationUntilResult = {
   isNow: boolean;
 };
 
+export function computeDurationUntilDiffMs(targetStart: Date, referenceNow: Date) {
+  return targetStart.getTime() - referenceNow.getTime();
+}
+
 export function computeDurationUntilMinutes(targetStart: Date, referenceNow: Date) {
-  return Math.floor((targetStart.getTime() - referenceNow.getTime()) / 60000);
+  const diffMs = computeDurationUntilDiffMs(targetStart, referenceNow);
+  return Math.floor(diffMs / 60000);
 }
 
 function ruHourLabel(hours: number) {
@@ -73,6 +78,18 @@ function ukMinuteLabel(minutes: number) {
   return `${minutes} хвилин`;
 }
 
+/** Human-readable duration from a non-negative minute count (<60 → minutes only; 60+ → hours + minutes). */
+export function formatTotalMinutesAsDuration(
+  totalMinutes: number,
+  locale: CalendarDurationLocale,
+) {
+  const safeMinutes = Math.max(0, Math.floor(totalMinutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const minutes = safeMinutes % 60;
+
+  return formatDurationParts(hours, minutes, locale);
+}
+
 function formatDurationParts(hours: number, minutes: number, locale: CalendarDurationLocale) {
   if (locale === 'ru') {
     if (hours > 0 && minutes > 0) {
@@ -109,47 +126,38 @@ function formatDurationParts(hours: number, minutes: number, locale: CalendarDur
   return `${minutes} minute${minutes === 1 ? '' : 's'}`;
 }
 
+function formatPastDuration(locale: CalendarDurationLocale) {
+  if (locale === 'uk') {
+    return 'Подія вже почалася або завершилася';
+  }
+
+  if (locale === 'ru') {
+    return 'Событие уже началось или завершилось';
+  }
+
+  return 'The event has already started or ended';
+}
+
 export function formatDurationUntil(
   targetStart: Date,
   referenceNow: Date,
   locale: CalendarDurationLocale,
 ): FormatDurationUntilResult {
-  const diffMinutes = computeDurationUntilMinutes(targetStart, referenceNow);
+  const diffMs = computeDurationUntilDiffMs(targetStart, referenceNow);
+  const diffMinutes = Math.floor(diffMs / 60000);
 
-  if (diffMinutes < 0) {
-    const formattedDuration =
-      locale === 'uk'
-        ? 'подія вже почалася'
-        : locale === 'ru'
-          ? 'событие уже началось'
-          : 'the event has already started';
-
+  if (diffMs <= 0) {
     return {
       diffMinutes,
-      formattedDuration,
+      formattedDuration: formatPastDuration(locale),
       isPast: true,
       isNow: false,
     };
   }
 
-  if (diffMinutes === 0) {
-    const formattedDuration =
-      locale === 'uk' ? 'зараз' : locale === 'ru' ? 'прямо сейчас' : 'right now';
-
-    return {
-      diffMinutes: 0,
-      formattedDuration,
-      isPast: false,
-      isNow: true,
-    };
-  }
-
-  const hours = Math.floor(diffMinutes / 60);
-  const minutes = diffMinutes % 60;
-
   return {
     diffMinutes,
-    formattedDuration: formatDurationParts(hours, minutes, locale),
+    formattedDuration: formatTotalMinutesAsDuration(diffMinutes, locale),
     isPast: false,
     isNow: false,
   };

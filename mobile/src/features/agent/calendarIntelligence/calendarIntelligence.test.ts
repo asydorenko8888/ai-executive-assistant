@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import { buildDeterministicCalendarAnswer } from '@/src/features/agent/calendarIntelligence/calendarAnswerEngine';
+import { isOperationalCalendarCreateRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { classifyCalendarQueryIntent } from '@/src/features/agent/calendarIntelligence/classifyQuery';
 import { formatDeterministicCalendarReply } from '@/src/features/agent/calendarIntelligence/formatDeterministicReply';
 import {
@@ -61,6 +62,140 @@ describe('calendarIntelligence', () => {
     assert.equal(answer?.intent, 'list_day');
     assert.equal(answer?.events.length, 3);
     assert.ok(answer?.events.every((item) => item.dateKey === '2026-05-28'));
+  });
+
+  it('classifies natural-language today agenda queries', () => {
+    assert.equal(classifyCalendarQueryIntent('что у меня сегодня'), 'list_day');
+    assert.equal(classifyCalendarQueryIntent('що у мене сьогодні'), 'list_day');
+    assert.equal(classifyCalendarQueryIntent('what do I have today'), 'list_day');
+  });
+
+  it('excludes past events from normal today agenda replies', () => {
+    const eveningNow = new Date('2026-05-28T17:48:00-05:00');
+    const todayEvents: CalendarEvent[] = [
+      event('lunch', 'Lunch', '2026-05-28T14:00:00-05:00', '2026-05-28T15:00:00-05:00'),
+      event('dinner', 'Dinner', '2026-05-28T20:00:00-05:00', '2026-05-28T21:00:00-05:00'),
+      event('meditation', 'Meditation', '2026-05-28T22:30:00-05:00', '2026-05-28T23:00:00-05:00'),
+    ];
+    const answer = buildDeterministicCalendarAnswer({
+      transcript: 'What do I have today?',
+      events: todayEvents,
+      referenceNow: eveningNow,
+      timeZone,
+    });
+
+    assert.equal(answer?.intent, 'list_day');
+
+    const reply = formatDeterministicCalendarReply({
+      intent: answer!.intent,
+      day: answer!.day,
+      locale: 'en',
+      events: answer!.events,
+      referenceNow: eveningNow,
+    });
+
+    assert.match(reply, /Remaining today:/i);
+    assert.match(reply, /1\..*Dinner/i);
+    assert.match(reply, /2\..*Meditation/i);
+    assert.doesNotMatch(reply, /1\..*Lunch/i);
+    assert.doesNotMatch(reply, /Completed today:/i);
+    assert.doesNotMatch(reply, /• Lunch/i);
+  });
+
+  it('shows completed events only when the user asks for past history', () => {
+    const eveningNow = new Date('2026-05-28T17:48:00-05:00');
+    const todayEvents: CalendarEvent[] = [
+      event('lunch', 'Lunch', '2026-05-28T14:00:00-05:00', '2026-05-28T15:00:00-05:00'),
+      event('dinner', 'Dinner', '2026-05-28T20:00:00-05:00', '2026-05-28T21:00:00-05:00'),
+    ];
+    const answer = buildDeterministicCalendarAnswer({
+      transcript: 'что уже было сегодня',
+      events: todayEvents,
+      referenceNow: eveningNow,
+      timeZone,
+    });
+
+    const reply = formatDeterministicCalendarReply({
+      intent: answer!.intent,
+      day: answer!.day,
+      locale: 'ru',
+      events: answer!.events,
+      referenceNow: eveningNow,
+      userTranscript: 'что уже было сегодня',
+    });
+
+    assert.match(reply, /Завершено сегодня:/i);
+    assert.match(reply, /• Lunch/i);
+    assert.equal(isOperationalCalendarCreateRequest('когда у меня сегодня свободное время'), false);
+  });
+
+  it('formats free-time today replies from the current time forward', () => {
+    const freeNow = new Date('2026-05-28T18:19:00-05:00');
+    const todayEvents: CalendarEvent[] = [
+      event('lunch', 'Lunch', '2026-05-28T14:00:00-05:00', '2026-05-28T15:00:00-05:00'),
+      event('dinner', 'Dinner', '2026-05-28T20:00:00-05:00', '2026-05-28T21:00:00-05:00'),
+      event('meditation', 'Meditation', '2026-05-28T22:30:00-05:00', '2026-05-28T23:30:00-05:00'),
+    ];
+
+    assert.equal(
+      classifyCalendarQueryIntent('коли у мене сьогодні вільний час'),
+      'free_time_query',
+    );
+
+    const answer = buildDeterministicCalendarAnswer({
+      transcript: 'когда у меня сегодня свободное время',
+      events: todayEvents,
+      referenceNow: freeNow,
+      timeZone,
+    });
+
+    assert.equal(answer?.intent, 'free_time_query');
+
+    const reply = formatDeterministicCalendarReply({
+      intent: answer!.intent,
+      day: answer!.day,
+      locale: 'ru',
+      events: answer!.events,
+      freeSlots: answer!.payload.freeSlots as typeof answer.payload.freeSlots,
+      referenceNow: freeNow,
+      userTranscript: 'когда у меня сегодня свободное время',
+    });
+
+    assert.match(reply, /Сегодня у тебя свободно:/i);
+    assert.match(reply, /сейчас до 20:00/i);
+    assert.match(reply, /с 21:00 до 22:30/i);
+    assert.match(reply, /после 23:30/i);
+    assert.doesNotMatch(reply, /Lunch/i);
+  });
+
+  it('returns only the nearest future event for next-event queries', () => {
+    const eveningNow = new Date('2026-05-28T17:48:00-05:00');
+    const todayEvents: CalendarEvent[] = [
+      event('lunch', 'Lunch', '2026-05-28T14:00:00-05:00', '2026-05-28T15:00:00-05:00'),
+      event('dinner', 'Dinner', '2026-05-28T20:00:00-05:00', '2026-05-28T21:00:00-05:00'),
+      event('meditation', 'Meditation', '2026-05-28T22:30:00-05:00', '2026-05-28T23:00:00-05:00'),
+    ];
+    const answer = buildDeterministicCalendarAnswer({
+      transcript: "What's next?",
+      events: todayEvents,
+      referenceNow: eveningNow,
+      timeZone,
+    });
+
+    assert.equal(answer?.intent, 'next_event');
+    assert.equal(answer?.payload.nextEvent?.title, 'Dinner');
+
+    const reply = formatDeterministicCalendarReply({
+      intent: answer!.intent,
+      day: answer!.day,
+      locale: 'en',
+      events: answer!.events,
+      nextEvent: answer!.payload.nextEvent as typeof answer.events[number],
+      referenceNow: eveningNow,
+    });
+
+    assert.match(reply, /Dinner/i);
+    assert.doesNotMatch(reply, /Lunch/i);
   });
 
   it('returns both events at the same clock time', () => {

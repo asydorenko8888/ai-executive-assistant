@@ -1,6 +1,10 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import type { ConversationEventRecord } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import {
+  toCurrentActiveCalendarEvent,
+  type CalendarEventScheduleIdentity,
+} from '@/src/features/agent/calendar/calendarEventDeduplication';
+import {
   getActiveCalendarEventRecord,
   getConversationEventMemory,
   resolveMoveEventReference,
@@ -28,6 +32,27 @@ export function calendarEventFromMemoryRecord(record: ConversationEventRecord): 
 
 export function getActiveCalendarEvent(referenceNow: Date) {
   return getActiveCalendarEventRecord(referenceNow);
+}
+
+/** Latest created, moved, updated, deleted or referenced event for pronoun resolution. */
+export function getCurrentActiveCalendarEvent(
+  referenceNow: Date,
+): CalendarEventScheduleIdentity | null {
+  const record = getActiveCalendarEventRecord(referenceNow);
+
+  if (!record) {
+    return null;
+  }
+
+  return toCurrentActiveCalendarEvent(
+    {
+      id: record.eventId,
+      title: record.title,
+      startsAt: record.startISO,
+      endsAt: record.endISO,
+    },
+    record.dateKey,
+  );
 }
 
 export function resolveMutationSearchDayOffset(params: {

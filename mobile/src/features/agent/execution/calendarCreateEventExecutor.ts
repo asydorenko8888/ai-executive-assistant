@@ -373,6 +373,25 @@ export async function executeCalendarCreateEvent(
       );
     }
 
+    if (tool.status === 'SUCCESS' && !tool.verified) {
+      endCalendarCreateOperation({ dedupeKey, failed: true });
+      const unverified = createCalendarToolFailure(
+        'VERIFY_FAILED',
+        'Google Calendar did not confirm the created event.',
+      );
+      logCalendarMutationVerification({
+        intent: 'create_calendar_event',
+        verified: false,
+        verificationFetched: tool.verificationFetched,
+        eventId: tool.eventId ?? null,
+        detail: 'unverified_success',
+      });
+      return finalizeOutcome(
+        buildCalendarToolReplyBundle(unverified, params.languageCode, { referenceNow: params.referenceNow }),
+        payloadResult.scheduleIso,
+      );
+    }
+
     logCalendarExecutionStateTransition({
       from: 'creating_event',
       to: 'success',
