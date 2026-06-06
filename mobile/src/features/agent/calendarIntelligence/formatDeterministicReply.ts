@@ -57,6 +57,58 @@ function dayLabel(day: CalendarDayContext, locale: VoiceLanguageChatLocale) {
   return day.dateKey;
 }
 
+function formatListDayFutureHeader(day: CalendarDayContext, locale: VoiceLanguageChatLocale) {
+  if (day.dayOffset === 0) {
+    return locale === 'uk'
+      ? 'Залишилось сьогодні:'
+      : locale === 'ru'
+        ? 'Осталось сегодня:'
+        : 'Remaining today:';
+  }
+
+  if (day.dayOffset === 1) {
+    return locale === 'uk'
+      ? 'Заплановано на завтра:'
+      : locale === 'ru'
+        ? 'Запланировано на завтра:'
+        : 'Scheduled for tomorrow:';
+  }
+
+  const label = dayLabel(day, locale);
+
+  return locale === 'uk'
+    ? `Заплановано на ${label}:`
+    : locale === 'ru'
+      ? `Запланировано на ${label}:`
+      : `Scheduled for ${label}:`;
+}
+
+function formatListDayCompletedHeader(day: CalendarDayContext, locale: VoiceLanguageChatLocale) {
+  if (day.dayOffset === 0) {
+    return locale === 'uk'
+      ? 'Завершено сьогодні:'
+      : locale === 'ru'
+        ? 'Завершено сегодня:'
+        : 'Completed today:';
+  }
+
+  if (day.dayOffset === 1) {
+    return locale === 'uk'
+      ? 'Завершено завтра:'
+      : locale === 'ru'
+        ? 'Завершено завтра:'
+        : 'Completed tomorrow:';
+  }
+
+  const label = dayLabel(day, locale);
+
+  return locale === 'uk'
+    ? `Завершено ${label}:`
+    : locale === 'ru'
+      ? `Завершено ${label}:`
+      : `Completed ${label}:`;
+}
+
 function formatSlot(slot: CalendarFreeSlot, day: CalendarDayContext) {
   const start = formatClock(slot.startMinutes, day);
   const end = formatClock(slot.endMinutes, day);
@@ -213,12 +265,7 @@ export function formatDeterministicCalendarReply(params: {
     const sections: string[] = [];
 
     if (futureEvents.length > 0) {
-      const remainingHeader =
-        locale === 'uk'
-          ? 'Залишилось сьогодні:'
-          : locale === 'ru'
-            ? 'Осталось сегодня:'
-            : 'Remaining today:';
+      const remainingHeader = formatListDayFutureHeader(day, locale);
 
       sections.push(
         `${remainingHeader}\n${futureEvents
@@ -239,12 +286,7 @@ export function formatDeterministicCalendarReply(params: {
       params.userTranscript !== undefined && isExplicitPastAgendaQuery(params.userTranscript);
 
     if (showCompleted && pastEvents.length > 0) {
-      const completedHeader =
-        locale === 'uk'
-          ? 'Завершено сьогодні:'
-          : locale === 'ru'
-            ? 'Завершено сегодня:'
-            : 'Completed today:';
+      const completedHeader = formatListDayCompletedHeader(day, locale);
 
       sections.push(
         `${completedHeader}\n${pastEvents

@@ -70,6 +70,38 @@ describe('calendarIntelligence', () => {
     assert.equal(classifyCalendarQueryIntent('what do I have today'), 'list_day');
   });
 
+  it('uses tomorrow heading for завтра agenda queries', () => {
+    const tomorrowEvents: CalendarEvent[] = [
+      event('walk', 'Прогулка', '2026-05-29T13:00:00-05:00', '2026-05-29T14:00:00-05:00'),
+      event('lunch', 'Обед', '2026-05-29T13:30:00-05:00', '2026-05-29T14:30:00-05:00'),
+      event('call', 'Звонок Николаю', '2026-05-29T20:00:00-05:00', '2026-05-29T21:00:00-05:00'),
+    ];
+    const answer = buildDeterministicCalendarAnswer({
+      transcript: 'что у меня завтра',
+      events: tomorrowEvents,
+      referenceNow,
+      timeZone,
+    });
+
+    assert.equal(answer?.intent, 'list_day');
+    assert.equal(answer?.day.dayOffset, 1);
+
+    const reply = formatDeterministicCalendarReply({
+      intent: answer!.intent,
+      day: answer!.day,
+      locale: 'ru',
+      events: answer!.events,
+      referenceNow,
+      userTranscript: 'что у меня завтра',
+    });
+
+    assert.match(reply, /Запланировано на завтра:/i);
+    assert.doesNotMatch(reply, /Осталось сегодня/i);
+    assert.match(reply, /1\..*Прогулка/i);
+    assert.match(reply, /2\..*Обед/i);
+    assert.match(reply, /3\..*Звонок Николаю/i);
+  });
+
   it('excludes past events from normal today agenda replies', () => {
     const eveningNow = new Date('2026-05-28T17:48:00-05:00');
     const todayEvents: CalendarEvent[] = [
