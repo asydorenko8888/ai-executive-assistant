@@ -14,10 +14,15 @@ import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar
 import { isCalendarAgendaQuery } from '@/src/features/agent/calendar/calendarAgendaSync';
 import { warnIfFalseExecutionClaim, enforceCalendarReplyIfNeeded } from '@/src/features/agent/capabilityHonesty';
 import {
+  logAssistantReplyGenerated,
+  logGeneralAssistantEntered,
+} from '@/src/features/agent/conversation/assistantRoutingMarkers';
+import {
   finalizeTurnReply,
   resolveAssistantTurn,
   shouldFormatReplyForVoice,
 } from '@/src/features/agent/conversation/assistantTurnPipeline';
+import { resolveVoiceTurnGate } from '@/src/features/agent/conversation/assistantVoiceTurnGate';
 import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
 import { prepareMemoryPromptContext } from '@/src/features/chat/memory';
 import { buildShortTermMemory } from '@/src/features/chat/memory/shortTermMemory';
@@ -269,42 +274,35 @@ export function useHomeVoiceAssistant() {
           enableVoiceShortcuts: true,
         });
 
-        const spokenLocal =
-          turn.reply?.trim() ||
-          (requiresCalendarToolExecution(trimmedTranscript)
-            ? blockLlmForCalendarMutation({
-                transcript: trimmedTranscript,
-                reason: 'voice empty operational reply',
-              })
-            : null) ||
-          buildFailureTerminalReply('CALENDAR_EXECUTION_CONTRACT', 'assistant turn returned no reply');
+        const voiceGate = resolveVoiceTurnGate({
+          turn,
+          transcript: trimmedTranscript,
+        });
 
-        if (spokenLocal) {
-          warnIfFalseExecutionClaim(spokenLocal, turn.calendarVerified ? 'executed' : 'drafted');
+        if (voiceGate.kind === 'local') {
+          logAssistantReplyGenerated({
+            source: voiceGate.source,
+            transcriptPreview: trimmedTranscript,
+            replyPreview: voiceGate.reply,
+            route: turn.route,
+          });
+
+          warnIfFalseExecutionClaim(voiceGate.reply, turn.calendarVerified ? 'executed' : 'drafted');
 
           if (turn.calendarVerified) {
             void refreshHomeBriefing(queryClient);
           }
 
-          const assistantMessage = finishAssistantTurn(spokenLocal);
-          playAssistantResponse(spokenLocal, assistantMessage.id);
+          const assistantMessage = finishAssistantTurn(voiceGate.reply);
+          playAssistantResponse(voiceGate.reply, assistantMessage.id);
           return;
         }
 
-        if (requiresCalendarToolExecution(trimmedTranscript)) {
-          const forced =
-            blockLlmForCalendarMutation({
-              transcript: trimmedTranscript,
-              reason: 'voice turn missing tool reply',
-            }) ??
-            buildFailureTerminalReply(
-              'CALENDAR_EXECUTION_CONTRACT',
-              'calendar command blocked LLM — no tool result',
-            );
-          const assistantMessage = finishAssistantTurn(forced);
-          playAssistantResponse(forced, assistantMessage.id);
-          return;
-        }
+        logGeneralAssistantEntered({
+          transcriptPreview: trimmedTranscript,
+          route: turn.route,
+          behaviorMode: turn.behaviorMode,
+        });
 
         const voiceSession = resolveVoiceSession(
           useExecutiveConversationStore.getState().messages,
@@ -405,6 +403,12 @@ export function useHomeVoiceAssistant() {
             executionState: turn.calendarVerified ? 'executed' : 'drafted',
           });
 
+          logAssistantReplyGenerated({
+            source: 'llm',
+            transcriptPreview: trimmedTranscript,
+            replyPreview: finalReply,
+            route: turn.route,
+          });
           logAssistantConversation('[AssistantFinalize]', 'Voice LLM response ready', {
             length: finalReply.length,
           });

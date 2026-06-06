@@ -12,6 +12,7 @@ import {
   getPendingCalendarDeleteContext,
   getPendingCalendarUpdateContext,
 } from '@/src/features/agent/execution/calendarExecutionSession';
+import { isCalendarReadOnlyQuery } from '@/src/features/agent/calendar/calendarReadOnlyQuery';
 import {
   isOperationalCalendarCreateRequest,
   isOperationalCalendarDeleteRequest,
@@ -65,6 +66,10 @@ function isConversationMemoryFollowUp(transcript: string) {
 
 export function requiresCalendarCommandExecution(transcript: string) {
   const normalized = transcript.trim();
+
+  if (isCalendarReadOnlyQuery(normalized)) {
+    return false;
+  }
 
   if (
     isCalendarConversationAwaitingInput() ||

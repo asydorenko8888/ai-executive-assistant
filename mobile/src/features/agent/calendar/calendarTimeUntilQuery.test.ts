@@ -37,6 +37,11 @@ describe('isCalendarTimeUntilEventQuery', () => {
     assert.equal(isCalendarTimeUntilEventQuery('how long till meditation'), true);
   });
 
+  it('matches Russian «сколько времени у меня до …» word order', () => {
+    assert.equal(isCalendarTimeUntilEventQuery('Сколько времени у меня до ужина'), true);
+    assert.equal(isCalendarTimeUntilEventQuery('Сколько времени у меня до бассейна'), true);
+  });
+
   it('blocks travel and lunch-breakdown advice for time-until queries', () => {
     const transcript = 'how much time until dinner';
     const context = buildSituationContextForLlm(

@@ -8,6 +8,7 @@ import {
 } from '@/src/features/agent/intent/actionFieldValidator';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import { mergeActionContextFromHistory, isActionContinuation } from '@/src/features/agent/intent/actionContextMerge';
+import { isCalendarReadOnlyQuery } from '@/src/features/agent/calendar/calendarReadOnlyQuery';
 import type { AssistantIntentAnalysis } from '@/src/features/agent/intent/assistantIntentRouter';
 import { requiresCalendarCommandExecution } from '@/src/features/agent/calendar/calendarCommandTypes';
 import {
@@ -160,15 +161,16 @@ export function resolveAssistantBehavior(params: {
   }
 
   const explicitAction =
-    hasExplicitActionVerb(actionTranscript) ||
-    contextMerge.contextSource === 'clarification_followup' ||
-    contextMerge.contextSource === 'pending_update_clarification' ||
-    contextMerge.contextSource === 'pending_delete_clarification' ||
-    Boolean(getPendingCalendarConflictContext()) ||
-    isCalendarConversationAwaitingInput() ||
-    isBareCalendarShortReply(params.transcript) ||
-    isNewCalendarCommandMessage(params.transcript) ||
-    isCalendarCreateByTitleTimePattern(actionTranscript);
+    !isCalendarReadOnlyQuery(params.transcript) &&
+    (hasExplicitActionVerb(actionTranscript) ||
+      contextMerge.contextSource === 'clarification_followup' ||
+      contextMerge.contextSource === 'pending_update_clarification' ||
+      contextMerge.contextSource === 'pending_delete_clarification' ||
+      Boolean(getPendingCalendarConflictContext()) ||
+      isCalendarConversationAwaitingInput() ||
+      isBareCalendarShortReply(params.transcript) ||
+      isNewCalendarCommandMessage(params.transcript) ||
+      isCalendarCreateByTitleTimePattern(actionTranscript));
   const fieldValidation = validateActionFields({
     transcript: actionTranscript,
     referenceNow: params.referenceNow,

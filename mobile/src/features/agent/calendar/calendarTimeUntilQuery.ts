@@ -20,6 +20,11 @@ import {
 const TIME_UNTIL_PATTERNS: Array<{ pattern: RegExp; group: number }> = [
   {
     pattern:
+      /(?:сколько|скільки)\s+(?:времени|время|часу|час)\s+(?:у\s+меня\s+|у\s+мене\s+)?до\s+(.+)/iu,
+    group: 1,
+  },
+  {
+    pattern:
       /(?:сколько|скільки)\s+(?:у\s+меня\s+|у\s+мене\s+)?(?:времени|время|часу|час|осталось|залишилось)\s+до\s+(.+)/iu,
     group: 1,
   },
@@ -163,6 +168,18 @@ export function getTimeUntilNoFutureMatchMessage(locale: 'ru' | 'uk' | 'en') {
   }
 
   return 'No upcoming events with that name.';
+}
+
+export function getTimeUntilNoTitleMatchMessage(locale: 'ru' | 'uk' | 'en') {
+  if (locale === 'uk') {
+    return 'Не знайшов події з такою назвою в календарі.';
+  }
+
+  if (locale === 'ru') {
+    return 'Не нашёл события с таким названием в календаре.';
+  }
+
+  return 'I could not find an event with that name on your calendar.';
 }
 
 function resolveActiveEventForTimeUntil(params: {

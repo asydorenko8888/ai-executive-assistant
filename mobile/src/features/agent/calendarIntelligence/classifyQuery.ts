@@ -1,10 +1,4 @@
 import {
-  getPendingCalendarConflictContext,
-  getPendingCalendarDeleteContext,
-  getPendingCalendarUpdateContext,
-} from '@/src/features/agent/execution/calendarExecutionSession';
-import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
-import {
   asksAboutEventsAtClock,
   extractCalendarClockFragment,
 } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
@@ -14,6 +8,7 @@ import {
   CALENDAR_WORD_END,
 } from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
 import { isCalendarFreeTimeTodayQuery } from '@/src/features/agent/calendar/calendarFreeTimeQuery';
+import { isCalendarReadOnlyQuery } from '@/src/features/agent/calendar/calendarReadOnlyQuery';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import { logIntentClassified } from '@/src/features/agent/calendarIntelligence/calendarReadDiagnostics';
 import {
@@ -95,25 +90,7 @@ const OVERLAP_PATTERNS = [
 ];
 
 export function isDeterministicCalendarReadQuery(transcript: string) {
-  const normalized = transcript.trim();
-
-  if (!normalized || isOperationalCalendarWriteRequest(normalized)) {
-    return false;
-  }
-
-  if (isCalendarExactTimeReadQuery(normalized)) {
-    return true;
-  }
-
-  if (
-    getPendingCalendarUpdateContext() ||
-    getPendingCalendarDeleteContext() ||
-    getPendingCalendarConflictContext()
-  ) {
-    return false;
-  }
-
-  return classifyCalendarQueryIntent(normalized) !== null;
+  return isCalendarReadOnlyQuery(transcript);
 }
 
 export function classifyCalendarQueryIntent(transcript: string): CalendarQueryIntent {

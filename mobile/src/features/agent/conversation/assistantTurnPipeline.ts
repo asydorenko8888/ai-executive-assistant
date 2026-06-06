@@ -4,6 +4,8 @@ import {
   ensureFreshCalendarForAgendaTurn,
   isCalendarAgendaQuery,
 } from '@/src/features/agent/calendar/calendarAgendaSync';
+import { isCalendarReadOnlyQuery } from '@/src/features/agent/calendar/calendarReadOnlyQuery';
+import { tryBuildCalendarReadReply } from '@/src/features/agent/calendar/calendarReadReplyBuilder';
 import {
   isDeterministicCalendarReadQuery,
   tryBuildDeterministicCalendarReply,
@@ -12,6 +14,11 @@ import { tryBuildCalendarTimeUntilReplyFromEvents } from '@/src/features/agent/c
 import { tryBuildHumanizedCalendarReply } from '@/src/features/agent/calendar/calendarHumanizedReply';
 import { isCalendarTimeUntilEventQuery } from '@/src/features/agent/calendar/calendarTimeUntilQuery';
 import type { ExecutiveAgentOrchestrator } from '@/src/features/agent/agentOrchestrator';
+import {
+  logAssistantReplyGenerated,
+  logCalendarPipelineEntered,
+  logRouterSelectedIntent,
+} from '@/src/features/agent/conversation/assistantRoutingMarkers';
 import {
   assertExecutionTransition,
   logFallbackActivation,
@@ -382,6 +389,66 @@ function resolutionDefaults(
   };
 }
 
+async function tryResolveCalendarReadTurn(params: {
+  userTranscript: string;
+  messages: ChatMessage[];
+  languageCode: VoiceLanguageCode;
+  referenceNow: Date;
+  calendarConnected: boolean;
+  calendarEvents: CalendarEvent[];
+  intent: AssistantIntentAnalysis;
+  behaviorPrompt: string | null;
+  userMessage: ChatMessage | null;
+  factualGroundingStatus: FactualGroundingStatus;
+  behaviorMode: AssistantBehaviorMode;
+}): Promise<AssistantTurnResolution | null> {
+  if (!params.calendarConnected || !isCalendarReadOnlyQuery(params.userTranscript)) {
+    return null;
+  }
+
+  const readReply = await tryBuildCalendarReadReply({
+    transcript: params.userTranscript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+    calendarConnected: params.calendarConnected,
+    prefetchedEvents: params.calendarEvents,
+  });
+
+  if (!readReply?.trim()) {
+    return null;
+  }
+
+  logTurnPipeline('route selected', {
+    route: 'advisory_local',
+    behaviorMode: params.behaviorMode,
+    calendarReadOnly: true,
+    transcriptPreview: params.userTranscript.slice(0, 120),
+  });
+
+  return {
+    route: 'advisory_local',
+    intent: params.intent,
+    reply: guardAgainstRepeatedAssistantResponse({
+      messages: params.messages,
+      candidateReply: readReply,
+      languageCode: params.languageCode,
+      calendarConnected: params.calendarConnected,
+      referenceNow: params.referenceNow,
+    }),
+    intentPrompt: [params.behaviorPrompt, buildIntentPrioritySystemPrompt(params.intent)]
+      .filter(Boolean)
+      .join(' '),
+    userTranscript: params.userTranscript,
+    latestUserMessageId: params.userMessage?.id ?? null,
+    executionState: 'conversational',
+    operationalStarted: false,
+    responseMode: 'factual',
+    factualGroundingStatus: params.factualGroundingStatus,
+    behaviorMode: params.behaviorMode,
+    selectedTool: 'none',
+  };
+}
+
 async function tryExecuteReadyCalendarMutation(params: {
   actionTranscript: string;
   userTranscript: string;
@@ -591,6 +658,51 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     behaviorMode: behavior.mode,
   });
 
+  logRouterSelectedIntent({
+    transcriptPreview: userTranscript,
+    behaviorMode: behavior.mode,
+    behaviorIntent: behavior.intent,
+    route: 'pending',
+    calendarCommandIntent,
+    readOnlyCalendar: isCalendarReadOnlyQuery(userTranscript),
+  });
+
+  if (
+    isCalendarReadOnlyQuery(userTranscript) ||
+    requiresCalendarCommandExecution(actionTranscript) ||
+    calendarCommandIntent !== 'none'
+  ) {
+    logCalendarPipelineEntered({
+      stage: 'resolve_turn',
+      transcriptPreview: userTranscript,
+      behaviorMode: behavior.mode,
+    });
+  }
+
+  const calendarReadTurn = await tryResolveCalendarReadTurn({
+    userTranscript,
+    messages: params.messages,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+    calendarConnected,
+    calendarEvents,
+    intent,
+    behaviorPrompt,
+    userMessage,
+    factualGroundingStatus: factualGrounding.snapshot.status,
+    behaviorMode: behavior.mode,
+  });
+
+  if (calendarReadTurn) {
+    logAssistantReplyGenerated({
+      source: 'calendar_read',
+      transcriptPreview: userTranscript,
+      replyPreview: calendarReadTurn.reply ?? '',
+      route: calendarReadTurn.route,
+    });
+    return calendarReadTurn;
+  }
+
   const readyCalendarMutation = await tryExecuteReadyCalendarMutation({
     actionTranscript,
     userTranscript,
@@ -735,7 +847,17 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     }
   }
 
-  if (behavior.mode === 'ACTION_MODE' && requiresCalendarCommandExecution(actionTranscript)) {
+  if (
+    behavior.mode === 'ACTION_MODE' &&
+    requiresCalendarCommandExecution(actionTranscript) &&
+    !isCalendarReadOnlyQuery(userTranscript)
+  ) {
+    logCalendarPipelineEntered({
+      stage: 'mutation_executor',
+      transcriptPreview: userTranscript,
+      behaviorMode: behavior.mode,
+    });
+
     logTurnPipeline('calendar command executor — tool-first', {
       behaviorMode: behavior.mode,
       intent: calendarCommandIntent,

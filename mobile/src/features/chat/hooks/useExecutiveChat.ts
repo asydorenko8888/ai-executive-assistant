@@ -12,6 +12,10 @@ import { getAssistantVisibleCalendarEvents } from '@/src/features/agent/calendar
 import { isCalendarAgendaQuery } from '@/src/features/agent/calendar/calendarAgendaSync';
 import { warnIfFalseExecutionClaim, enforceCalendarReplyIfNeeded } from '@/src/features/agent/capabilityHonesty';
 import {
+  logAssistantReplyGenerated,
+  logGeneralAssistantEntered,
+} from '@/src/features/agent/conversation/assistantRoutingMarkers';
+import {
   finalizeTurnReply,
   readFreshConversationMessages,
   resolveAssistantTurn,
@@ -399,6 +403,12 @@ export function useExecutiveChat() {
 
       if (turn.reply) {
         coordinator.touch(requestId);
+        logAssistantReplyGenerated({
+          source: 'pipeline',
+          transcriptPreview: turn.userTranscript,
+          replyPreview: turn.reply,
+          route: turn.route,
+        });
 
         return {
           reply: turn.reply,
@@ -441,6 +451,12 @@ export function useExecutiveChat() {
           calendarVerified: false,
         };
       }
+
+      logGeneralAssistantEntered({
+        transcriptPreview: turn.userTranscript,
+        route: turn.route,
+        behaviorMode: turn.behaviorMode,
+      });
 
       const agentSystemMessages = await buildAgentSystemMessages(orchestrator, turn.userTranscript);
       const activeRequest = coordinator.getActive();

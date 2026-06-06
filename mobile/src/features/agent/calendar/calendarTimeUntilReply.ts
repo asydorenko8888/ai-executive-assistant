@@ -4,6 +4,7 @@ import {
   logCalendarTimeUntilDebug,
   type CalendarDurationLocale,
 } from '@/src/features/agent/calendar/calendarDurationUntil';
+import { logCalendarReadReplyBuilt } from '@/src/features/agent/calendar/calendarReadReplyMarkers';
 import {
   assessEventDepartureLayers,
   buildDepartureRecommendationText,
@@ -16,12 +17,15 @@ import {
   findAllTitleMatchingTimeUntilEvents,
   findFutureMatchingTimeUntilEvents,
   getTimeUntilNoFutureMatchMessage,
+  getTimeUntilNoTitleMatchMessage,
   isCalendarTimeUntilEventQuery,
   logTimeUntilEventSelection,
 } from '@/src/features/agent/calendar/calendarTimeUntilQuery';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
-import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
-import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
+import {
+  getChatLocaleFromVoiceLanguage,
+  type VoiceLanguageCode,
+} from '@/src/features/chat/services/voiceLanguageLocale';
 
 export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
   transcript: string;
@@ -54,10 +58,26 @@ export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
 
   if (futureMatching.length === 0) {
     if (allMatching.length > 0) {
-      return getTimeUntilNoFutureMatchMessage(locale);
+      const noFutureReply = getTimeUntilNoFutureMatchMessage(locale);
+      logCalendarReadReplyBuilt({
+        intent: 'time_until',
+        title: titleQuery,
+        start: null,
+        durationText: null,
+        transcriptPreview: params.transcript,
+      });
+      return noFutureReply;
     }
 
-    return null;
+    const noTitleReply = getTimeUntilNoTitleMatchMessage(locale);
+    logCalendarReadReplyBuilt({
+      intent: 'time_until',
+      title: titleQuery,
+      start: null,
+      durationText: null,
+      transcriptPreview: params.transcript,
+    });
+    return noTitleReply;
   }
 
   const targetEvent = futureMatching[0] ?? null;
@@ -85,7 +105,28 @@ export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
   });
 
   if (!layers) {
-    return null;
+    const fallbackReply = buildFactsOnlyTimeUntilReply({
+      locale,
+      eventTitle: targetEvent.title,
+      facts: {
+        minutesUntilStart: duration.diffMinutes,
+        formattedDuration: duration.formattedDuration,
+        eventStartIso: targetEvent.startsAt,
+        eventStartLabel: targetEvent.startsAt,
+      },
+      isPast: duration.isPast,
+      isNow: duration.isNow,
+    });
+
+    logCalendarReadReplyBuilt({
+      intent: 'time_until',
+      title: targetEvent.title,
+      start: targetEvent.startsAt,
+      durationText: duration.formattedDuration,
+      transcriptPreview: params.transcript,
+    });
+
+    return fallbackReply;
   }
 
   logTimeUntilEventSelection({
@@ -116,6 +157,14 @@ export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
     facts: layers.facts,
     isPast: duration.isPast,
     isNow: duration.isNow,
+  });
+
+  logCalendarReadReplyBuilt({
+    intent: 'time_until',
+    title: targetEvent.title,
+    start: targetEvent.startsAt,
+    durationText: layers.facts.formattedDuration,
+    transcriptPreview: params.transcript,
   });
 
   if (!isExplicitDeparturePlanningQuery(params.transcript)) {
