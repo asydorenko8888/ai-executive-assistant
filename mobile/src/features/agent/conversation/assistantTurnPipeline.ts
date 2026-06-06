@@ -74,6 +74,11 @@ import {
 } from '@/src/features/agent/intent/assistantBehaviorRouter';
 import type { AssistantBehaviorMode } from '@/src/features/agent/intent/assistantBehaviorRouter';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import {
+  isLocalReminderCreateQuery,
+  isLocalReminderIntent,
+} from '@/src/features/local-reminders/localReminderClassification';
+import { resolveLocalReminderTurn } from '@/src/features/local-reminders/resolveLocalReminderTurn';
 import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import { guardAgainstRepeatedAssistantResponse, getLatestUserMessage } from '@/src/features/agent/conversation/assistantResponseGuard';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
@@ -389,6 +394,96 @@ function resolutionDefaults(
   };
 }
 
+function buildLocalReminderParseFailureReply(languageCode: VoiceLanguageCode) {
+  if (languageCode === 'uk-UA') {
+    return 'Не зрозумів, коли нагадати.';
+  }
+
+  if (languageCode === 'ru-RU') {
+    return 'Не понял, когда напомнить.';
+  }
+
+  return 'I did not understand when to remind you.';
+}
+
+function tryResolveLocalReminderTurn(params: {
+  userTranscript: string;
+  languageCode: VoiceLanguageCode;
+  referenceNow: Date;
+  intent: AssistantIntentAnalysis;
+  behaviorPrompt: string | null;
+  userMessage: ChatMessage | null;
+  factualGrounding: ReturnType<typeof buildFactualGroundingContext>;
+  behaviorMode: AssistantBehaviorMode;
+  selectedTool: string;
+}): AssistantTurnResolution | null {
+  if (!isLocalReminderIntent(params.userTranscript)) {
+    return null;
+  }
+
+  const localResult = resolveLocalReminderTurn({
+    transcript: params.userTranscript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+  });
+
+  if (!localResult) {
+    if (!isLocalReminderCreateQuery(params.userTranscript)) {
+      return null;
+    }
+
+    const clarificationReply = buildLocalReminderParseFailureReply(params.languageCode);
+
+    logTurnPipeline('route selected', {
+      route: 'clarification_local',
+      behaviorMode: params.behaviorMode,
+      selectedTool: 'create_reminder',
+      localReminder: true,
+      blockLlm: true,
+    });
+
+    return {
+      route: 'clarification_local',
+      intent: params.intent,
+      reply: clarificationReply,
+      intentPrompt: params.behaviorPrompt,
+      userTranscript: params.userTranscript,
+      latestUserMessageId: params.userMessage?.id ?? null,
+      executionState: 'tool_call',
+      operationalStarted: true,
+      spokenReply: clarificationReply,
+      calendarVerified: false,
+      ...resolutionDefaults(params.factualGrounding),
+      behaviorMode: params.behaviorMode,
+      selectedTool: params.selectedTool,
+    };
+  }
+
+  logTurnPipeline('route selected', {
+    route: 'operational_local',
+    behaviorMode: params.behaviorMode,
+    selectedTool: 'create_reminder',
+    localReminder: true,
+    blockLlm: true,
+  });
+
+  return {
+    route: 'operational_local',
+    intent: params.intent,
+    reply: localResult.reply,
+    intentPrompt: params.behaviorPrompt,
+    userTranscript: params.userTranscript,
+    latestUserMessageId: params.userMessage?.id ?? null,
+    executionState: 'tool_success',
+    operationalStarted: true,
+    spokenReply: localResult.spokenReply ?? localResult.reply,
+    calendarVerified: false,
+    ...resolutionDefaults(params.factualGrounding),
+    behaviorMode: params.behaviorMode,
+    selectedTool: params.selectedTool,
+  };
+}
+
 async function tryResolveCalendarReadTurn(params: {
   userTranscript: string;
   messages: ChatMessage[];
@@ -638,6 +733,28 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     dayOfWeek: factualGrounding.snapshot.dayOfWeekEn,
   });
 
+  const localReminderTurn = tryResolveLocalReminderTurn({
+    userTranscript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+    intent,
+    behaviorPrompt,
+    userMessage,
+    factualGrounding,
+    behaviorMode: behavior.mode,
+    selectedTool: behavior.selectedTool,
+  });
+
+  if (localReminderTurn) {
+    logAssistantReplyGenerated({
+      source: 'local_reminder',
+      transcriptPreview: userTranscript,
+      replyPreview: localReminderTurn.reply ?? '',
+      route: localReminderTurn.route,
+    });
+    return localReminderTurn;
+  }
+
   const { refreshCalendarAuthCapabilities } = await import(
     '@/src/features/agent/calendar/calendarAuthCapabilities'
   );
@@ -815,6 +932,39 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   }
 
   if (behavior.mode === 'ACTION_MODE' && behavior.selectedTool === 'create_reminder') {
+    const localReminderResult = resolveLocalReminderTurn({
+      transcript: actionTranscript,
+      languageCode: params.languageCode,
+      referenceNow: params.referenceNow,
+    });
+
+    if (localReminderResult) {
+      logTurnPipeline('route selected', {
+        route: 'operational_local',
+        behaviorMode: behavior.mode,
+        selectedTool: 'create_reminder',
+        localReminder: true,
+        blockLlm: true,
+      });
+
+      return {
+        route: 'operational_local',
+        intent,
+        reply: localReminderResult.reply,
+        intentPrompt: behaviorPrompt,
+        userTranscript,
+        latestUserMessageId: userMessage?.id ?? null,
+        executionState: 'tool_success',
+        operationalStarted: true,
+        spokenReply: localReminderResult.spokenReply ?? localReminderResult.reply,
+        calendarVerified: false,
+        responseMode: factualGrounding.responseMode,
+        factualGroundingStatus: factualGrounding.snapshot.status,
+        behaviorMode: behavior.mode,
+        selectedTool: behavior.selectedTool,
+      };
+    }
+
     const reminderResult = await processVoiceReminderTranscript({
       transcript: actionTranscript,
       languageCode: params.languageCode,

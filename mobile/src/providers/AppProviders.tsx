@@ -2,6 +2,7 @@ import type { PropsWithChildren } from 'react';
 import { useEffect } from 'react';
 
 import { CalendarReminderEngineHost } from '@/src/features/calendar-reminder-engine';
+import { LocalReminderEngineHost } from '@/src/features/local-reminders';
 import { QueryProvider } from '@/src/providers/QueryProvider';
 import { StoreProvider } from '@/src/providers/StoreProvider';
 import { ThemeProvider } from '@/src/providers/ThemeProvider';
@@ -18,6 +19,7 @@ export function AppProviders({ children }: PropsWithChildren) {
         <ThemeProvider>
           {children}
           <CalendarReminderEngineHost />
+          <LocalReminderEngineHost />
         </ThemeProvider>
       </QueryProvider>
     </StoreProvider>
