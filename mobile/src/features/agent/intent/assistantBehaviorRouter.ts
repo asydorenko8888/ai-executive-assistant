@@ -20,6 +20,7 @@ import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendar
 import { getPendingCalendarConflictContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import { isCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { isLocalAlarmIntent } from '@/src/features/local-alarms/localAlarmClassification';
 import { isLocalReminderIntent } from '@/src/features/local-reminders/localReminderClassification';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -80,6 +81,7 @@ function hasExplicitActionVerb(transcript: string) {
   return (
     EXPLICIT_ACTION_VERB_AT_START.test(transcript.trim()) ||
     requiresCalendarCommandExecution(transcript) ||
+    isLocalAlarmIntent(transcript) ||
     isLocalReminderIntent(transcript) ||
     REMINDER_ACTION.test(transcript.trim()) ||
     isActionContinuation(transcript)
@@ -121,6 +123,8 @@ function resolveSelectedTool(transcript: string): SelectedActionTool {
   }
 
   if (
+    isLocalAlarmIntent(transcript) ||
+    isLocalAlarmIntent(transcript) ||
     isLocalReminderIntent(transcript) ||
     REMINDER_ACTION.test(transcript.trim()) ||
     /\b(?:remind|reminder|нагадай|напомни|разбуди|будильник|wake\s+me|alarm)\b/iu.test(transcript)

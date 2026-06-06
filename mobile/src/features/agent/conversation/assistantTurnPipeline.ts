@@ -75,6 +75,11 @@ import {
 import type { AssistantBehaviorMode } from '@/src/features/agent/intent/assistantBehaviorRouter';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import {
+  isLocalAlarmCreateQuery,
+  isLocalAlarmIntent,
+} from '@/src/features/local-alarms/localAlarmClassification';
+import { resolveLocalAlarmTurn } from '@/src/features/local-alarms/resolveLocalAlarmTurn';
+import {
   isLocalReminderCreateQuery,
   isLocalReminderIntent,
 } from '@/src/features/local-reminders/localReminderClassification';
@@ -391,6 +396,96 @@ function resolutionDefaults(
   return {
     responseMode: factualGrounding.responseMode,
     factualGroundingStatus: factualGrounding.snapshot.status,
+  };
+}
+
+function buildLocalAlarmParseFailureReply(languageCode: VoiceLanguageCode) {
+  if (languageCode === 'uk-UA') {
+    return 'Не зрозумів, коли поставити будильник.';
+  }
+
+  if (languageCode === 'ru-RU') {
+    return 'Не понял, когда поставить будильник.';
+  }
+
+  return 'I did not understand when to set the alarm.';
+}
+
+function tryResolveLocalAlarmTurn(params: {
+  userTranscript: string;
+  languageCode: VoiceLanguageCode;
+  referenceNow: Date;
+  intent: AssistantIntentAnalysis;
+  behaviorPrompt: string | null;
+  userMessage: ChatMessage | null;
+  factualGrounding: ReturnType<typeof buildFactualGroundingContext>;
+  behaviorMode: AssistantBehaviorMode;
+  selectedTool: string;
+}): AssistantTurnResolution | null {
+  if (!isLocalAlarmIntent(params.userTranscript)) {
+    return null;
+  }
+
+  const localResult = resolveLocalAlarmTurn({
+    transcript: params.userTranscript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+  });
+
+  if (!localResult) {
+    if (!isLocalAlarmCreateQuery(params.userTranscript)) {
+      return null;
+    }
+
+    const clarificationReply = buildLocalAlarmParseFailureReply(params.languageCode);
+
+    logTurnPipeline('route selected', {
+      route: 'clarification_local',
+      behaviorMode: params.behaviorMode,
+      selectedTool: 'create_reminder',
+      localAlarm: true,
+      blockLlm: true,
+    });
+
+    return {
+      route: 'clarification_local',
+      intent: params.intent,
+      reply: clarificationReply,
+      intentPrompt: params.behaviorPrompt,
+      userTranscript: params.userTranscript,
+      latestUserMessageId: params.userMessage?.id ?? null,
+      executionState: 'tool_call',
+      operationalStarted: true,
+      spokenReply: clarificationReply,
+      calendarVerified: false,
+      ...resolutionDefaults(params.factualGrounding),
+      behaviorMode: params.behaviorMode,
+      selectedTool: params.selectedTool,
+    };
+  }
+
+  logTurnPipeline('route selected', {
+    route: 'operational_local',
+    behaviorMode: params.behaviorMode,
+    selectedTool: 'create_reminder',
+    localAlarm: true,
+    blockLlm: true,
+  });
+
+  return {
+    route: 'operational_local',
+    intent: params.intent,
+    reply: localResult.reply,
+    intentPrompt: params.behaviorPrompt,
+    userTranscript: params.userTranscript,
+    latestUserMessageId: params.userMessage?.id ?? null,
+    executionState: 'tool_success',
+    operationalStarted: true,
+    spokenReply: localResult.spokenReply ?? localResult.reply,
+    calendarVerified: false,
+    ...resolutionDefaults(params.factualGrounding),
+    behaviorMode: params.behaviorMode,
+    selectedTool: params.selectedTool,
   };
 }
 
@@ -733,6 +828,28 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     dayOfWeek: factualGrounding.snapshot.dayOfWeekEn,
   });
 
+  const localAlarmTurn = tryResolveLocalAlarmTurn({
+    userTranscript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+    intent,
+    behaviorPrompt,
+    userMessage,
+    factualGrounding,
+    behaviorMode: behavior.mode,
+    selectedTool: behavior.selectedTool,
+  });
+
+  if (localAlarmTurn) {
+    logAssistantReplyGenerated({
+      source: 'local_alarm',
+      transcriptPreview: userTranscript,
+      replyPreview: localAlarmTurn.reply ?? '',
+      route: localAlarmTurn.route,
+    });
+    return localAlarmTurn;
+  }
+
   const localReminderTurn = tryResolveLocalReminderTurn({
     userTranscript,
     languageCode: params.languageCode,
@@ -932,6 +1049,39 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   }
 
   if (behavior.mode === 'ACTION_MODE' && behavior.selectedTool === 'create_reminder') {
+    const localAlarmResult = resolveLocalAlarmTurn({
+      transcript: actionTranscript,
+      languageCode: params.languageCode,
+      referenceNow: params.referenceNow,
+    });
+
+    if (localAlarmResult) {
+      logTurnPipeline('route selected', {
+        route: 'operational_local',
+        behaviorMode: behavior.mode,
+        selectedTool: 'create_reminder',
+        localAlarm: true,
+        blockLlm: true,
+      });
+
+      return {
+        route: 'operational_local',
+        intent,
+        reply: localAlarmResult.reply,
+        intentPrompt: behaviorPrompt,
+        userTranscript,
+        latestUserMessageId: userMessage?.id ?? null,
+        executionState: 'tool_success',
+        operationalStarted: true,
+        spokenReply: localAlarmResult.spokenReply ?? localAlarmResult.reply,
+        calendarVerified: false,
+        responseMode: factualGrounding.responseMode,
+        factualGroundingStatus: factualGrounding.snapshot.status,
+        behaviorMode: behavior.mode,
+        selectedTool: behavior.selectedTool,
+      };
+    }
+
     const localReminderResult = resolveLocalReminderTurn({
       transcript: actionTranscript,
       languageCode: params.languageCode,

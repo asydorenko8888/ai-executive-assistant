@@ -13,6 +13,7 @@ import { isCalendarQueryOrFindIntent } from '@/src/features/agent/calendar/calen
 import { isBareRelativeRescheduleRequest } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import { isLocalReminderIntent } from '@/src/features/local-reminders/localReminderClassification';
+import { isLocalAlarmIntent } from '@/src/features/local-alarms/localAlarmClassification';
 
 function isExactTimeReadQuery(transcript: string) {
   return isCalendarExactTimeReadQuery(transcript);
@@ -171,7 +172,7 @@ export function isOperationalCalendarWriteRequest(transcript: string) {
     return false;
   }
 
-  if (isLocalReminderIntent(normalized)) {
+  if (isLocalAlarmIntent(normalized) || isLocalReminderIntent(normalized)) {
     return false;
   }
 

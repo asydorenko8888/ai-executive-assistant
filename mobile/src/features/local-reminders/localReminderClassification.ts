@@ -4,7 +4,7 @@ import {
 } from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
 
 const LOCAL_REMINDER_VERB = new RegExp(
-  `${CALENDAR_WORD_EDGE}(?:remind(?:\\s+me)?|reminder|wake\\s+me(?:\\s+up)?|set\\s+(?:an?\\s+)?alarm|нагадай(?:ти)?|напомни(?:ть)?|разбуди(?:ть)?(?:\\s+меня)?|поставь\\s+будильник|постав(?:ь|ити)\\s+будильник)${CALENDAR_WORD_END}`,
+  `${CALENDAR_WORD_EDGE}(?:remind(?:\\s+me)?|reminder|нагадай(?:ти)?|напомни(?:ть)?)${CALENDAR_WORD_END}`,
   'iu',
 );
 
@@ -14,7 +14,7 @@ const LOCAL_REMINDER_LIST = new RegExp(
 );
 
 const LOCAL_REMINDER_CANCEL = new RegExp(
-  `${CALENDAR_WORD_EDGE}(?:отмени(?:ть)?\\s+напоминание|скасуй(?:ти)?\\s+нагадування|удали(?:ть)?\\s+будильник|видали(?:ти)?\\s+будильник|cancel\\s+(?:the\\s+)?reminder|delete\\s+(?:the\\s+)?alarm)${CALENDAR_WORD_END}`,
+  `${CALENDAR_WORD_EDGE}(?:отмени(?:ть)?\\s+напоминание|скасуй(?:ти)?\\s+нагадування|cancel\\s+(?:the\\s+)?reminder)${CALENDAR_WORD_END}`,
   'iu',
 );
 

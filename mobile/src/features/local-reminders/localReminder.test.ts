@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, it } from 'node:test';
 
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { isLocalAlarmIntent } from '@/src/features/local-alarms/localAlarmClassification';
 import {
   isLocalReminderIntent,
   isLocalReminderListQuery,
@@ -37,11 +38,12 @@ function captureConsoleError() {
 describe('local reminder classification', () => {
   it('detects create, list, and cancel phrases', () => {
     assert.equal(isLocalReminderIntent(TEST_TRANSCRIPT), true);
-    assert.equal(isLocalReminderIntent('Поставь будильник на 7 утра'), true);
-    assert.equal(isLocalReminderIntent('Разбуди меня через 10 минут'), true);
+    assert.equal(isLocalAlarmIntent('Поставь будильник на 7 утра'), true);
+    assert.equal(isLocalReminderIntent('Поставь будильник на 7 утра'), false);
     assert.equal(isLocalReminderListQuery('Какие у меня напоминания?'), true);
     assert.equal(isLocalReminderIntent('Отмени напоминание'), true);
-    assert.equal(isLocalReminderIntent('Удали будильник'), true);
+    assert.equal(isLocalAlarmIntent('Удали будильник'), true);
+    assert.equal(isLocalReminderIntent('Удали будильник'), false);
   });
 
   it('does not treat calendar reminders as local reminders', () => {
@@ -79,23 +81,10 @@ describe('local reminder intent parser', () => {
     assert.equal(parsed?.totalMs, 6 * 60_000 + 30 * 1000);
   });
 
-  it('parses absolute alarm time', () => {
-    const intent = parseLocalReminderIntent('Поставь будильник на 7 утра', referenceNow);
-
-    assert.equal(intent?.kind, 'create');
-
-    if (intent?.kind !== 'create') {
-      return;
-    }
-
-    assert.equal(intent.reminderKind, 'alarm');
-    assert.equal(intent.triggerAt.getHours(), 7);
-    assert.equal(intent.triggerAt.getMinutes(), 0);
-  });
-
   it('parses list and cancel intents', () => {
     assert.equal(parseLocalReminderIntent('Какие у меня напоминания?')?.kind, 'list');
     assert.equal(parseLocalReminderIntent('Отмени напоминание')?.kind, 'cancel');
+    assert.equal(parseLocalReminderIntent('Поставь будильник на 7 утра'), null);
   });
 });
 

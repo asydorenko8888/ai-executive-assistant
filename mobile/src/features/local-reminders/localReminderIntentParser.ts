@@ -7,22 +7,15 @@ import {
   parseAbsoluteReminderTime,
   parseRelativeDurationPhrase,
 } from '@/src/features/local-reminders/localReminderTimeParser';
-import type {
-  LocalReminderKind,
-  ParsedLocalReminderIntent,
-} from '@/src/features/local-reminders/types';
+import type { ParsedLocalReminderIntent } from '@/src/features/local-reminders/types';
 
 function normalizeTranscript(transcript: string) {
   return transcript.trim().replace(/\s+/g, ' ');
 }
 
-function detectReminderKind(transcript: string): LocalReminderKind {
-  return /(?:будильник|alarm|разбуди|wake\s+me)/iu.test(transcript) ? 'alarm' : 'reminder';
-}
-
 function extractCancelTitleQuery(transcript: string) {
   const match = transcript.match(
-    /(?:отмени(?:ть)?\s+напоминание|скасуй(?:ти)?\s+нагадування|удали(?:ть)?\s+будильник|видали(?:ти)?\s+будильник|cancel\s+(?:the\s+)?reminder|delete\s+(?:the\s+)?alarm)\s+(.+)/iu,
+    /(?:отмени(?:ть)?\s+напоминание|скасуй(?:ти)?\s+нагадування|cancel\s+(?:the\s+)?reminder)\s+(.+)/iu,
   );
 
   return match?.[1]?.trim().replace(/[.!?]+$/g, '') || undefined;
@@ -33,15 +26,14 @@ function parseRelativeCreateIntent(
   referenceNow: Date,
 ): ParsedLocalReminderIntent | null {
   const match = transcript.match(
-    /(?:напомни(?:ть)?|нагадай(?:ти)?|разбуди(?:ть)?(?:\s+меня)?|поставь\s+будильник|постав(?:ь|ити)\s+будильник|remind(?:\s+me)?|wake\s+me(?:\s+up)?|set\s+(?:an?\s+)?alarm)(?:\s+(?:мне|мені|me))?\s+через\s+(.+)/iu,
+    /(?:напомни(?:ть)?|нагадай(?:ти)?|remind(?:\s+me)?)(?:\s+(?:мне|мені|me))?\s+через\s+(.+)/iu,
   );
 
   if (!match?.[1]) {
     return null;
   }
 
-  const kind = detectReminderKind(transcript);
-  const parsed = parseRelativeDurationPhrase(match[1], kind);
+  const parsed = parseRelativeDurationPhrase(match[1], 'reminder');
 
   if (!parsed) {
     return null;
@@ -52,7 +44,7 @@ function parseRelativeCreateIntent(
     text: parsed.title,
     triggerAt: new Date(referenceNow.getTime() + parsed.totalMs),
     sourceTranscript: transcript,
-    reminderKind: kind,
+    reminderKind: 'reminder',
     requestedDelayMs: parsed.totalMs,
   };
 }
@@ -61,35 +53,27 @@ function parseAbsoluteCreateIntent(
   transcript: string,
   referenceNow: Date,
 ): ParsedLocalReminderIntent | null {
-  const patterns = [
-    /(?:поставь\s+будильник|постав(?:ь|ити)\s+будильник|set\s+(?:an?\s+)?alarm)\s+на\s+(.+)/iu,
+  const match = transcript.match(
     /(?:напомни(?:ть)?|нагадай(?:ти)?|remind(?:\s+me)?)\s+(?:мне\s+|мені\s+|me\s+)?(?:в|на)\s+(.+)/iu,
-    /(?:разбуди(?:ть)?(?:\s+меня)?|wake\s+me(?:\s+up)?)\s+(?:в|на|at)\s+(.+)/iu,
-  ];
+  );
 
-  for (const pattern of patterns) {
-    const match = transcript.match(pattern);
-
-    if (!match?.[1]) {
-      continue;
-    }
-
-    const triggerAt = parseAbsoluteReminderTime(match[1], referenceNow);
-
-    if (!triggerAt) {
-      continue;
-    }
-
-    return {
-      kind: 'create',
-      text: detectReminderKind(transcript) === 'alarm' ? 'Будильник' : 'Напоминание',
-      triggerAt,
-      sourceTranscript: transcript,
-      reminderKind: detectReminderKind(transcript),
-    };
+  if (!match?.[1]) {
+    return null;
   }
 
-  return null;
+  const triggerAt = parseAbsoluteReminderTime(match[1], referenceNow);
+
+  if (!triggerAt) {
+    return null;
+  }
+
+  return {
+    kind: 'create',
+    text: 'Напоминание',
+    triggerAt,
+    sourceTranscript: transcript,
+    reminderKind: 'reminder',
+  };
 }
 
 export function parseLocalReminderIntent(
