@@ -4,6 +4,19 @@
 
 Personal voice executive assistant with calendar, reminders, alarms, future Gmail, travel-time intelligence, and morning briefing.
 
+## Product Direction
+
+**Primary market:** USA
+
+**Target platform priority:**
+
+1. iPhone
+2. Android
+
+**Critical differentiator:** Voice-first executive assistant that proactively speaks reminders, alarms, calendar events, and future travel notifications.
+
+**Success criteria:** User can put the phone away and receive spoken reminders without opening the app.
+
 ## Current Tech Stack
 
 - React Native / Expo
@@ -34,7 +47,7 @@ Personal voice executive assistant with calendar, reminders, alarms, future Gmai
 
 ## Known Limitations
 
-- iOS background execution may limit voice alarms/reminders
+- iOS background execution may block the core success criteria (spoken alerts without opening the app)
 - Android may support stronger background alarm behavior
 - No user profile system yet
 - No persistent user name/profile yet
