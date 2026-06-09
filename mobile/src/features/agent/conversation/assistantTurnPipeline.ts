@@ -512,6 +512,10 @@ function tryResolveLocalReminderTurn(params: {
   behaviorMode: AssistantBehaviorMode;
   selectedTool: string;
 }): AssistantTurnResolution | null {
+  if (isLocalAlarmIntent(params.userTranscript)) {
+    return null;
+  }
+
   if (!isLocalReminderIntent(params.userTranscript)) {
     return null;
   }
@@ -1074,6 +1078,35 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
         executionState: 'tool_success',
         operationalStarted: true,
         spokenReply: localAlarmResult.spokenReply ?? localAlarmResult.reply,
+        calendarVerified: false,
+        responseMode: factualGrounding.responseMode,
+        factualGroundingStatus: factualGrounding.snapshot.status,
+        behaviorMode: behavior.mode,
+        selectedTool: behavior.selectedTool,
+      };
+    }
+
+    if (isLocalAlarmCreateQuery(actionTranscript)) {
+      const clarificationReply = buildLocalAlarmParseFailureReply(params.languageCode);
+
+      logTurnPipeline('route selected', {
+        route: 'clarification_local',
+        behaviorMode: behavior.mode,
+        selectedTool: 'create_reminder',
+        localAlarm: true,
+        blockLlm: true,
+      });
+
+      return {
+        route: 'clarification_local',
+        intent,
+        reply: clarificationReply,
+        intentPrompt: behaviorPrompt,
+        userTranscript,
+        latestUserMessageId: userMessage?.id ?? null,
+        executionState: 'tool_call',
+        operationalStarted: true,
+        spokenReply: clarificationReply,
         calendarVerified: false,
         responseMode: factualGrounding.responseMode,
         factualGroundingStatus: factualGrounding.snapshot.status,

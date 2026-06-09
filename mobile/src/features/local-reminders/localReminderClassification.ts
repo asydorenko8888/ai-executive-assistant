@@ -2,6 +2,7 @@ import {
   CALENDAR_WORD_EDGE,
   CALENDAR_WORD_END,
 } from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
+import { isLocalAlarmIntent } from '@/src/features/local-alarms/localAlarmClassification';
 
 const LOCAL_REMINDER_VERB = new RegExp(
   `${CALENDAR_WORD_EDGE}(?:remind(?:\\s+me)?|reminder|нагадай(?:ти)?|напомни(?:ть)?)${CALENDAR_WORD_END}`,
@@ -33,6 +34,10 @@ export function isLocalReminderCreateQuery(transcript: string) {
   const normalized = transcript.trim();
 
   if (!normalized || CALENDAR_DOMAIN_IN_REMINDER.test(normalized)) {
+    return false;
+  }
+
+  if (isLocalAlarmIntent(normalized)) {
     return false;
   }
 

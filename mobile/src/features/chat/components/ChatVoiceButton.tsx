@@ -53,6 +53,7 @@ export function ChatVoiceButton({ onPress, isProcessing, disabled = false }: Cha
         accessibilityRole="button"
         accessibilityLabel="Voice assistant"
         disabled={disabled}
+        hitSlop={8}
         onPress={onPress}
         style={({ pressed }) => [styles.button, disabled && styles.buttonDisabled, pressed && styles.pressed]}>
         <Ionicons

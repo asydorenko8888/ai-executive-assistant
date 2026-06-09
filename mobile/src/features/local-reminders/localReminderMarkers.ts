@@ -42,11 +42,11 @@ export function logLocalReminderCancelled(params: {
 }
 
 export function logLocalReminderEngineStarted() {
-  console.error('LOCAL_REMINDER_ENGINE_STARTED');
+  console.log('LOCAL_REMINDER_ENGINE_STARTED');
 }
 
 export function logLocalReminderDueCheck(params: { count: number }) {
-  console.error('LOCAL_REMINDER_DUE_CHECK', { count: params.count });
+  console.log('LOCAL_REMINDER_DUE_CHECK', { count: params.count });
 }
 
 export function logLocalReminderVoicePlay(params: { id: string; title: string }) {

@@ -54,6 +54,8 @@ export default function HomeScreen() {
     calendarConnection,
     isGoogleCalendarConnectReady,
     isPreparingGoogleCalendarConnection,
+    isGoogleCalendarOAuthEnabled,
+    calendarConnectError,
     handleConnectGoogleCalendar,
     handleDisconnectGoogleCalendar,
     reminderDraft,
@@ -70,6 +72,7 @@ export default function HomeScreen() {
     completeReminder,
     completeTask,
     isSubmittingAction,
+    isCalendarConnecting,
   } = useExecutiveCompanion();
 
   const isCalendarConnected = calendarConnection?.status === 'connected';
@@ -160,8 +163,11 @@ export default function HomeScreen() {
         isLoading={isLoading}
         isRefreshing={isRefreshing}
         calendarConnection={calendarConnection}
+        isGoogleCalendarOAuthEnabled={isGoogleCalendarOAuthEnabled}
         isCalendarConnectReady={isGoogleCalendarConnectReady}
         isPreparingCalendarConnection={isPreparingGoogleCalendarConnection}
+        isCalendarConnecting={isCalendarConnecting}
+        calendarConnectError={calendarConnectError}
         onRefresh={() => {
           void refresh();
         }}

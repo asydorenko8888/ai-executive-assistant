@@ -6,6 +6,7 @@ type AppEnv = {
   EXPO_PUBLIC_API_BASE_URL: string;
   EXPO_PUBLIC_ENABLE_REALTIME: boolean;
   EXPO_PUBLIC_REQUEST_TIMEOUT_MS: number;
+  EXPO_PUBLIC_GOOGLE_CALENDAR_ENABLED: boolean;
   EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID: string;
   EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID: string;
   EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID: string;
@@ -26,6 +27,7 @@ function readAppEnv(source: Record<string, string | undefined>): AppEnv {
     EXPO_PUBLIC_ENABLE_REALTIME: source.EXPO_PUBLIC_ENABLE_REALTIME === 'true',
     EXPO_PUBLIC_REQUEST_TIMEOUT_MS:
       Number.isFinite(requestTimeoutValue) && requestTimeoutValue > 0 ? requestTimeoutValue : 10000,
+    EXPO_PUBLIC_GOOGLE_CALENDAR_ENABLED: source.EXPO_PUBLIC_GOOGLE_CALENDAR_ENABLED === 'true',
     EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID: source.EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID || '',
     EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID:
       source.EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID || '',
@@ -41,6 +43,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ...config,
     name: appEnv.EXPO_PUBLIC_APP_NAME,
     slug: 'mobile',
+    owner: 'andriysydorenko',
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
@@ -61,6 +64,15 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         backgroundColor: '#ffffff',
       },
       edgeToEdgeEnabled: true,
+      package: 'com.aiexecutiveassistant.mobile',
+      permissions: [
+        'android.permission.POST_NOTIFICATIONS',
+        'android.permission.SCHEDULE_EXACT_ALARM',
+        'android.permission.USE_EXACT_ALARM',
+        'android.permission.VIBRATE',
+        'android.permission.WAKE_LOCK',
+        'android.permission.RECEIVE_BOOT_COMPLETED',
+      ],
     },
     web: {
       bundler: 'metro',
@@ -86,6 +98,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           backgroundColor: '#ffffff',
         },
       ],
+      [
+        'expo-notifications',
+        {
+          icon: './assets/images/icon.png',
+          color: '#ffffff',
+        },
+      ],
     ],
     experiments: {
       typedRoutes: true,
@@ -93,6 +112,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     extra: {
       ...config.extra,
       env: appEnv,
+      eas: {
+        projectId: '766748f4-42ba-460e-a22b-5d2c3765466a',
+      },
     },
   };
 };

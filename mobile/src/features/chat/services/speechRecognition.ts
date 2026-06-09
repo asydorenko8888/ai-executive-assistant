@@ -110,8 +110,8 @@ function mapRecognitionErrorToMessage(errorCode?: string) {
 
 export function startSpeechRecognition({
   language = getDefaultVoiceLanguageCode(),
-  maxListeningMs = 15000,
-  speechEndDelayMs = 1800,
+  maxListeningMs = 7000,
+  speechEndDelayMs = 1400,
   onStart,
   onResult,
   onInfo,

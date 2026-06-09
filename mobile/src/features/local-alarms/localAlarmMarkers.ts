@@ -11,7 +11,7 @@ export function logLocalAlarmCreated(params: {
 }
 
 export function logLocalAlarmDueCheck(params: { count: number }) {
-  console.error('LOCAL_ALARM_DUE_CHECK', { count: params.count });
+  console.log('LOCAL_ALARM_DUE_CHECK', { count: params.count });
 }
 
 export function logLocalAlarmTriggered(params: { id: string; title: string }) {
@@ -112,5 +112,35 @@ export function logAlarmVoiceLocalized(params: {
     language: params.language,
     snoozeCount: params.snoozeCount,
     voiceText: params.voiceText,
+  });
+}
+
+export function logAlarmPermissionStatus(params: {
+  platform: string;
+  notifications: string;
+  exactAlarm: string;
+}) {
+  console.error('ALARM_PERMISSION_STATUS', params);
+}
+
+export function logAlarmScheduledExact(params: {
+  id: string;
+  triggerAt: string;
+  triggerAtMs: number;
+  channelId: string;
+  platform?: string;
+  exactAlarmTarget?: boolean;
+}) {
+  console.error('ALARM_SCHEDULED_EXACT', params);
+}
+
+export function logAlarmNotificationFired(params: { id: string; title: string }) {
+  console.error('ALARM_NOTIFICATION_FIRED', params);
+}
+
+export function logAlarmSoundPlayRequested(params: { id: string; title: string }) {
+  console.error('ALARM_SOUND_PLAY_REQUESTED', {
+    id: params.id,
+    title: params.title,
   });
 }

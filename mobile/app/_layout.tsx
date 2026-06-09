@@ -3,6 +3,7 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
+import { GoogleCalendarOAuthLinkingListener } from '@/src/features/agent/calendar/components/GoogleCalendarOAuthLinkingListener';
 import { AppProviders } from '@/src/providers/AppProviders';
 import { LoadingScreen } from '@/src/shared/ui';
 
@@ -17,6 +18,7 @@ export default function RootLayout() {
 
   return (
     <AppProviders>
+      <GoogleCalendarOAuthLinkingListener />
       <Stack screenOptions={{ headerShown: false }} />
       <StatusBar style="light" />
     </AppProviders>

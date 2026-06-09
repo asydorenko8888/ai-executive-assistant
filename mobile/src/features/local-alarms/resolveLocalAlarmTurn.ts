@@ -9,6 +9,10 @@ import {
   createLocalAlarm,
   listScheduledLocalAlarms,
 } from '@/src/features/local-alarms/localAlarmRuntimeStore';
+import {
+  syncLocalAlarmNotificationCancel,
+  syncLocalAlarmNotificationSchedule,
+} from '@/src/features/local-alarms/localAlarmNotificationSync';
 import type { LocalAlarm } from '@/src/features/local-alarms/types';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -55,6 +59,8 @@ export function resolveLocalAlarmTurn(params: {
       sourceTranscript: intent.sourceTranscript,
     });
 
+    syncLocalAlarmNotificationSchedule(alarm);
+
     const reply = buildLocalAlarmCreatedReply({
       alarm,
       languageCode: params.languageCode,
@@ -99,6 +105,12 @@ export function resolveLocalAlarmTurn(params: {
     }
 
     const cancelled = matches.map((alarm) => cancelLocalAlarm(alarm.id)).filter(Boolean);
+
+    for (const alarm of cancelled) {
+      if (alarm) {
+        syncLocalAlarmNotificationCancel(alarm.id);
+      }
+    }
 
     return {
       reply: buildLocalAlarmCancelReply({

@@ -26,7 +26,7 @@ function parseRelativeAlarmIntent(
   referenceNow: Date,
 ): ParsedLocalAlarmIntent | null {
   const match = transcript.match(
-    /(?:поставь\s+будильник|постав(?:ь|ити)\s+будильник|set\s+(?:an?\s+)?alarm|разбуди(?:ть)?(?:\s+меня)?|wake\s+me(?:\s+up)?)\s+через\s+(.+)/iu,
+    /(?:постав(?:ь|ьте|ити|\s+)?\s*будильник|set\s+(?:an?\s+)?alarm|разбуди(?:ть)?(?:\s+меня)?|розбуди(?:ти)?(?:\s+мене)?|wake\s+me(?:\s+up)?)\s+через\s+(.+)/iu,
   );
 
   if (!match?.[1]) {
@@ -53,8 +53,9 @@ function parseAbsoluteAlarmIntent(
   referenceNow: Date,
 ): ParsedLocalAlarmIntent | null {
   const patterns = [
-    /(?:поставь\s+будильник|постав(?:ь|ити)\s+будильник|set\s+(?:an?\s+)?alarm)\s+на\s+(.+)/iu,
-    /(?:разбуди(?:ть)?(?:\s+меня)?|wake\s+me(?:\s+up)?)\s+(.+)/iu,
+    /(?:постав(?:ь|ьте|ити|\s+)?\s*будильник|set\s+(?:an?\s+)?alarm)\s+на\s+(.+)/iu,
+    /(?:разбуди(?:ть)?(?:\s+меня)?|розбуди(?:ти)?(?:\s+мене)?|wake\s+me(?:\s+up)?)\s+(?:в|на|о|at)\s+(.+)/iu,
+    /(?:разбуди(?:ть)?(?:\s+меня)?|розбуди(?:ти)?(?:\s+мене)?|wake\s+me(?:\s+up)?)\s+(.+)/iu,
   ];
 
   for (const pattern of patterns) {

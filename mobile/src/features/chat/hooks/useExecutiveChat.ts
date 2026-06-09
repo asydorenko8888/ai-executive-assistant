@@ -30,6 +30,10 @@ import {
   type CalendarOperationalUxPhase,
 } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
 import {
+  GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE,
+  isGoogleCalendarEnabled,
+} from '@/src/features/agent/calendar/googleCalendarFeatureFlag';
+import {
   classifyCalendarAgendaQueryIntent,
   formatAgendaListForDisplay,
   formatVoiceResponse,
@@ -74,7 +78,11 @@ import {
   useExecutiveConversationStore,
 } from '@/src/features/chat/store/executiveConversationStore';
 import { useConversationMessageDebugStore } from '@/src/features/chat/store/conversationMessageDebugStore';
-import { startVoiceCapture, type VoiceCaptureSession } from '@/src/features/voice/voiceCapture';
+import { startVoiceCapture, stopRecording, DEFAULT_VOICE_CAPTURE_MAX_MS, type VoiceCaptureSession } from '@/src/features/voice/voiceCapture';
+import {
+  logMicButtonPressed,
+  logMicStateBefore,
+} from '@/src/features/voice/voiceMicDiagnostics';
 import { toApiError } from '@/src/shared/api';
 
 const assistantTypingLabel = 'Executive AI is structuring a recommendation';
@@ -126,6 +134,8 @@ export function useExecutiveChat() {
   const hasHydratedMemoryRef = useRef(false);
   const hasReceivedStreamTokenRef = useRef(false);
   const voiceSessionRef = useRef<VoiceCaptureSession | null>(null);
+  const isVoiceRecordingRef = useRef(false);
+  const voiceRecordingEmergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceStatusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const preserveVoiceStatusOnEndRef = useRef(false);
   const draftSnapshotBeforeVoiceRef = useRef('');
@@ -160,19 +170,52 @@ export function useExecutiveChat() {
     [clearVoiceStatus],
   );
 
-  const clearTimers = useCallback(() => {
-    if (voiceSessionRef.current?.status === 'active') {
-      voiceSessionRef.current.stop();
+  const clearVoiceRecordingEmergencyTimeout = useCallback(() => {
+    if (voiceRecordingEmergencyTimeoutRef.current) {
+      clearTimeout(voiceRecordingEmergencyTimeoutRef.current);
+      voiceRecordingEmergencyTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resetChatVoiceCaptureUi = useCallback(() => {
+    isVoiceRecordingRef.current = false;
+    voiceSessionRef.current = null;
+    clearVoiceRecordingEmergencyTimeout();
+    setIsVoiceProcessing(false);
+    clearVoiceStatus();
+  }, [clearVoiceRecordingEmergencyTimeout, clearVoiceStatus]);
+
+  const stopChatVoiceRecording = useCallback(() => {
+    const session = voiceSessionRef.current;
+    const stopped = stopRecording(session);
+
+    if (!stopped) {
+      resetChatVoiceCaptureUi();
     }
 
+    return stopped;
+  }, [resetChatVoiceCaptureUi]);
+
+  const clearTimers = useCallback(() => {
+    if (voiceSessionRef.current?.status === 'active') {
+      stopRecording(voiceSessionRef.current);
+    }
+
+    isVoiceRecordingRef.current = false;
     voiceSessionRef.current = null;
+    clearVoiceRecordingEmergencyTimeout();
+
     if (voiceStatusTimeoutRef.current) {
       clearTimeout(voiceStatusTimeoutRef.current);
       voiceStatusTimeoutRef.current = null;
     }
-  }, []);
+  }, [clearVoiceRecordingEmergencyTimeout]);
 
-  useEffect(() => clearTimers, [clearTimers]);
+  useEffect(() => {
+    return () => {
+      clearTimers();
+    };
+  }, [clearTimers]);
 
   const resetStreamingState = useCallback(() => {
     hasReceivedStreamTokenRef.current = false;
@@ -313,6 +356,20 @@ export function useExecutiveChat() {
         coordinator.touch(requestId);
 
         if (turn.requiresCalendarAuth) {
+          if (!isGoogleCalendarEnabled()) {
+            const disabledReply = GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE;
+
+            return {
+              reply: disabledReply,
+              spokenReply: disabledReply,
+              requestId,
+              route: turn.route,
+              executionState: turn.executionState,
+              responseMode: turn.responseMode,
+              calendarVerified: false,
+            };
+          }
+
           if (isCalendarOAuthInFlight) {
             return {
               reply: operationalReply,
@@ -774,16 +831,24 @@ export function useExecutiveChat() {
   }, [draft, submitUserMessage]);
 
   const sendVoicePrompt = useCallback(() => {
-    if (voiceSessionRef.current?.status === 'active') {
-      voiceSessionRef.current.stop();
-      return;
-    }
+    logMicButtonPressed();
+    logMicStateBefore({
+      voiceStatus: voiceStatusLabel ?? 'idle',
+      hasActiveSession: voiceSessionRef.current?.status === 'active',
+      isRecording: isVoiceRecordingRef.current || isVoiceProcessing,
+    });
 
-    if (chatMutation.isPending) {
+    if (voiceSessionRef.current?.status === 'active' || isVoiceRecordingRef.current) {
+      stopChatVoiceRecording();
       return;
     }
 
     if (isVoiceProcessing) {
+      resetChatVoiceCaptureUi();
+      return;
+    }
+
+    if (chatMutation.isPending) {
       return;
     }
 
@@ -793,9 +858,17 @@ export function useExecutiveChat() {
 
     const voiceSession = startVoiceCapture({
       language: recognitionLocale,
-      maxListeningMs: 15000,
-      speechEndDelayMs: 1800,
+      maxListeningMs: DEFAULT_VOICE_CAPTURE_MAX_MS,
+      maxRecordingMs: DEFAULT_VOICE_CAPTURE_MAX_MS,
+      speechEndDelayMs: 1400,
       onStart: () => {
+        isVoiceRecordingRef.current = true;
+        clearVoiceRecordingEmergencyTimeout();
+        voiceRecordingEmergencyTimeoutRef.current = setTimeout(() => {
+          if (isVoiceRecordingRef.current) {
+            stopChatVoiceRecording();
+          }
+        }, DEFAULT_VOICE_CAPTURE_MAX_MS);
         preserveVoiceStatusOnEndRef.current = false;
         setIsVoiceProcessing(true);
         setVoiceStatusTone('neutral');
@@ -816,11 +889,12 @@ export function useExecutiveChat() {
         );
       },
       onError: (message) => {
-        setIsVoiceProcessing(false);
+        resetChatVoiceCaptureUi();
         setTemporaryVoiceStatus(message, 'error', 4200);
-        voiceSessionRef.current = null;
       },
       onEnd: (transcript) => {
+        isVoiceRecordingRef.current = false;
+        clearVoiceRecordingEmergencyTimeout();
         setIsVoiceProcessing(false);
         voiceSessionRef.current = null;
 
@@ -853,12 +927,16 @@ export function useExecutiveChat() {
   }, [
     chatMutation.isPending,
     clearTimers,
+    clearVoiceRecordingEmergencyTimeout,
     clearVoiceStatus,
     draft,
     isVoiceProcessing,
     recognitionLocale,
+    resetChatVoiceCaptureUi,
     setTemporaryVoiceStatus,
+    stopChatVoiceRecording,
     submitUserMessage,
+    voiceStatusLabel,
   ]);
 
   const lastUserMessage = useMemo(() => {
@@ -876,6 +954,12 @@ export function useExecutiveChat() {
   }, [messages]);
 
   const connectGoogleCalendarForPendingAction = useCallback(async () => {
+    if (!isGoogleCalendarEnabled()) {
+      setCalendarOperationalUx('idle');
+      setCalendarOperationalLabel(GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE);
+      return null;
+    }
+
     setIsCalendarOAuthInFlight(true);
     setCalendarOperationalUx('connecting');
 

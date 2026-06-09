@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import * as AuthSession from 'expo-auth-session';
 import { Platform } from 'react-native';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -12,15 +11,24 @@ import {
   disconnectGoogleCalendarAccount,
   extractGoogleCalendarAuthorizationCode,
   finalizeGoogleCalendarAuthCode,
-  getGoogleCalendarClientId,
-  getGoogleCalendarRedirectUri,
-  GOOGLE_CALENDAR_DISCOVERY_ISSUER,
   GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
-  googleCalendarOAuthScopes,
   isLikelyPopupBlockedError,
   saveGoogleCalendarWebOAuthPendingState,
   startGoogleCalendarWebRedirectFallback,
 } from '@/src/features/agent/calendar';
+import {
+  GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE,
+  isGoogleCalendarEnabled,
+} from '@/src/features/agent/calendar/googleCalendarFeatureFlag';
+import {
+  resolveGoogleCalendarConnectReady,
+  resolvePreparingGoogleCalendarConnection,
+  useGoogleCalendarOAuthSession,
+} from '@/src/features/agent/calendar/hooks/useGoogleCalendarOAuthSession';
+import {
+  logGoogleCalendarOAuthEvent,
+  resolveGoogleCalendarOAuthRuntime,
+} from '@/src/features/agent/calendar/googleCalendarOAuthEnvironment';
 import { loadExecutiveCompanionHomeData } from '@/src/features/agent/services/dailySummaryService';
 import { queryKeys } from '@/src/shared/api';
 
@@ -56,34 +64,28 @@ export function useExecutiveCompanion() {
   const [reminderDraft, setReminderDraft] = useState('');
   const [reminderOffsetMinutes, setReminderOffsetMinutes] = useState(60);
   const [isCalendarSubmitting, setIsCalendarSubmitting] = useState(false);
-  const googleCalendarClientId = getGoogleCalendarClientId();
-  const googleCalendarRedirectUri = getGoogleCalendarRedirectUri();
-  const googleCalendarDiscovery = AuthSession.useAutoDiscovery(GOOGLE_CALENDAR_DISCOVERY_ISSUER);
-  const isGoogleCalendarClientIdLoaded = Boolean(googleCalendarClientId);
-  const googleCalendarAuthRequestConfig = useMemo(
-    () => ({
-      clientId: googleCalendarClientId || 'missing-google-calendar-client-id',
-      scopes: [...googleCalendarOAuthScopes],
-      redirectUri: googleCalendarRedirectUri,
-      responseType: AuthSession.ResponseType.Code,
-      usePKCE: true,
-      extraParams: {
-        access_type: 'offline',
-        include_granted_scopes: 'true',
-        prompt: 'consent select_account',
-      },
-    }),
-    [googleCalendarClientId, googleCalendarRedirectUri],
-  );
-  const [googleCalendarAuthRequest, , promptGoogleCalendarAuthAsync] =
-    AuthSession.useAuthRequest(googleCalendarAuthRequestConfig, googleCalendarDiscovery);
-  const isGoogleCalendarConnectReady =
-    Platform.OS !== 'web' ||
-    Boolean(isGoogleCalendarClientIdLoaded && googleCalendarDiscovery && googleCalendarAuthRequest);
-  const isPreparingGoogleCalendarConnection =
-    Platform.OS === 'web' &&
-    isGoogleCalendarClientIdLoaded &&
-    (!googleCalendarDiscovery || !googleCalendarAuthRequest);
+  const [calendarConnectError, setCalendarConnectError] = useState<string | null>(null);
+  const googleCalendarOAuthEnabled = isGoogleCalendarEnabled();
+  const {
+    discovery: googleCalendarDiscovery,
+    authRequest: googleCalendarAuthRequest,
+    promptGoogleCalendarAuthAsync,
+    clientId: googleCalendarClientId,
+    redirectUri: googleCalendarRedirectUri,
+    isClientIdLoaded: isGoogleCalendarClientIdLoaded,
+  } = useGoogleCalendarOAuthSession();
+  const isGoogleCalendarConnectReady = resolveGoogleCalendarConnectReady({
+    enabled: googleCalendarOAuthEnabled,
+    isClientIdLoaded: isGoogleCalendarClientIdLoaded,
+    discovery: googleCalendarDiscovery,
+    authRequest: googleCalendarAuthRequest,
+  });
+  const isPreparingGoogleCalendarConnection = resolvePreparingGoogleCalendarConnection({
+    enabled: googleCalendarOAuthEnabled,
+    isClientIdLoaded: isGoogleCalendarClientIdLoaded,
+    discovery: googleCalendarDiscovery,
+    authRequest: googleCalendarAuthRequest,
+  });
   const homePreviewQuery = useQuery({
     queryKey: queryKeys.agent.homePreview(),
     queryFn: loadExecutiveCompanionHomeData,
@@ -116,7 +118,22 @@ export function useExecutiveCompanion() {
   });
 
   const handleConnectGoogleCalendar = useCallback(async () => {
+    if (!googleCalendarOAuthEnabled) {
+      setCalendarConnectError(GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE);
+      return {
+        success: false,
+        errorMessage: GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE,
+      };
+    }
+
+    logGoogleCalendarOAuthEvent('BUTTON_PRESSED', {
+      runtime: resolveGoogleCalendarOAuthRuntime(),
+      platform: Platform.OS,
+      clientIdLoaded: isGoogleCalendarClientIdLoaded,
+      redirectUri: googleCalendarRedirectUri,
+    });
     console.log('[Calendar] Connect clicked');
+    setCalendarConnectError(null);
 
     if (Platform.OS !== 'web') {
       setIsCalendarSubmitting(true);
@@ -124,13 +141,25 @@ export function useExecutiveCompanion() {
       try {
         const result = await connectGoogleCalendarAccount();
         await refreshHomePreview();
+
+        if (!result.success) {
+          setCalendarConnectError(result.errorMessage ?? 'Unable to connect Google Calendar.');
+        }
+
         return result;
       } finally {
         setIsCalendarSubmitting(false);
       }
     }
 
-    if (!googleCalendarClientId || !googleCalendarDiscovery || !googleCalendarAuthRequest) {
+    if (!googleCalendarClientId) {
+      setCalendarConnectError(
+        'Google Calendar web client ID is missing. Set EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID.',
+      );
+      return null;
+    }
+
+    if (!googleCalendarDiscovery || !googleCalendarAuthRequest) {
       return null;
     }
 
@@ -167,6 +196,12 @@ export function useExecutiveCompanion() {
       }
 
       if (response.type !== 'success') {
+        const errorMessage =
+          response.type === 'dismiss' || response.type === 'cancel'
+            ? 'Google Calendar connection was cancelled.'
+            : 'Unable to finish Google Calendar sign-in.';
+
+        setCalendarConnectError(errorMessage);
         setIsCalendarSubmitting(false);
         return response;
       }
@@ -175,6 +210,7 @@ export function useExecutiveCompanion() {
       console.log('[Calendar] Authorization code received:', Boolean(authorizationCode));
 
       if (!authorizationCode || !googleCalendarAuthRequest.codeVerifier) {
+        setCalendarConnectError('Google sign-in did not return an authorization code.');
         setIsCalendarSubmitting(false);
         return null;
       }
@@ -196,12 +232,18 @@ export function useExecutiveCompanion() {
           exchangeError instanceof Error &&
           exchangeError.message === GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE
         ) {
+          setCalendarConnectError(GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE);
           return {
             type: 'error' as const,
             error: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
           };
         }
 
+        setCalendarConnectError(
+          exchangeError instanceof Error
+            ? exchangeError.message
+            : 'Unable to finish Google Calendar sign-in.',
+        );
         throw exchangeError;
       } finally {
         setIsCalendarSubmitting(false);
@@ -217,10 +259,17 @@ export function useExecutiveCompanion() {
         );
       }
 
+      setCalendarConnectError(
+        oauthError instanceof Error
+          ? oauthError.message
+          : 'Unable to start Google Calendar sign-in.',
+      );
       setIsCalendarSubmitting(false);
       return null;
     }
   }, [
+    googleCalendarOAuthEnabled,
+    isGoogleCalendarClientIdLoaded,
     googleCalendarDiscovery,
     googleCalendarAuthRequest,
     googleCalendarClientId,
@@ -230,6 +279,13 @@ export function useExecutiveCompanion() {
   ]);
 
   const handleDisconnectGoogleCalendar = useCallback(async () => {
+    if (!googleCalendarOAuthEnabled) {
+      return {
+        success: false,
+        errorMessage: GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE,
+      };
+    }
+
     setIsCalendarSubmitting(true);
 
     try {
@@ -239,7 +295,7 @@ export function useExecutiveCompanion() {
     } finally {
       setIsCalendarSubmitting(false);
     }
-  }, [refreshHomePreview]);
+  }, [googleCalendarOAuthEnabled, refreshHomePreview]);
 
   const createReminder = async () => {
     const trimmedDraft = reminderDraft.trim();
@@ -343,8 +399,11 @@ export function useExecutiveCompanion() {
     openTasks,
     calendarConnection: homePreviewQuery.data?.orchestrator.snapshot.calendarConnection ?? null,
     isSubmittingAction: actionMutation.isPending || isCalendarSubmitting,
+    isCalendarConnecting: isCalendarSubmitting,
     isGoogleCalendarConnectReady,
     isPreparingGoogleCalendarConnection,
+    isGoogleCalendarOAuthEnabled: googleCalendarOAuthEnabled,
+    calendarConnectError,
     handleConnectGoogleCalendar,
     handleDisconnectGoogleCalendar,
     createReminder,

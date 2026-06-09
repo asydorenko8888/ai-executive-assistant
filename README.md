@@ -73,6 +73,8 @@ EXPO_PUBLIC_APP_API_KEY=optional_shared_key_for_mobile_clients
 
 For iOS voice, use a development build (`npx expo run:ios`), not Expo Go.
 
+**Physical iPhone testing:** see [docs/IPHONE_DEVICE_TESTING.md](docs/IPHONE_DEVICE_TESTING.md) (EAS preview build or local Xcode + LAN IP in `mobile/.env`).
+
 Then start Expo:
 
 ```bash

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 
 import type { ChatMessage } from '@/src/entities/chat/types';
@@ -37,22 +37,18 @@ export function VoiceConversationHistory({
   onClearConversation,
   canClear = false,
 }: VoiceConversationHistoryProps) {
-  const listRef = useRef<FlatList<ChatMessage> | null>(null);
+  const scrollRef = useRef<ScrollView | null>(null);
   const scrollToLatest = useCallback(() => {
     if (!isChatAutoScrollAllowed()) {
       return;
     }
 
-    listRef.current?.scrollToEnd({ animated: true });
+    scrollRef.current?.scrollToEnd({ animated: true });
   }, []);
 
   const messageSignature = `${messages.length}:${messages.at(-1)?.id ?? ''}:${messages.at(-1)?.content.length ?? 0}`;
 
   useEffect(() => {
-    if (!isChatAutoScrollAllowed()) {
-      return;
-    }
-
     scrollToLatest();
   }, [messageSignature, pendingUserTranscript, isProcessing, highlightedMessageId, scrollToLatest]);
 
@@ -80,33 +76,34 @@ export function VoiceConversationHistory({
         ) : null}
       </View>
 
-      <FlatList
-        ref={listRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
+      <ScrollView
+        ref={scrollRef}
         style={styles.list}
         contentContainerStyle={styles.listContent}
+        nestedScrollEnabled
+        scrollEnabled
         showsVerticalScrollIndicator
-        onContentSizeChange={isChatAutoScrollAllowed() ? scrollToLatest : undefined}
-        renderItem={({ item }) => (
+        keyboardShouldPersistTaps="handled"
+        onContentSizeChange={scrollToLatest}>
+        {messages.map((item) => (
           <View
+            key={item.id}
             style={
-              highlightedMessageId === item.id ? styles.highlightedMessageWrap : undefined
+              highlightedMessageId === item.id ? styles.highlightedMessageWrap : styles.messageWrap
             }>
             <ChatMessageBubble message={item} />
           </View>
-        )}
-        ListFooterComponent={
-          <View style={styles.footer}>
-            {pendingUserTranscript ? <PendingUserBubble text={pendingUserTranscript} /> : null}
-            {isProcessing ? (
-              <View style={styles.typingWrap}>
-                <ChatTypingIndicator label="Thinking with you..." />
-              </View>
-            ) : null}
-          </View>
-        }
-      />
+        ))}
+
+        <View style={styles.footer}>
+          {pendingUserTranscript ? <PendingUserBubble text={pendingUserTranscript} /> : null}
+          {isProcessing ? (
+            <View style={styles.typingWrap}>
+              <ChatTypingIndicator label="Thinking with you..." />
+            </View>
+          ) : null}
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -160,6 +157,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
     paddingBottom: spacing.md,
+    flexGrow: 1,
+  },
+  messageWrap: {
+    marginBottom: spacing.sm,
   },
   footer: {
     gap: spacing.sm,
@@ -168,6 +169,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.xs,
   },
   highlightedMessageWrap: {
+    marginBottom: spacing.sm,
     borderRadius: radii.lg,
     borderWidth: 1,
     borderColor: colors.borderStrong,

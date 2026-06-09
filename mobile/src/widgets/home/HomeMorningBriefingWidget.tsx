@@ -4,6 +4,7 @@ import { GlassCard } from '@/src/components/ui/GlassCard';
 import { SectionTitle } from '@/src/components/ui/SectionTitle';
 import type { CalendarConnection } from '@/src/entities/calendar/types';
 import type { MorningBriefing } from '@/src/features/agent/types';
+import { GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE } from '@/src/features/agent/calendar/googleCalendarFeatureFlag';
 import { colors, fontSizes, fontWeights, radii, spacing } from '@/src/theme';
 
 type HomeMorningBriefingWidgetProps = {
@@ -13,8 +14,11 @@ type HomeMorningBriefingWidgetProps = {
   isRefreshing: boolean;
   onRefresh: () => void;
   calendarConnection: CalendarConnection | null;
+  isGoogleCalendarOAuthEnabled: boolean;
   isCalendarConnectReady: boolean;
   isPreparingCalendarConnection: boolean;
+  isCalendarConnecting?: boolean;
+  calendarConnectError?: string | null;
   onConnectCalendar: () => Promise<unknown> | void;
   onDisconnectCalendar: () => Promise<unknown> | void;
 };
@@ -92,19 +96,25 @@ export function HomeMorningBriefingWidget({
   isRefreshing,
   onRefresh,
   calendarConnection,
+  isGoogleCalendarOAuthEnabled,
   isCalendarConnectReady,
   isPreparingCalendarConnection,
+  isCalendarConnecting = false,
+  calendarConnectError = null,
   onConnectCalendar,
   onDisconnectCalendar,
 }: HomeMorningBriefingWidgetProps) {
   const isCalendarConnected = calendarConnection?.status === 'connected';
   const calendarButtonLabel = isCalendarConnected
     ? 'Disconnect Google Calendar'
-    : isPreparingCalendarConnection
-      ? 'Preparing Google Calendar...'
-      : 'Connect Google Calendar';
-  const calendarLabel =
-    calendarConnection?.status === 'connected'
+    : isCalendarConnecting
+      ? 'Connecting Google Calendar...'
+      : isPreparingCalendarConnection
+        ? 'Preparing Google Calendar...'
+        : 'Connect Google Calendar';
+  const calendarLabel = !isGoogleCalendarOAuthEnabled
+    ? GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE
+    : calendarConnection?.status === 'connected'
       ? calendarConnection.connectedEmail || 'Google Calendar connected'
       : calendarConnection?.status === 'missing_config'
         ? 'Google Calendar setup required'
@@ -112,12 +122,20 @@ export function HomeMorningBriefingWidget({
 
   return (
     <View style={styles.stack}>
-      <CalendarConnectButton
-        isConnected={isCalendarConnected}
-        disabled={!isCalendarConnected && !isCalendarConnectReady}
-        label={calendarButtonLabel}
-        onPress={isCalendarConnected ? onDisconnectCalendar : onConnectCalendar}
-      />
+      {isGoogleCalendarOAuthEnabled ? (
+        <CalendarConnectButton
+          isConnected={isCalendarConnected}
+          disabled={
+            isCalendarConnecting || (!isCalendarConnected && !isCalendarConnectReady)
+          }
+          label={calendarButtonLabel}
+          onPress={isCalendarConnected ? onDisconnectCalendar : onConnectCalendar}
+        />
+      ) : null}
+
+      {isGoogleCalendarOAuthEnabled && calendarConnectError ? (
+        <Text style={styles.connectError}>{calendarConnectError}</Text>
+      ) : null}
 
       <GlassCard style={styles.container}>
         <SectionTitle
@@ -242,6 +260,11 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: fontSizes.sm,
     fontWeight: fontWeights.semibold,
+  },
+  connectError: {
+    color: '#F87171',
+    fontSize: fontSizes.sm,
+    lineHeight: 20,
   },
   refreshButton: {
     minHeight: 40,

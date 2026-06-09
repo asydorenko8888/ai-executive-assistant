@@ -40,6 +40,8 @@ export function VoiceOrb({ state, onPress, microphoneStream = null }: VoiceOrbPr
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Voice assistant"
+      disabled={false}
+      hitSlop={12}
       onPress={onPress}
       onPressIn={() => {
         pressScale.value = withSpring(0.96, { damping: 16, stiffness: 280 });

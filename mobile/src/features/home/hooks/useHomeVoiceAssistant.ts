@@ -60,7 +60,16 @@ import {
 } from '@/src/features/chat/services/speechSynthesis';
 import { buildVoiceSessionSystemPrompt } from '@/src/features/voice/memory';
 import { buildVoiceSessionMemoryFromMessages } from '@/src/features/voice/memory/voiceSessionFromMessages';
-import { startVoiceCapture, type VoiceCaptureSession } from '@/src/features/voice/voiceCapture';
+import {
+  startVoiceCapture,
+  stopRecording,
+  DEFAULT_VOICE_CAPTURE_MAX_MS,
+  type VoiceCaptureSession,
+} from '@/src/features/voice/voiceCapture';
+import {
+  logMicButtonPressed,
+  logMicStateBefore,
+} from '@/src/features/voice/voiceMicDiagnostics';
 import { toApiError } from '@/src/shared/api';
 
 export type HomeVoiceStatus =
@@ -102,6 +111,9 @@ export function useHomeVoiceAssistant() {
   const voiceCaptureSessionRef = useRef<VoiceCaptureSession | null>(null);
   const microphoneStreamRef = useRef<MediaStream | null>(null);
   const [microphoneStream, setMicrophoneStream] = useState<MediaStream | null>(null);
+  const voiceStatusRef = useRef<HomeVoiceStatus>('idle');
+  const isRecordingRef = useRef(false);
+  const recordingEmergencyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isSendingRef = useRef(false);
   const isSpeechMutedRef = useRef(isSpeechMuted);
   const languageCodeRef = useRef(languageCode);
@@ -116,9 +128,14 @@ export function useHomeVoiceAssistant() {
     recognitionLocaleRef.current = recognitionLocale;
   }, [languageCode, recognitionLocale]);
 
-  const stopVoiceCapture = useCallback(() => {
-    if (voiceCaptureSessionRef.current?.status === 'active') {
-      voiceCaptureSessionRef.current.stop();
+  useEffect(() => {
+    voiceStatusRef.current = voiceStatus;
+  }, [voiceStatus]);
+
+  const clearRecordingEmergencyTimeout = useCallback(() => {
+    if (recordingEmergencyTimeoutRef.current) {
+      clearTimeout(recordingEmergencyTimeoutRef.current);
+      recordingEmergencyTimeoutRef.current = null;
     }
   }, []);
 
@@ -127,6 +144,35 @@ export function useHomeVoiceAssistant() {
     microphoneStreamRef.current = null;
     setMicrophoneStream(null);
   }, []);
+
+  const resetVoiceUiToReady = useCallback(
+    (statusTextOverride = 'Tap the microphone to speak.') => {
+      isRecordingRef.current = false;
+      voiceCaptureSessionRef.current = null;
+      clearRecordingEmergencyTimeout();
+      releaseMicrophoneStream();
+      setLiveTranscript('');
+      setHeardTranscript('');
+      setVoiceStatus('idle');
+      setStatusText(statusTextOverride);
+    },
+    [clearRecordingEmergencyTimeout, releaseMicrophoneStream],
+  );
+
+  const stopActiveRecording = useCallback(() => {
+    const session = voiceCaptureSessionRef.current;
+    const stopped = stopRecording(session);
+
+    if (!stopped) {
+      resetVoiceUiToReady();
+    }
+
+    return stopped;
+  }, [resetVoiceUiToReady]);
+
+  const stopVoiceCapture = useCallback(() => {
+    stopActiveRecording();
+  }, [stopActiveRecording]);
 
   const stopAllVoiceOutput = useCallback(() => {
     stopSpeech();
@@ -482,20 +528,31 @@ export function useHomeVoiceAssistant() {
   }, [voiceStatus]);
 
   const handleMicrophonePress = useCallback(async () => {
-    if (voiceStatus === 'listening') {
-      stopVoiceCapture();
+    logMicButtonPressed();
+    logMicStateBefore({
+      voiceStatus: voiceStatusRef.current,
+      hasActiveSession: voiceCaptureSessionRef.current?.status === 'active',
+      isRecording: isRecordingRef.current,
+    });
+
+    if (
+      voiceCaptureSessionRef.current?.status === 'active' ||
+      isRecordingRef.current ||
+      voiceStatusRef.current === 'listening'
+    ) {
+      stopActiveRecording();
       return;
     }
 
-    if (voiceStatus === 'speaking') {
+    if (voiceStatusRef.current === 'speaking') {
       stopSpeech();
-      setVoiceStatus('answered');
+      setVoiceStatus('idle');
       setStatusText('Ready');
       setHighlightedMessageId(null);
       return;
     }
 
-    if (voiceStatus === 'processing') {
+    if (voiceStatusRef.current === 'processing') {
       return;
     }
 
@@ -515,10 +572,10 @@ export function useHomeVoiceAssistant() {
           (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError');
 
         if (permissionDenied) {
-          setVoiceStatus('error');
-          setStatusText(
+          resetVoiceUiToReady(
             'Microphone access was denied. Allow microphone permission in your browser settings and try again.',
           );
+          setVoiceStatus('error');
           return;
         }
       }
@@ -526,30 +583,38 @@ export function useHomeVoiceAssistant() {
 
     const captureSession = startVoiceCapture({
       language: recognitionLocaleRef.current,
+      maxRecordingMs: DEFAULT_VOICE_CAPTURE_MAX_MS,
+      maxListeningMs: DEFAULT_VOICE_CAPTURE_MAX_MS,
       onStart: () => {
+        isRecordingRef.current = true;
+        clearRecordingEmergencyTimeout();
+        recordingEmergencyTimeoutRef.current = setTimeout(() => {
+          if (isRecordingRef.current) {
+            stopActiveRecording();
+          }
+        }, DEFAULT_VOICE_CAPTURE_MAX_MS);
         setLiveTranscript('');
         setHeardTranscript('');
         setVoiceStatus('listening');
         setStatusText(
-          Platform.OS === 'web' ? 'Listening...' : 'Recording... tap again when finished.',
+          Platform.OS === 'web' ? 'Listening...' : 'Recording... auto-stops after you pause.',
         );
       },
       onPartialTranscript: (transcript) => {
         setLiveTranscript(transcript);
       },
       onError: (message) => {
-        releaseMicrophoneStream();
-        voiceCaptureSessionRef.current = null;
+        resetVoiceUiToReady(message);
         setVoiceStatus('error');
-        setStatusText(message);
       },
       onEnd: (transcript) => {
+        isRecordingRef.current = false;
+        clearRecordingEmergencyTimeout();
         releaseMicrophoneStream();
         voiceCaptureSessionRef.current = null;
 
         if (!transcript) {
-          setVoiceStatus('idle');
-          setStatusText('Tap the microphone to speak.');
+          resetVoiceUiToReady();
           return;
         }
 
@@ -564,10 +629,17 @@ export function useHomeVoiceAssistant() {
     voiceCaptureSessionRef.current = captureSession;
 
     if (captureSession.status === 'unsupported') {
+      resetVoiceUiToReady(captureSession.message);
       setVoiceStatus('error');
-      setStatusText(captureSession.message);
     }
-  }, [releaseMicrophoneStream, sendTranscriptToAssistant, stopAllVoiceOutput, stopVoiceCapture, voiceStatus]);
+  }, [
+    clearRecordingEmergencyTimeout,
+    releaseMicrophoneStream,
+    resetVoiceUiToReady,
+    sendTranscriptToAssistant,
+    stopActiveRecording,
+    stopAllVoiceOutput,
+  ]);
 
   const pendingUserTranscript = useMemo(() => {
     if (voiceStatus === 'listening') {

@@ -1,6 +1,7 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { CalendarOperationalUxPhase } from '@/src/features/agent/calendar/calendarOAuthExecutionService';
+import { isGoogleCalendarEnabled } from '@/src/features/agent/calendar/googleCalendarFeatureFlag';
 import { colors, fontSizes, fontWeights, radii, spacing } from '@/src/theme';
 
 type ChatCalendarAuthBannerProps = {
@@ -36,6 +37,10 @@ export function ChatCalendarAuthBanner({
   onConnectPress,
   isConnecting,
 }: ChatCalendarAuthBannerProps) {
+  if (!isGoogleCalendarEnabled()) {
+    return null;
+  }
+
   if (phase === 'idle' || phase === 'failed' || phase === 'event_created') {
     return null;
   }

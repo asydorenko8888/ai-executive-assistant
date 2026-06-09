@@ -1,5 +1,7 @@
 const MERIDIEM_PATTERN = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)\b/i;
-const TWENTY_FOUR_HOUR_PATTERN = /\b([01]?\d|2[0-3]):([0-5]\d)\b/;
+const TWENTY_FOUR_HOUR_PATTERN = /\b([01]?\d|2[0-3])[:.]([0-5]\d)\b/;
+const HOUR_MINUTE_SPACE_PATTERN = /\b([01]?\d|2[0-3])\s+([0-5]\d)\b/;
+const COMPACT_HOUR_MINUTE_PATTERN = /\b([01]\d|2[0-3])([0-5]\d)\b/;
 
 export type ParseSpokenClockTimeOptions = {
   /** When false, do not roll a same-calendar-day time into tomorrow if it is in the past. */
@@ -42,6 +44,24 @@ export function parseSpokenClockTime(
   if (twentyFourHourMatch) {
     const hours = applyRussianMeridiemHint(Number(twentyFourHourMatch[1]), normalized);
     const minutes = Number(twentyFourHourMatch[2]);
+
+    return buildLocalDateTime(referenceNow, hours, minutes, rollToNextDayIfPast);
+  }
+
+  const hourMinuteSpaceMatch = normalized.match(HOUR_MINUTE_SPACE_PATTERN);
+
+  if (hourMinuteSpaceMatch) {
+    const hours = applyRussianMeridiemHint(Number(hourMinuteSpaceMatch[1]), normalized);
+    const minutes = Number(hourMinuteSpaceMatch[2]);
+
+    return buildLocalDateTime(referenceNow, hours, minutes, rollToNextDayIfPast);
+  }
+
+  const compactHourMinuteMatch = normalized.match(COMPACT_HOUR_MINUTE_PATTERN);
+
+  if (compactHourMinuteMatch) {
+    const hours = applyRussianMeridiemHint(Number(compactHourMinuteMatch[1]), normalized);
+    const minutes = Number(compactHourMinuteMatch[2]);
 
     return buildLocalDateTime(referenceNow, hours, minutes, rollToNextDayIfPast);
   }

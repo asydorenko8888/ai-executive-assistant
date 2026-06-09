@@ -1,4 +1,5 @@
 import {
+  logAlarmSoundPlayRequested,
   logAlarmVoiceSelected,
   logLocalAlarmVoiceBlocked,
   logLocalAlarmVoicePlay,
@@ -18,6 +19,11 @@ export function playLocalAlarmVoice(params: {
     id: params.alarmId,
     snoozeCount: params.snoozeCount,
     voiceText: params.voiceText,
+  });
+
+  logAlarmSoundPlayRequested({
+    id: params.alarmId,
+    title: params.title,
   });
 
   playLocalReminderVoice({

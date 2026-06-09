@@ -48,8 +48,14 @@ describe('local alarm classification', () => {
     assert.equal(isLocalAlarmIntent('Поставь будильник на 7 утра'), true);
     assert.equal(isLocalAlarmIntent('Разбуди меня завтра в 8:30'), true);
     assert.equal(isLocalAlarmIntent('Поставь будильник через 6 минут 30 секунд'), true);
+    assert.equal(isLocalAlarmIntent('разбуди меня в 18:50'), true);
+    assert.equal(isLocalAlarmIntent('поставь будильник на 18:50'), true);
+    assert.equal(isLocalAlarmIntent('розбуди мене о 18:50'), true);
+    assert.equal(isLocalAlarmIntent('постав будильник на 18:50'), true);
     assert.equal(isLocalReminderIntent('Напомни мне через 2 минуты выпить воду'), true);
     assert.equal(isLocalReminderIntent(TEST_TRANSCRIPT), false);
+    assert.equal(isLocalReminderIntent('разбуди меня в 18:50'), false);
+    assert.equal(isLocalReminderIntent('розбуди мене о 18:50'), false);
   });
 
   it('excludes alarms from calendar write detection', () => {
@@ -86,6 +92,26 @@ describe('local alarm intent parser', () => {
 
     assert.equal(intent.triggerAt.getHours(), 7);
     assert.equal(intent.triggerAt.getMinutes(), 0);
+  });
+
+  it('parses RU and UA absolute alarm clock phrases', () => {
+    for (const transcript of [
+      'разбуди меня в 18:50',
+      'поставь будильник на 18:50',
+      'розбуди мене о 18:50',
+      'постав будильник на 18:50',
+      'разбуди меня в 18 50',
+    ]) {
+      const intent = parseLocalAlarmIntent(transcript, referenceNow);
+      assert.equal(intent?.kind, 'create', transcript);
+
+      if (intent?.kind !== 'create') {
+        continue;
+      }
+
+      assert.equal(intent.triggerAt.getHours(), 18, transcript);
+      assert.equal(intent.triggerAt.getMinutes(), 50, transcript);
+    }
   });
 
   it('parses wake me tomorrow at 8:30', () => {

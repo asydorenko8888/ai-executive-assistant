@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
@@ -28,15 +28,36 @@ import {
   logCalendarTokenRefreshAttempt,
   logCalendarTokenRefreshResult,
 } from '@/src/features/agent/calendar/calendarAuthDiagnostics';
-import { env } from '@/src/shared/config';
 import {
-  GOOGLE_CALENDAR_WEB_CALLBACK_PATH,
-} from '@/src/features/agent/calendar/googleCalendarOAuthRoutes';
+  buildGoogleCalendarOAuthRedirectUri,
+  getGoogleCalendarOAuthConfigDiagnostics,
+  logGoogleCalendarOAuthEvent,
+  maskGoogleCalendarClientId,
+  resolveGoogleCalendarClientIdSources,
+  resolveGoogleCalendarOAuthClientId,
+  resolveGoogleCalendarOAuthRuntime,
+} from '@/src/features/agent/calendar/googleCalendarOAuthEnvironment';
+import {
+  clearGoogleCalendarPkceAuthStore,
+  restoreGoogleCalendarPkceAuthStore,
+  storeGoogleCalendarPkceAuthFromAuthRequest,
+  type GoogleCalendarPkceAuthStore,
+} from '@/src/features/agent/calendar/googleCalendarPkceAuthStore';
+import { exchangeGoogleCalendarAuthorizationCodeWithPkce } from '@/src/features/agent/calendar/googleCalendarPkceTokenExchange';
+import { logGoogleCalendarAuthRequestInspection } from '@/src/features/agent/calendar/googleCalendarOAuthInspection';
+import {
+  GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE,
+  isGoogleCalendarEnabled,
+} from '@/src/features/agent/calendar/googleCalendarFeatureFlag';
+import { GOOGLE_CALENDAR_WEB_CALLBACK_PATH } from '@/src/features/agent/calendar/googleCalendarOAuthRoutes';
 
 WebBrowser.maybeCompleteAuthSession();
 
 export const GOOGLE_CALENDAR_DISCOVERY_ISSUER = 'https://accounts.google.com';
 export {
+  GOOGLE_CALENDAR_OAUTH_REDIRECT_LEGACY_ROUTE,
+  GOOGLE_CALENDAR_OAUTH_REDIRECT_PATH,
+  GOOGLE_CALENDAR_OAUTH_REDIRECT_ROUTE,
   GOOGLE_CALENDAR_WEB_CALLBACK_PATH,
   GOOGLE_CALENDAR_WEB_CALLBACK_ROUTE,
 } from '@/src/features/agent/calendar/googleCalendarOAuthRoutes';
@@ -70,7 +91,10 @@ export type GoogleCalendarWebOAuthCallbackParams = {
   error?: string | null;
 };
 
+export type GoogleCalendarOAuthRedirectCallbackParams = GoogleCalendarWebOAuthCallbackParams;
+
 let pendingGoogleCalendarWebRedirectPromise: Promise<GoogleCalendarSession | null> | null = null;
+let pendingGoogleCalendarNativeRedirectPromise: Promise<GoogleCalendarSession | null> | null = null;
 let googleCalendarDiscoveryDocumentPromise: Promise<AuthSession.DiscoveryDocument> | null = null;
 
 type GoogleCalendarBackendTokenResponse = {
@@ -102,15 +126,7 @@ export async function getGoogleCalendarDiscoveryDocument() {
 }
 
 function resolveGoogleCalendarClientId() {
-  if (Platform.OS === 'android') {
-    return env.googleCalendarAndroidClientId;
-  }
-
-  if (Platform.OS === 'ios') {
-    return env.googleCalendarIosClientId;
-  }
-
-  return env.googleCalendarWebClientId;
+  return resolveGoogleCalendarOAuthClientId();
 }
 
 export function getGoogleCalendarClientId() {
@@ -118,37 +134,69 @@ export function getGoogleCalendarClientId() {
 }
 
 function buildGoogleCalendarRedirectUri() {
-  if (Platform.OS === 'web') {
-    const uri = AuthSession.makeRedirectUri({
-      path: GOOGLE_CALENDAR_WEB_CALLBACK_PATH,
-      preferLocalhost: true,
-    });
-
-    try {
-      const parsed = new URL(uri);
-      const normalizedPathname = `/${GOOGLE_CALENDAR_WEB_CALLBACK_PATH}`;
-
-      if (parsed.pathname.replace(/\/+$/, '') !== normalizedPathname) {
-        parsed.pathname = normalizedPathname;
-        return parsed.toString();
-      }
-    } catch {
-      // Fall through to AuthSession value.
-    }
-
-    return uri;
-  }
-
-  return AuthSession.makeRedirectUri({
-    scheme: 'mobile',
-    path: 'oauthredirect',
-    preferLocalhost: true,
-    native: 'mobile://oauthredirect',
-  });
+  return buildGoogleCalendarOAuthRedirectUri();
 }
 
 export function getGoogleCalendarRedirectUri() {
   return buildGoogleCalendarRedirectUri();
+}
+
+function logGoogleCalendarOAuthConfiguration(stage: 'CONNECT_START' | 'AUTH_REQUEST_CREATED') {
+  const diagnostics = getGoogleCalendarOAuthConfigDiagnostics();
+  const sources = resolveGoogleCalendarClientIdSources();
+  const clientId = resolveGoogleCalendarClientId();
+
+  logGoogleCalendarOAuthEvent('CLIENT_IDS', {
+    runtime: diagnostics.runtime,
+    platform: diagnostics.platform,
+    clientIdSource: diagnostics.clientIdSource,
+    clientIdLoaded: diagnostics.clientIdLoaded,
+    webLoaded: diagnostics.clientIds.webLoaded,
+    iosLoaded: diagnostics.clientIds.iosLoaded,
+    androidLoaded: diagnostics.clientIds.androidLoaded,
+    webClientId: maskGoogleCalendarClientId(sources.web),
+    iosClientId: maskGoogleCalendarClientId(sources.ios),
+    androidClientId: maskGoogleCalendarClientId(sources.android),
+    selectedClientId: maskGoogleCalendarClientId(clientId),
+  });
+
+  logGoogleCalendarOAuthEvent('REDIRECT_URI', {
+    runtime: diagnostics.runtime,
+    redirectUri: diagnostics.redirectUri,
+  });
+
+  if (stage === 'AUTH_REQUEST_CREATED') {
+    logGoogleCalendarOAuthEvent('AUTH_REQUEST_CREATED', {
+      runtime: diagnostics.runtime,
+      redirectUri: diagnostics.redirectUri,
+      clientIdSource: diagnostics.clientIdSource,
+    });
+  }
+}
+
+function resolveGoogleCalendarOAuthFailureMessage(
+  authResult: AuthSession.AuthSessionResult,
+) {
+  if (authResult.type === 'dismiss' || authResult.type === 'cancel') {
+    return 'Google Calendar connection was cancelled.';
+  }
+
+  if (authResult.type === 'locked') {
+    return 'Another Google sign-in is already in progress. Try again in a moment.';
+  }
+
+  if (authResult.type === 'error') {
+    return authResult.error?.message ?? 'Unable to finish Google Calendar sign-in.';
+  }
+
+  const params = authResult.type === 'success' ? authResult.params : undefined;
+  const providerError = params?.error_description || params?.error;
+
+  if (providerError) {
+    return `Google sign-in failed: ${providerError}`;
+  }
+
+  return 'Unable to finish Google Calendar sign-in.';
 }
 
 function readGoogleCalendarAuthorizationCodeFromUrl(urlValue?: string | null) {
@@ -348,6 +396,39 @@ async function clearGoogleCalendarAuthState(reason: string) {
   });
 }
 
+async function resetGoogleCalendarSessionBeforeOAuth() {
+  const clientId = resolveGoogleCalendarClientId();
+  const session = await loadGoogleCalendarSession();
+
+  if (clientId && session?.accessToken) {
+    try {
+      const discovery = await getGoogleCalendarDiscoveryDocument();
+      await AuthSession.revokeAsync(
+        {
+          clientId,
+          token: session.accessToken,
+        },
+        discovery,
+      );
+    } catch {
+      // Ignore revoke errors in local foundation mode.
+    }
+  }
+
+  await clearGoogleCalendarSession();
+  await disconnectGoogleCalendarOnBackend().catch((error) => {
+    console.log('[GoogleCalendar] backend disconnect before OAuth failed', error);
+  });
+  const { invalidateCalendarAuthCache } = await import(
+    '@/src/features/agent/calendar/calendarAuthCapabilities'
+  );
+  const { resetCalendarWriteSession } = await import(
+    '@/src/features/agent/calendar/calendarWriteSession'
+  );
+  invalidateCalendarAuthCache();
+  resetCalendarWriteSession();
+}
+
 export async function refreshGoogleCalendarConnectionState() {
   const { invalidateCalendarAuthCache, refreshCalendarAuthCapabilities } = await import(
     '@/src/features/agent/calendar/calendarAuthCapabilities'
@@ -410,25 +491,19 @@ export async function finalizeGoogleCalendarAuthCode(params: {
     return nextSession;
   }
 
-  const discovery = await getGoogleCalendarDiscoveryDocument();
-  const tokenResponse = await AuthSession.exchangeCodeAsync(
-    {
-      clientId: params.clientId,
-      code: params.code,
-      redirectUri: params.redirectUri,
-      extraParams: {
-        code_verifier: params.codeVerifier,
-      },
-    },
-    discovery,
-  );
+  const tokenResponse = await exchangeGoogleCalendarAuthorizationCodeWithPkce({
+    clientId: params.clientId,
+    code: params.code,
+    redirectUri: params.redirectUri,
+    codeVerifier: params.codeVerifier,
+  });
   const connectedEmail = tokenResponse.accessToken
     ? await fetchGoogleProfile(tokenResponse.accessToken)
     : undefined;
   const nextSession = await buildGoogleCalendarSessionFromTokens({
     accessToken: tokenResponse.accessToken,
-    refreshToken: tokenResponse.refreshToken ?? undefined,
-    tokenType: tokenResponse.tokenType ?? undefined,
+    refreshToken: tokenResponse.refreshToken,
+    tokenType: tokenResponse.tokenType,
     scope: tokenResponse.scope,
     expiresIn: tokenResponse.expiresIn,
     connectedEmail,
@@ -609,6 +684,10 @@ export function isLikelyPopupBlockedError(error: unknown) {
 async function resolveGoogleCalendarWebRedirectIfNeeded(
   callbackParams?: GoogleCalendarWebOAuthCallbackParams,
 ) {
+  if (!isGoogleCalendarEnabled()) {
+    return null;
+  }
+
   if (Platform.OS !== 'web' || typeof window === 'undefined') {
     return null;
   }
@@ -773,6 +852,185 @@ export async function completeGoogleCalendarWebOAuthRedirect(
   return { success: false };
 }
 
+function validateGoogleCalendarOAuthState(
+  storedState: string | undefined,
+  returnedState: string | null,
+) {
+  if (!storedState || !returnedState) {
+    return;
+  }
+
+  if (storedState !== returnedState) {
+    console.log('[GoogleCalendar OAuth] OAuth state mismatch', {
+      storedState,
+      returnedState,
+    });
+    throw new Error('OAuth state mismatch. Connect Google Calendar again from Home.');
+  }
+
+  console.log('[GoogleCalendar OAuth] OAuth state validated', {
+    state: returnedState,
+  });
+}
+
+async function exchangeGoogleCalendarOAuthCodeWithStoredPkce(params: {
+  restoredPkce: GoogleCalendarPkceAuthStore;
+  code: string;
+  returnedState?: string | null;
+}) {
+  validateGoogleCalendarOAuthState(params.restoredPkce.state, params.returnedState ?? null);
+
+  const nextSession = await finalizeGoogleCalendarAuthCode({
+    clientId: params.restoredPkce.clientId,
+    code: params.code,
+    redirectUri: params.restoredPkce.redirectUri,
+    codeVerifier: params.restoredPkce.codeVerifier,
+  });
+
+  await refreshGoogleCalendarConnectionState();
+  await clearGoogleCalendarPkceAuthStore();
+  return nextSession;
+}
+
+export async function completeGoogleCalendarNativeOAuthRedirect(
+  callbackParams?: GoogleCalendarOAuthRedirectCallbackParams,
+  restoredPkce?: GoogleCalendarPkceAuthStore | null,
+): Promise<{
+  success: boolean;
+  errorMessage?: string;
+  connectedEmail?: string;
+}> {
+  if (!isGoogleCalendarEnabled()) {
+    return {
+      success: false,
+      errorMessage: GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE,
+    };
+  }
+
+  const code = callbackParams?.code?.trim() || null;
+  const error = callbackParams?.error?.trim() || null;
+  const returnedState = callbackParams?.state?.trim() || null;
+
+  console.log('[GoogleCalendar OAuth] native oauthredirect completion started', {
+    hasCode: Boolean(code),
+    hasState: Boolean(returnedState),
+    hasError: Boolean(error),
+    hasRestoredPkceArg: Boolean(restoredPkce?.codeVerifier),
+  });
+
+  if (error) {
+    return {
+      success: false,
+      errorMessage:
+        error === 'access_denied'
+          ? GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE
+          : error,
+    };
+  }
+
+  if (!code) {
+    return {
+      success: false,
+      errorMessage: 'Google OAuth redirect did not return an authorization code.',
+    };
+  }
+
+  const pkceStore = restoredPkce ?? (await restoreGoogleCalendarPkceAuthStore());
+
+  if (!pkceStore?.codeVerifier?.trim()) {
+    const existingSession = await loadGoogleCalendarSession();
+
+    if (existingSession?.accessToken) {
+      return { success: true, connectedEmail: existingSession.connectedEmail };
+    }
+
+    return {
+      success: false,
+      errorMessage:
+        'Google Calendar PKCE verifier was not restored on oauthredirect. Connect again from Home.',
+    };
+  }
+
+  console.log('[GoogleCalendar OAuth] oauthredirect using restored PKCE verifier', {
+    codeVerifierLength: pkceStore.codeVerifier.length,
+    redirectUri: pkceStore.redirectUri,
+    storedState: pkceStore.state,
+    returnedState,
+    storedAt: pkceStore.storedAt,
+  });
+
+  if (pendingGoogleCalendarNativeRedirectPromise) {
+    try {
+      const session = await pendingGoogleCalendarNativeRedirectPromise;
+
+      if (session) {
+        return { success: true, connectedEmail: session.connectedEmail };
+      }
+    } catch (oauthError) {
+      if (
+        oauthError instanceof Error &&
+        oauthError.message === GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE
+      ) {
+        return {
+          success: false,
+          errorMessage: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+        };
+      }
+
+      return {
+        success: false,
+        errorMessage:
+          oauthError instanceof Error
+            ? oauthError.message
+            : 'Google Calendar token exchange failed.',
+      };
+    }
+  }
+
+  pendingGoogleCalendarNativeRedirectPromise = (async () => {
+    try {
+      return await exchangeGoogleCalendarOAuthCodeWithStoredPkce({
+        restoredPkce: pkceStore,
+        code,
+        returnedState,
+      });
+    } finally {
+      pendingGoogleCalendarNativeRedirectPromise = null;
+    }
+  })();
+
+  try {
+    const session = await pendingGoogleCalendarNativeRedirectPromise;
+
+    if (!session) {
+      return {
+        success: false,
+        errorMessage: 'Google Calendar token exchange did not complete.',
+      };
+    }
+
+    return { success: true, connectedEmail: session.connectedEmail };
+  } catch (oauthError) {
+    if (
+      oauthError instanceof Error &&
+      oauthError.message === GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE
+    ) {
+      return {
+        success: false,
+        errorMessage: GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
+      };
+    }
+
+    return {
+      success: false,
+      errorMessage:
+        oauthError instanceof Error
+          ? oauthError.message
+          : 'Google Calendar token exchange failed.',
+    };
+  }
+}
+
 export async function startGoogleCalendarWebRedirectFallback(
   authRequest: AuthSession.AuthRequest,
   clientId: string,
@@ -902,19 +1160,54 @@ export async function getActiveGoogleCalendarSession() {
 }
 
 export async function connectGoogleCalendarAccount() {
+  if (!isGoogleCalendarEnabled()) {
+    return {
+      success: false,
+      connection: {
+        provider: 'google',
+        status: 'not_connected',
+      } satisfies CalendarConnection,
+      errorMessage: GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE,
+    };
+  }
+
+  const runtime = resolveGoogleCalendarOAuthRuntime();
+
+  logGoogleCalendarOAuthEvent('CONNECT_START', {
+    runtime,
+    platform: Platform.OS,
+  });
+  logGoogleCalendarOAuthConfiguration('CONNECT_START');
+
   console.log('[Calendar] Clearing stored Google Calendar session before OAuth');
-  await disconnectGoogleCalendarAccount();
+  await clearGoogleCalendarPkceAuthStore();
+  await resetGoogleCalendarSessionBeforeOAuth();
 
   const clientId = resolveGoogleCalendarClientId();
 
   if (!clientId) {
+    const missingConfigMessage =
+      runtime === 'expo_go'
+        ? 'Google Calendar web client ID is missing. Set EXPO_PUBLIC_GOOGLE_CALENDAR_WEB_CLIENT_ID for Expo Go.'
+        : Platform.OS === 'ios'
+          ? 'Google Calendar iOS client ID is missing. Set EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID.'
+          : Platform.OS === 'android'
+            ? 'Google Calendar Android client ID is missing. Set EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID.'
+            : 'Google Calendar client ID is missing for this platform.';
+
+    logGoogleCalendarOAuthEvent('CONNECT_FAILED', {
+      reason: 'missing_client_id',
+      runtime,
+      message: missingConfigMessage,
+    });
+
     return {
       success: false,
       connection: {
         provider: 'google',
         status: 'missing_config',
       } satisfies CalendarConnection,
-      errorMessage: 'Google Calendar client ID is missing for this platform.',
+      errorMessage: missingConfigMessage,
     };
   }
 
@@ -955,7 +1248,75 @@ export async function connectGoogleCalendarAccount() {
       });
     }
 
-    console.log('[Calendar] Starting OAuth');
+    logGoogleCalendarOAuthConfiguration('AUTH_REQUEST_CREATED');
+    const authUrl = await authRequest.makeAuthUrlAsync(discovery);
+    await logGoogleCalendarAuthRequestInspection(authRequest, discovery);
+    logGoogleCalendarOAuthEvent('PROMPT_START', {
+      runtime,
+      redirectUri,
+    });
+    const requestConfig = await authRequest.getAuthRequestConfigAsync();
+    const googleRedirectUri = (() => {
+      try {
+        return new URL(authUrl).searchParams.get('redirect_uri') ?? requestConfig.redirectUri;
+      } catch {
+        return requestConfig.redirectUri;
+      }
+    })();
+    const debugRequestConfig = {
+      redirectUri: requestConfig.redirectUri,
+      clientId: requestConfig.clientId,
+      scopes: requestConfig.scopes,
+      responseType: requestConfig.responseType,
+      usePKCE: authRequest.usePKCE,
+      extraParams: requestConfig.extraParams,
+      state: requestConfig.state,
+    };
+
+    console.log('GOOGLE_AUTH_DEBUG_START');
+    console.log('GOOGLE_REDIRECT_URI_FINAL', googleRedirectUri);
+    console.log('GOOGLE_AUTH_DEBUG redirectUri', googleRedirectUri);
+    console.log('GOOGLE_AUTH_DEBUG clientId', clientId);
+    console.log('GOOGLE_AUTH_DEBUG scopes', [...googleCalendarOAuthScopes]);
+    console.log('GOOGLE_AUTH_DEBUG authUrl', authUrl);
+    console.log('GOOGLE_AUTH_DEBUG requestConfig', debugRequestConfig);
+    console.log('GOOGLE_AUTH_DEBUG pkce', {
+      usePKCE: authRequest.usePKCE,
+      hasCodeVerifier: Boolean(authRequest.codeVerifier),
+      codeVerifierLength: authRequest.codeVerifier?.length ?? 0,
+      hasCodeChallenge: (() => {
+        try {
+          return Boolean(new URL(authUrl).searchParams.get('code_challenge'));
+        } catch {
+          return false;
+        }
+      })(),
+    });
+
+    if (runtime !== 'web') {
+      await storeGoogleCalendarPkceAuthFromAuthRequest({
+        authRequest,
+        clientId,
+        redirectUri,
+        authUrl,
+      });
+    }
+
+    if (Platform.OS !== 'web') {
+      await new Promise<void>((resolve) => {
+        Alert.alert(
+          'GOOGLE REDIRECT URI',
+          googleRedirectUri,
+          [{ text: 'Continue', onPress: () => resolve() }],
+          { cancelable: false },
+        );
+      });
+    }
+
+    console.log('[Calendar] Starting OAuth', {
+      hasCodeVerifierBeforePrompt: Boolean(authRequest.codeVerifier),
+      codeVerifierLength: authRequest.codeVerifier?.length ?? 0,
+    });
     const authResult = await authRequest.promptAsync(
       discovery,
       Platform.OS === 'web'
@@ -967,9 +1328,34 @@ export async function connectGoogleCalendarAccount() {
           }
         : undefined,
     );
+
+    console.log('GOOGLE_PROMPT_RESULT', JSON.stringify(authResult));
+
+    const promptCode =
+      authResult.type === 'success' ? authResult.params.code?.trim() ?? '' : '';
+    const promptState =
+      authResult.type === 'success' ? authResult.params.state?.trim() ?? null : null;
+
+    console.log('GOOGLE_PROMPT_CODE_FOUND', Boolean(promptCode));
+
+    logGoogleCalendarOAuthEvent('AUTH_RESULT', {
+      type: authResult.type,
+      hasCode: Boolean(promptCode),
+      code: promptCode || null,
+      state: promptState,
+      error:
+        authResult.type === 'error'
+          ? authResult.error?.message ?? authResult.params?.error ?? null
+          : authResult.type === 'success'
+            ? authResult.params.error ?? null
+            : null,
+      errorDescription:
+        authResult.type === 'success' ? authResult.params.error_description ?? null : null,
+      url: authResult.type === 'success' || authResult.type === 'error' ? authResult.url : null,
+    });
     console.log('[Calendar] OAuth response', authResult);
 
-    if (authResult.type !== 'success' || !authResult.params.code) {
+    if (authResult.type !== 'success' || !promptCode) {
       if (
         Platform.OS === 'web' &&
         (authResult.type === 'locked' || authResult.type === 'error')
@@ -977,21 +1363,98 @@ export async function connectGoogleCalendarAccount() {
         return startGoogleCalendarWebRedirectFallback(authRequest, clientId, redirectUri);
       }
 
+      const sessionAfterRedirect = await loadGoogleCalendarSession();
+
+      if (sessionAfterRedirect?.accessToken) {
+        await clearGoogleCalendarPkceAuthStore();
+        await refreshGoogleCalendarConnectionState();
+
+        logGoogleCalendarOAuthEvent('CONNECT_SUCCESS', {
+          runtime,
+          connectedEmail: sessionAfterRedirect.connectedEmail ?? null,
+          via: 'oauthredirect_route',
+        });
+
+        return {
+          success: true,
+          connection: buildConnectionFromSession(sessionAfterRedirect),
+          writeScopeGranted: scopesIncludeCalendarEventsWrite(sessionAfterRedirect.scopes),
+        };
+      }
+
+      const errorMessage = resolveGoogleCalendarOAuthFailureMessage(authResult);
+
+      logGoogleCalendarOAuthEvent('CONNECT_FAILED', {
+        reason: 'auth_result_not_success',
+        authResultType: authResult.type,
+        message: errorMessage,
+      });
+
       return {
         success: false,
         connection: await getGoogleCalendarConnection(),
-        errorMessage:
-          authResult.type === 'dismiss' || authResult.type === 'cancel'
-            ? 'Google Calendar connection was cancelled.'
-            : 'Unable to finish Google Calendar sign-in.',
+        errorMessage,
       };
     }
 
-    const nextSession = await finalizeGoogleCalendarAuthCode({
-      clientId,
-      code: authResult.params.code,
-      redirectUri,
-      codeVerifier: authRequest.codeVerifier || '',
+    const restoredPkce = runtime !== 'web' ? await restoreGoogleCalendarPkceAuthStore() : null;
+    const exchangeClientId = restoredPkce?.clientId ?? clientId;
+    const exchangeRedirectUri = restoredPkce?.redirectUri ?? redirectUri;
+    const exchangeCodeVerifier =
+      restoredPkce?.codeVerifier?.trim() ?? authRequest.codeVerifier?.trim() ?? '';
+
+    logGoogleCalendarOAuthEvent('TOKEN_EXCHANGE_START', {
+      redirectUri: exchangeRedirectUri,
+      hasCode: Boolean(promptCode),
+      hasCodeVerifier: Boolean(exchangeCodeVerifier),
+      hasRestoredPkce: Boolean(restoredPkce?.codeVerifier),
+      state: promptState,
+    });
+
+    let nextSession: GoogleCalendarSession;
+
+    try {
+      if (runtime !== 'web') {
+        if (!exchangeCodeVerifier) {
+          throw new Error(
+            'Google Calendar PKCE code verifier is missing after promptAsync success.',
+          );
+        }
+
+        validateGoogleCalendarOAuthState(restoredPkce?.state, promptState);
+
+        nextSession = await finalizeGoogleCalendarAuthCode({
+          clientId: exchangeClientId,
+          code: promptCode,
+          redirectUri: exchangeRedirectUri,
+          codeVerifier: exchangeCodeVerifier,
+        });
+        await clearGoogleCalendarPkceAuthStore();
+      } else {
+        nextSession = await finalizeGoogleCalendarAuthCode({
+          clientId,
+          code: promptCode,
+          redirectUri,
+          codeVerifier: authRequest.codeVerifier || '',
+        });
+      }
+
+      logGoogleCalendarOAuthEvent('TOKEN_EXCHANGE_SUCCESS', {
+        connectedEmail: nextSession.connectedEmail ?? null,
+        hasAccessToken: Boolean(nextSession.accessToken),
+        hasRefreshToken: Boolean(nextSession.refreshToken),
+      });
+    } catch (exchangeError) {
+      logGoogleCalendarOAuthEvent('TOKEN_EXCHANGE_ERROR', {
+        message: exchangeError instanceof Error ? exchangeError.message : String(exchangeError),
+        stack: exchangeError instanceof Error ? exchangeError.stack : null,
+      });
+      throw exchangeError;
+    }
+
+    logGoogleCalendarOAuthEvent('CONNECT_SUCCESS', {
+      runtime,
+      connectedEmail: nextSession.connectedEmail ?? null,
     });
 
     return {
@@ -1000,6 +1463,10 @@ export async function connectGoogleCalendarAccount() {
       writeScopeGranted: scopesIncludeCalendarEventsWrite(nextSession.scopes),
     };
   } catch (oauthError) {
+    logGoogleCalendarOAuthEvent('AUTH_ERROR', {
+      runtime,
+      message: oauthError instanceof Error ? oauthError.message : String(oauthError),
+    });
     console.log('[Calendar] OAuth error', oauthError);
 
     if (
@@ -1018,18 +1485,27 @@ export async function connectGoogleCalendarAccount() {
       return startGoogleCalendarWebRedirectFallback(authRequest, clientId, redirectUri);
     }
 
+    const errorMessage =
+      oauthError instanceof Error
+        ? oauthError.message
+        : 'Unable to start Google Calendar sign-in.';
+
+    logGoogleCalendarOAuthEvent('CONNECT_FAILED', {
+      reason: 'auth_exception',
+      message: errorMessage,
+    });
+
     return {
       success: false,
       connection: await getGoogleCalendarConnection(),
-      errorMessage:
-        oauthError instanceof Error
-          ? oauthError.message
-          : 'Unable to start Google Calendar sign-in.',
+      errorMessage,
     };
   }
 }
 
 export async function disconnectGoogleCalendarAccount() {
+  await clearGoogleCalendarPkceAuthStore();
+
   const clientId = resolveGoogleCalendarClientId();
   const session = await loadGoogleCalendarSession();
 

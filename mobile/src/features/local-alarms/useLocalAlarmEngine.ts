@@ -8,6 +8,11 @@ import {
   logLocalAlarmDueCheck,
   logLocalAlarmEngineStarted,
 } from '@/src/features/local-alarms/localAlarmMarkers';
+import { subscribeLocalAlarmNotificationEvents } from '@/src/features/local-alarms/localAlarmNotificationService';
+import {
+  syncLocalAlarmNotificationCancel,
+  syncLocalAlarmNotificationSchedule,
+} from '@/src/features/local-alarms/localAlarmNotificationSync';
 import {
   ALARM_VOICE_REPEAT_INTERVAL_MS,
   buildActiveAlarmSession,
@@ -125,6 +130,7 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
       const alarm = getLocalAlarmById(alarmId);
 
       stopLocalAlarm(alarmId);
+      syncLocalAlarmNotificationCancel(alarmId);
       logAlarmStopped({
         id: alarmId,
         title: alarm?.title ?? alarmId,
@@ -139,6 +145,12 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
       const alarm = getLocalAlarmById(alarmId);
 
       snoozeLocalAlarm(alarmId, snoozeMinutes);
+      const snoozedAlarm = getLocalAlarmById(alarmId);
+
+      if (snoozedAlarm) {
+        syncLocalAlarmNotificationSchedule(snoozedAlarm);
+      }
+
       logAlarmSnoozed({
         id: alarmId,
         title: alarm?.title ?? alarmId,
@@ -183,6 +195,22 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
       logLocalAlarmEngineStarted();
     }
 
+    const unsubscribeNotifications = subscribeLocalAlarmNotificationEvents({
+      onAlarmNotification: (alarmId) => {
+        const alarm = getLocalAlarmById(alarmId);
+
+        if (!alarm || alarm.status === 'stopped' || alarm.status === 'cancelled') {
+          return;
+        }
+
+        if (activeSessionIdsRef.current.has(alarmId)) {
+          return;
+        }
+
+        startAlarmSession(alarm);
+      },
+    });
+
     const unsubscribe = subscribeLocalAlarms(() => {
       checkDueAlarms();
     });
@@ -196,6 +224,7 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
     return () => {
       clearInterval(intervalId);
       unsubscribe();
+      unsubscribeNotifications();
 
       for (const timerId of repeatTimersRef.current.values()) {
         clearInterval(timerId);
@@ -204,7 +233,7 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
       repeatTimersRef.current.clear();
       syncActiveSessions([]);
     };
-  }, [checkDueAlarms, syncActiveSessions]);
+  }, [checkDueAlarms, startAlarmSession, syncActiveSessions]);
 
   return {
     activeSessions,

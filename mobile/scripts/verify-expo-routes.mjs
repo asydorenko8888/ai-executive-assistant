@@ -5,9 +5,11 @@ import path from 'node:path';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const callbackFile = path.join(projectRoot, 'app', 'google-calendar-callback.tsx');
+const oauthRedirectFile = path.join(projectRoot, 'app', 'oauthredirect.tsx');
+const oauthRedirectLegacyFile = path.join(projectRoot, 'app', '--', 'oauthredirect.tsx');
 const layoutFile = path.join(projectRoot, 'app', '_layout.tsx');
 const routerTypesFile = path.join(projectRoot, '.expo', 'types', 'router.d.ts');
-const expectedPath = '/google-calendar-callback';
+const expectedPaths = ['/google-calendar-callback', '/oauthredirect', '/--/oauthredirect'];
 const runFullExport = process.argv.includes('--export');
 
 function fail(message) {
@@ -23,6 +25,16 @@ if (!fs.existsSync(callbackFile)) {
   fail(`missing ${path.relative(projectRoot, callbackFile)}`);
 }
 pass('found app/google-calendar-callback.tsx');
+
+if (!fs.existsSync(oauthRedirectFile)) {
+  fail(`missing ${path.relative(projectRoot, oauthRedirectFile)}`);
+}
+pass('found app/oauthredirect.tsx');
+
+if (!fs.existsSync(oauthRedirectLegacyFile)) {
+  fail(`missing ${path.relative(projectRoot, oauthRedirectLegacyFile)}`);
+}
+pass('found app/--/oauthredirect.tsx');
 
 const callbackDir = path.join(projectRoot, 'app', 'google-calendar-callback');
 if (fs.existsSync(callbackDir)) {
@@ -42,10 +54,12 @@ pass('root Stack registers google-calendar-callback');
 
 if (fs.existsSync(routerTypesFile)) {
   const routerTypes = fs.readFileSync(routerTypesFile, 'utf8');
-  if (!routerTypes.includes(`pathname: \`${expectedPath}\``)) {
-    fail(`Expo typed routes missing ${expectedPath} (run "npx expo start" once to regenerate)`);
+  for (const expectedPath of expectedPaths) {
+    if (!routerTypes.includes(`pathname: \`${expectedPath}\``)) {
+      fail(`Expo typed routes missing ${expectedPath} (run "npx expo start" once to regenerate)`);
+    }
+    pass(`typed route registered: ${expectedPath}`);
   }
-  pass(`typed route registered: ${expectedPath}`);
 } else {
   console.warn(
     'verify:routes — .expo/types/router.d.ts not found; run "npx expo start" to generate typed routes',

@@ -107,12 +107,23 @@ export async function exchangeGoogleCalendarCode(params: {
   redirectUri: string;
   codeVerifier: string;
 }) {
-  const { clientId, clientSecret } = getGoogleOAuthClientConfig();
+  const codeVerifier = params.codeVerifier?.trim();
+
+  if (!codeVerifier) {
+    throw new Error('GOOGLE_OAUTH_CODE_VERIFIER_MISSING');
+  }
+
+  const clientId = backendEnv.GOOGLE_CALENDAR_WEB_CLIENT_ID;
+
+  if (!clientId) {
+    throw new Error('GOOGLE_CALENDAR_WEB_CLIENT_ID_MISSING');
+  }
+
+  // PKCE public-client exchange — do not send client_secret.
   const body = new URLSearchParams({
     client_id: clientId,
-    client_secret: clientSecret,
     code: params.code,
-    code_verifier: params.codeVerifier,
+    code_verifier: codeVerifier,
     redirect_uri: params.redirectUri,
     grant_type: 'authorization_code',
   });

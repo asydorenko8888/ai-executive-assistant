@@ -4,6 +4,10 @@ import {
   GOOGLE_CALENDAR_WRITE_NOT_GRANTED_MESSAGE,
 } from '@/src/features/agent/calendar/googleCalendarAuth';
 import {
+  GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE,
+  isGoogleCalendarEnabled,
+} from '@/src/features/agent/calendar/googleCalendarFeatureFlag';
+import {
   resumeGoogleCalendarPendingActions,
   syncGoogleCalendarSessionToBackend,
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
@@ -69,6 +73,19 @@ export function buildCalendarRetryingLabel(languageCode: VoiceLanguageCode) {
 }
 
 export async function launchGoogleCalendarOAuthForExecution() {
+  if (!isGoogleCalendarEnabled()) {
+    logActionExecution('execution_failed', {
+      phase: 'connecting',
+      reason: 'google_calendar_disabled',
+    });
+
+    return {
+      success: false as const,
+      cancelled: true,
+      errorMessage: GOOGLE_CALENDAR_DISABLED_PREVIEW_MESSAGE,
+    };
+  }
+
   logActionExecution('execution_started', { phase: 'connecting', tool: 'google_calendar_oauth' });
 
   const result = await connectGoogleCalendarAccount();

@@ -5,7 +5,9 @@
     "dev:backend": "npm run dev --prefix backend",
     "start:backend": "npm run dev --prefix backend",
     "check:backend": "node scripts/check-backend-health.mjs",
-    "dev": "concurrently --names backend,mobile --prefix-colors blue,green \"npm run dev:backend\" \"npm run start --prefix mobile\""
+    "dev": "concurrently --names backend,mobile --prefix-colors blue,green \"npm run dev:backend\" \"npm run start --prefix mobile\"",
+    "prepare:mobile:device": "node scripts/prepare-mobile-device-env.mjs",
+    "build:ios:preview": "npm run build:ios:preview --prefix mobile"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

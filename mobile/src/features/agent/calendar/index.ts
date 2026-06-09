@@ -5,5 +5,6 @@ export * from './calendarDeleteDisabledReply';
 export * from './calendarPipelineLogger';
 export * from './googleCalendarStorage';
 export * from './googleCalendarAuth';
+export * from './googleCalendarFeatureFlag';
 export * from './googleCalendarScopes';
 export * from './googleCalendarService';

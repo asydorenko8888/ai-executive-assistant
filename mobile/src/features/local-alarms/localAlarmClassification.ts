@@ -4,7 +4,7 @@ import {
 } from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
 
 const LOCAL_ALARM_VERB = new RegExp(
-  `${CALENDAR_WORD_EDGE}(?:поставь\\s+будильник|постав(?:ь|ити)\\s+будильник|set\\s+(?:an?\\s+)?alarm|разбуди(?:ть)?(?:\\s+меня)?|wake\\s+me(?:\\s+up)?)${CALENDAR_WORD_END}`,
+  `${CALENDAR_WORD_EDGE}(?:постав(?:ь|ьте|ити|\\s+)?\\s*будильник|set\\s+(?:an?\\s+)?alarm|разбуди(?:ть)?(?:\\s+меня)?|розбуди(?:ти)?(?:\\s+мене)?|wake\\s+me(?:\\s+up)?)${CALENDAR_WORD_END}`,
   'iu',
 );
 
