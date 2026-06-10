@@ -1,5 +1,10 @@
 import type { CalendarCreateEventPayload, CalendarUpdateEventPayload } from '@/src/features/agent/execution/actionExecutionTypes';
 import type { CalendarExecutionState } from '@/src/features/agent/execution/calendarExecutionStates';
+import {
+  logCalendarEventsFetchError,
+  logCalendarEventsFetchStart,
+  logCalendarEventsFetchSuccess,
+} from '@/src/features/agent/calendar/calendarAuthDiagnostics';
 import type { GoogleCalendarSession } from '@/src/features/agent/calendar/googleCalendarStorage';
 import { calendarBackendRequest } from '@/src/features/agent/calendar/calendarBackendRequest';
 
@@ -145,20 +150,48 @@ export async function createGoogleCalendarEventOnBackend(payload: CalendarCreate
 export async function fetchGoogleCalendarEventsFromBackend(params: {
   timeMin: string;
   timeMax: string;
+  source?: string;
 }) {
+  const source = params.source ?? 'backend_api';
+
+  logCalendarEventsFetchStart({
+    timeMin: params.timeMin,
+    timeMax: params.timeMax,
+    source,
+  });
+
   const query = new URLSearchParams({
     timeMin: params.timeMin,
     timeMax: params.timeMax,
   });
 
-  return calendarBackendRequest<{
-    events: GoogleCalendarBackendEvent[];
-  }>({
-    operation: 'search',
-    action: 'GET /google-calendar/events',
-    method: 'GET',
-    path: `/google-calendar/events?${query.toString()}`,
-  });
+  try {
+    const response = await calendarBackendRequest<{
+      events: GoogleCalendarBackendEvent[];
+    }>({
+      operation: 'search',
+      action: 'GET /google-calendar/events',
+      method: 'GET',
+      path: `/google-calendar/events?${query.toString()}`,
+    });
+
+    logCalendarEventsFetchSuccess({
+      count: response.events.length,
+      source,
+      timeMin: params.timeMin,
+      timeMax: params.timeMax,
+    });
+
+    return response;
+  } catch (error) {
+    logCalendarEventsFetchError({
+      message: error instanceof Error ? error.message : String(error),
+      source,
+      timeMin: params.timeMin,
+      timeMax: params.timeMax,
+    });
+    throw error;
+  }
 }
 
 export async function fetchGoogleCalendarEventByIdFromBackend(eventId: string) {

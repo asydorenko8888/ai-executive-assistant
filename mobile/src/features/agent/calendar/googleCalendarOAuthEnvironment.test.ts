@@ -59,10 +59,40 @@ describe('google calendar oauth policy', () => {
     assert.equal(expectation.mustNotUseScheme, 'exp:');
   });
 
-  it('expects mobile:// redirect for native builds', () => {
+  it('expects Google Android reverse-client-id redirect for native builds', () => {
     const expectation = describeGoogleCalendarOAuthRedirectExpectation('native');
 
-    assert.equal(expectation.schemePrefix, 'mobile:');
-    assert.equal(expectation.pathSegment, 'oauthredirect');
+    assert.equal(expectation.schemePrefix, 'com.googleusercontent.apps.');
+    assert.equal(expectation.pathSegment, 'oauth2redirect');
+  });
+
+  it('requires android client id on native android', () => {
+    const selection = selectGoogleCalendarOAuthClientId({
+      runtime: 'native',
+      platform: 'android',
+      sources: {
+        web: 'web-client-id',
+        ios: '',
+        android: '',
+      },
+    });
+
+    assert.equal(selection.clientId, '');
+    assert.equal(selection.source, 'missing');
+  });
+
+  it('uses android client id on native android when configured', () => {
+    const selection = selectGoogleCalendarOAuthClientId({
+      runtime: 'native',
+      platform: 'android',
+      sources: {
+        web: 'web-client-id',
+        ios: '',
+        android: '1060047767043-example.apps.googleusercontent.com',
+      },
+    });
+
+    assert.equal(selection.clientId, '1060047767043-example.apps.googleusercontent.com');
+    assert.equal(selection.source, 'android');
   });
 });

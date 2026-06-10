@@ -13,6 +13,31 @@ type AppEnv = {
   EXPO_PUBLIC_APP_API_KEY: string;
 };
 
+const GOOGLE_CALENDAR_ANDROID_PACKAGE = 'com.aiexecutiveassistant.mobile';
+
+function buildGoogleCalendarAndroidIntentFilters(androidClientId: string) {
+  const trimmed = androidClientId.trim();
+
+  if (!trimmed.endsWith('.apps.googleusercontent.com')) {
+    return [];
+  }
+
+  const clientIdSuffix = trimmed.replace(/\.apps\.googleusercontent\.com$/i, '');
+
+  return [
+    {
+      action: 'VIEW',
+      data: [
+        {
+          scheme: `com.googleusercontent.apps.${clientIdSuffix}`,
+          host: 'oauth2redirect',
+        },
+      ],
+      category: ['BROWSABLE', 'DEFAULT'],
+    },
+  ];
+}
+
 function readAppEnv(source: Record<string, string | undefined>): AppEnv {
   const appEnvironment = source.APP_ENV;
   const requestTimeoutValue = Number(source.EXPO_PUBLIC_REQUEST_TIMEOUT_MS ?? '10000');
@@ -64,7 +89,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         backgroundColor: '#ffffff',
       },
       edgeToEdgeEnabled: true,
-      package: 'com.aiexecutiveassistant.mobile',
+      package: GOOGLE_CALENDAR_ANDROID_PACKAGE,
+      intentFilters: buildGoogleCalendarAndroidIntentFilters(
+        appEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID,
+      ),
       permissions: [
         'android.permission.POST_NOTIFICATIONS',
         'android.permission.SCHEDULE_EXACT_ALARM',

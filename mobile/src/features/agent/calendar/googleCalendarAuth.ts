@@ -1,4 +1,4 @@
-import { Alert, Platform } from 'react-native';
+import { Platform } from 'react-native';
 
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
@@ -23,11 +23,15 @@ import {
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import { apiClient } from '@/src/shared/api';
 import {
+  logCalendarAuthError,
+  logCalendarAuthStart,
   logCalendarAuthStateCleared,
+  logCalendarAuthSuccess,
   logCalendarTokenExpiration,
   logCalendarTokenRefreshAttempt,
   logCalendarTokenRefreshResult,
 } from '@/src/features/agent/calendar/calendarAuthDiagnostics';
+import { logGoogleCalendarAndroidOAuthSetup } from '@/src/features/agent/calendar/googleCalendarAndroidOAuth';
 import {
   buildGoogleCalendarOAuthRedirectUri,
   getGoogleCalendarOAuthConfigDiagnostics,
@@ -1009,6 +1013,12 @@ export async function completeGoogleCalendarNativeOAuthRedirect(
       };
     }
 
+    logCalendarAuthSuccess({
+      connectedEmail: session.connectedEmail ?? null,
+      hasRefreshToken: Boolean(session.refreshToken),
+      runtime: resolveGoogleCalendarOAuthRuntime(),
+    });
+
     return { success: true, connectedEmail: session.connectedEmail };
   } catch (oauthError) {
     if (
@@ -1172,6 +1182,17 @@ export async function connectGoogleCalendarAccount() {
   }
 
   const runtime = resolveGoogleCalendarOAuthRuntime();
+  const redirectUriForStart = buildGoogleCalendarRedirectUri();
+
+  logCalendarAuthStart({
+    runtime,
+    platform: Platform.OS,
+    redirectUri: redirectUriForStart,
+  });
+
+  if (Platform.OS === 'android') {
+    logGoogleCalendarAndroidOAuthSetup(Platform.OS);
+  }
 
   logGoogleCalendarOAuthEvent('CONNECT_START', {
     runtime,
@@ -1302,17 +1323,6 @@ export async function connectGoogleCalendarAccount() {
       });
     }
 
-    if (Platform.OS !== 'web') {
-      await new Promise<void>((resolve) => {
-        Alert.alert(
-          'GOOGLE REDIRECT URI',
-          googleRedirectUri,
-          [{ text: 'Continue', onPress: () => resolve() }],
-          { cancelable: false },
-        );
-      });
-    }
-
     console.log('[Calendar] Starting OAuth', {
       hasCodeVerifierBeforePrompt: Boolean(authRequest.codeVerifier),
       codeVerifierLength: authRequest.codeVerifier?.length ?? 0,
@@ -1374,6 +1384,11 @@ export async function connectGoogleCalendarAccount() {
           connectedEmail: sessionAfterRedirect.connectedEmail ?? null,
           via: 'oauthredirect_route',
         });
+        logCalendarAuthSuccess({
+          runtime,
+          connectedEmail: sessionAfterRedirect.connectedEmail ?? null,
+          hasRefreshToken: Boolean(sessionAfterRedirect.refreshToken),
+        });
 
         return {
           success: true,
@@ -1387,6 +1402,11 @@ export async function connectGoogleCalendarAccount() {
       logGoogleCalendarOAuthEvent('CONNECT_FAILED', {
         reason: 'auth_result_not_success',
         authResultType: authResult.type,
+        message: errorMessage,
+      });
+      logCalendarAuthError({
+        runtime,
+        stage: 'auth_result_not_success',
         message: errorMessage,
       });
 
@@ -1456,6 +1476,11 @@ export async function connectGoogleCalendarAccount() {
       runtime,
       connectedEmail: nextSession.connectedEmail ?? null,
     });
+    logCalendarAuthSuccess({
+      runtime,
+      connectedEmail: nextSession.connectedEmail ?? null,
+      hasRefreshToken: Boolean(nextSession.refreshToken),
+    });
 
     return {
       success: true,
@@ -1463,9 +1488,17 @@ export async function connectGoogleCalendarAccount() {
       writeScopeGranted: scopesIncludeCalendarEventsWrite(nextSession.scopes),
     };
   } catch (oauthError) {
+    const authErrorMessage =
+      oauthError instanceof Error ? oauthError.message : String(oauthError);
+
     logGoogleCalendarOAuthEvent('AUTH_ERROR', {
       runtime,
-      message: oauthError instanceof Error ? oauthError.message : String(oauthError),
+      message: authErrorMessage,
+    });
+    logCalendarAuthError({
+      runtime,
+      stage: 'auth_exception',
+      message: authErrorMessage,
     });
     console.log('[Calendar] OAuth error', oauthError);
 

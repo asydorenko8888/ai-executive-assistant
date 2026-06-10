@@ -8,7 +8,13 @@ import { parseGoogleCalendarOAuthRedirectCallbackUrl } from '@/src/features/agen
 import { restoreGoogleCalendarPkceAuthStore } from '@/src/features/agent/calendar/googleCalendarPkceAuthStore';
 
 export function urlContainsGoogleCalendarOAuthRedirect(url: string) {
-  return url.toLowerCase().includes('oauthredirect');
+  const normalized = url.toLowerCase();
+
+  return (
+    normalized.includes('oauth2redirect') ||
+    normalized.includes('oauthredirect') ||
+    normalized.includes('com.googleusercontent.apps.')
+  );
 }
 
 export function pathnameContainsGoogleCalendarOAuthRedirect(pathname: string) {

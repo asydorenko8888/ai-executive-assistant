@@ -237,6 +237,7 @@ async function fetchGoogleCalendarEventsForAgenda(referenceDate: Date) {
   const response = await fetchGoogleCalendarEventsFromBackend({
     timeMin: window.timeMin,
     timeMax: window.timeMax,
+    source: 'morning_briefing',
   });
 
   return sortEventsChronologically(

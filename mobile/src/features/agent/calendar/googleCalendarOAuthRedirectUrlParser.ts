@@ -45,7 +45,9 @@ function looksLikeUrl(value: string) {
   return (
     /^https?:\/\//i.test(value) ||
     /^exp:\/\//i.test(value) ||
+    value.includes('oauth2redirect') ||
     value.includes('oauthredirect') ||
+    value.includes('com.googleusercontent.apps.') ||
     value.includes('://')
   );
 }

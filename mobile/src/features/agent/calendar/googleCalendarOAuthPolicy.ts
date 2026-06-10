@@ -59,7 +59,7 @@ export function describeGoogleCalendarOAuthRedirectExpectation(runtime: GoogleCa
   }
 
   return {
-    schemePrefix: 'mobile:',
-    pathSegment: 'oauthredirect',
+    schemePrefix: 'com.googleusercontent.apps.',
+    pathSegment: 'oauth2redirect',
   };
 }

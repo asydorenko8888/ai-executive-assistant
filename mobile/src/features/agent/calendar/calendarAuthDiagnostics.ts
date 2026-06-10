@@ -45,3 +45,53 @@ export function logCalendarApiError(params: {
 }) {
   console.log('[Calendar Auth] api error', params);
 }
+
+export function logCalendarAuthStart(params: {
+  runtime: string;
+  platform: string;
+  redirectUri: string;
+}) {
+  console.error('CALENDAR_AUTH_START', params);
+}
+
+export function logCalendarAuthSuccess(params: {
+  connectedEmail?: string | null;
+  hasRefreshToken: boolean;
+  runtime?: string;
+}) {
+  console.error('CALENDAR_AUTH_SUCCESS', params);
+}
+
+export function logCalendarAuthError(params: {
+  message: string;
+  runtime?: string;
+  stage?: string;
+}) {
+  console.error('CALENDAR_AUTH_ERROR', params);
+}
+
+export function logCalendarEventsFetchStart(params: {
+  timeMin: string;
+  timeMax: string;
+  source: string;
+}) {
+  console.error('CALENDAR_EVENTS_FETCH_START', params);
+}
+
+export function logCalendarEventsFetchSuccess(params: {
+  count: number;
+  source: string;
+  timeMin: string;
+  timeMax: string;
+}) {
+  console.error('CALENDAR_EVENTS_FETCH_SUCCESS', params);
+}
+
+export function logCalendarEventsFetchError(params: {
+  message: string;
+  source: string;
+  timeMin?: string;
+  timeMax?: string;
+}) {
+  console.error('CALENDAR_EVENTS_FETCH_ERROR', params);
+}

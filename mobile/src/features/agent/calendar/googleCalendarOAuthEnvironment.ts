@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import * as AuthSession from 'expo-auth-session';
 import sessionUrlProvider from 'expo-auth-session/build/SessionUrlProvider';
 
+import { resolveGoogleCalendarAndroidOAuthRedirectUri } from '@/src/features/agent/calendar/googleCalendarAndroidOAuth';
 import {
   selectGoogleCalendarOAuthClientId,
   type GoogleCalendarClientIdSources,
@@ -119,11 +120,24 @@ export function buildGoogleCalendarOAuthRedirectUri(
     return proxyRedirectUri;
   }
 
-  return AuthSession.makeRedirectUri({
+  if (Platform.OS === 'android') {
+    const androidRedirectUri = resolveGoogleCalendarAndroidOAuthRedirectUri();
+
+    console.log('GOOGLE_REDIRECT_URI_FINAL', androidRedirectUri);
+    console.log('GOOGLE_CALENDAR_ANDROID_OAUTH_CLIENT_TYPE', 'android');
+
+    return androidRedirectUri;
+  }
+
+  const redirectUri = AuthSession.makeRedirectUri({
     scheme: 'mobile',
     path: 'oauthredirect',
     native: 'mobile://oauthredirect',
   });
+
+  console.log('GOOGLE_REDIRECT_URI_FINAL', redirectUri);
+
+  return redirectUri;
 }
 
 export function getGoogleCalendarOAuthConfigDiagnostics(): GoogleCalendarOAuthConfigDiagnostics {
