@@ -40,8 +40,10 @@ export function logGoogleCalendarAndroidOAuthSetup(platform = 'android') {
     oauthClientType: 'android',
     authLibrary: 'expo-auth-session',
     usesExpoProxy: false,
+    intentFilterPath: '/oauth2redirect',
     sha1Command:
       'cd mobile/android && ./gradlew signingReport  (copy SHA1 from Variant: debug)',
     easSha1Command: 'npx eas-cli credentials -p android',
+    rebuildCommand: 'cd mobile && npx expo prebuild --platform android --clean && npx expo run:android',
   });
 }

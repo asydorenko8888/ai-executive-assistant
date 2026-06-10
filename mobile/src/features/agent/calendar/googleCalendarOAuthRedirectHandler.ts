@@ -18,7 +18,9 @@ export function urlContainsGoogleCalendarOAuthRedirect(url: string) {
 }
 
 export function pathnameContainsGoogleCalendarOAuthRedirect(pathname: string) {
-  return pathname.toLowerCase().includes('oauthredirect');
+  const normalized = pathname.toLowerCase();
+
+  return normalized.includes('oauth2redirect') || normalized.includes('oauthredirect');
 }
 
 export function readGoogleCalendarOAuthRedirectParamsFromUrl(

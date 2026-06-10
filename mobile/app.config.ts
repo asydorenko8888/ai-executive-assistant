@@ -1,5 +1,12 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
+// CommonJS helper — app.config must not import aliased src/ modules during prebuild.
+const {
+  buildGoogleCalendarAndroidIntentFilters,
+  GOOGLE_CALENDAR_ANDROID_PACKAGE,
+  resolveGoogleCalendarAndroidOAuthScheme,
+} = require('./googleCalendarAndroidApp.config.js') as typeof import('./googleCalendarAndroidApp.config.js');
+
 type AppEnv = {
   APP_ENV: 'development' | 'staging' | 'production';
   EXPO_PUBLIC_APP_NAME: string;
@@ -12,31 +19,6 @@ type AppEnv = {
   EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID: string;
   EXPO_PUBLIC_APP_API_KEY: string;
 };
-
-const GOOGLE_CALENDAR_ANDROID_PACKAGE = 'com.aiexecutiveassistant.mobile';
-
-function buildGoogleCalendarAndroidIntentFilters(androidClientId: string) {
-  const trimmed = androidClientId.trim();
-
-  if (!trimmed.endsWith('.apps.googleusercontent.com')) {
-    return [];
-  }
-
-  const clientIdSuffix = trimmed.replace(/\.apps\.googleusercontent\.com$/i, '');
-
-  return [
-    {
-      action: 'VIEW',
-      data: [
-        {
-          scheme: `com.googleusercontent.apps.${clientIdSuffix}`,
-          host: 'oauth2redirect',
-        },
-      ],
-      category: ['BROWSABLE', 'DEFAULT'],
-    },
-  ];
-}
 
 function readAppEnv(source: Record<string, string | undefined>): AppEnv {
   const appEnvironment = source.APP_ENV;
@@ -63,6 +45,9 @@ function readAppEnv(source: Record<string, string | undefined>): AppEnv {
 
 export default ({ config }: ConfigContext): ExpoConfig => {
   const appEnv = readAppEnv(process.env);
+  const googleAndroidOAuthScheme = resolveGoogleCalendarAndroidOAuthScheme(
+    appEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID,
+  );
 
   return {
     ...config,
@@ -72,12 +57,12 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/images/icon.png',
-    scheme: 'mobile',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.aiexecutiveassistant.mobile',
+      scheme: 'mobile',
       infoPlist: {
         NSMicrophoneUsageDescription:
           'Microphone access is used for voice commands and executive assistant conversations.',
@@ -90,6 +75,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       },
       edgeToEdgeEnabled: true,
       package: GOOGLE_CALENDAR_ANDROID_PACKAGE,
+      ...(googleAndroidOAuthScheme ? { scheme: googleAndroidOAuthScheme } : {}),
       intentFilters: buildGoogleCalendarAndroidIntentFilters(
         appEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID,
       ),
