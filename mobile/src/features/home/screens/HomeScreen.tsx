@@ -88,15 +88,10 @@ export default function HomeScreen() {
       resolveVisibleCalendarAgenda({
         isCalendarConnected,
         upcomingEvents: upcomingCalendarEvents,
-        demoAgenda: homeDashboard.agenda,
         referenceDate: calendarReferenceDate,
+        snapshot: data?.orchestrator.snapshot,
       }),
-    [
-      calendarReferenceDate,
-      homeDashboard.agenda,
-      isCalendarConnected,
-      upcomingCalendarEvents,
-    ],
+    [calendarReferenceDate, data?.orchestrator.snapshot, isCalendarConnected, upcomingCalendarEvents],
   );
 
   const quickStats = useMemo(
@@ -106,9 +101,7 @@ export default function HomeScreen() {
           ? {
               ...stat,
               text: formatEventsTodayLabel(
-                isCalendarConnected
-                  ? countUpcomingEventsToday(upcomingCalendarEvents, calendarReferenceDate)
-                  : visibleCalendarAgenda.visibleCalendarAgendaItems.length,
+                countUpcomingEventsToday(upcomingCalendarEvents, calendarReferenceDate),
               ),
             }
           : stat,
@@ -195,7 +188,10 @@ export default function HomeScreen() {
       />
 
       <HomeWeatherWidget weather={homeDashboard.weather} />
-      <HomeCalendarWidget agenda={visibleCalendarAgenda.visibleCalendarAgendaItems} />
+      <HomeCalendarWidget
+        agenda={visibleCalendarAgenda.visibleCalendarAgendaItems}
+        isCalendarConnected={isCalendarConnected}
+      />
     </ScreenContainer>
   );
 }

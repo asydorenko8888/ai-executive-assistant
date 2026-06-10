@@ -1,15 +1,21 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import type { AgendaItem } from '@/src/entities/home/types';
+import {
+  logBriefingCalendarEventSource,
+  resolveBriefingCalendarEvents,
+} from '@/src/features/agent/calendar/briefingCalendarEvents';
 import { formatLocationShort } from '@/src/features/agent/calendar/calendarLocation';
 import { getEventStartTimestamp } from '@/src/features/agent/calendar/calendarSchedule';
 import { formatTimeInLocalTimezone, getLocalEndOfDay } from '@/src/features/agent/calendar/calendarTime';
-import { filterVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarVisibleEvents';
+import type { ExecutiveAgentSnapshot } from '@/src/features/agent/types';
 
 export { filterVisibleCalendarEvents } from '@/src/features/agent/calendar/calendarVisibleEvents';
+export { logBriefingCalendarEventSource } from '@/src/features/agent/calendar/briefingCalendarEvents';
 
 export const CALENDAR_SUMMARY_EVENT_LIMIT = 3;
+export const NO_CALENDAR_EVENTS_TODAY_MESSAGE = 'No calendar events for today';
 
-export type VisibleCalendarAgendaSource = 'demo' | 'google_calendar';
+export type VisibleCalendarAgendaSource = 'disconnected' | 'google_calendar' | 'fallback_demo';
 
 export type VisibleCalendarAgendaResult = {
   source: VisibleCalendarAgendaSource;
@@ -58,48 +64,43 @@ export function countUpcomingEventsToday(events: CalendarEvent[], referenceNow: 
 export function resolveVisibleCalendarAgenda(params: {
   isCalendarConnected: boolean;
   upcomingEvents: CalendarEvent[];
-  demoAgenda: AgendaItem[];
   referenceDate?: Date;
   limit?: number;
+  snapshot?: Pick<ExecutiveAgentSnapshot, 'calendarConnection' | 'upcomingCalendarEvents'>;
 }): VisibleCalendarAgendaResult {
   const referenceNow = params.referenceDate ?? new Date();
   const limit = params.limit ?? CALENDAR_SUMMARY_EVENT_LIMIT;
-  const totalRawEvents = params.upcomingEvents.length;
 
   if (!params.isCalendarConnected) {
-    const visibleCalendarAgendaItems = params.demoAgenda.slice(0, limit);
-
-    console.log(
-      '[Calendar Count]',
-      'demo',
-      params.demoAgenda.length,
-      visibleCalendarAgendaItems.length,
-      visibleCalendarAgendaItems.map((item) => item.title),
-    );
+    logBriefingCalendarEventSource({
+      source: 'disconnected',
+      fetchedEventCount: 0,
+      todayEventCount: 0,
+      visibleEventCount: 0,
+      titles: [],
+    });
 
     return {
-      source: 'demo',
-      totalRawEvents: params.demoAgenda.length,
+      source: 'disconnected',
+      totalRawEvents: 0,
       visibleEvents: [],
-      visibleCalendarAgendaItems,
+      visibleCalendarAgendaItems: [],
     };
   }
 
-  const visibleEvents = filterVisibleCalendarEvents(params.upcomingEvents, referenceNow);
-  const visibleCalendarAgendaItems = mapCalendarEventsToAgenda(visibleEvents, limit);
-
-  console.log(
-    '[Calendar Count]',
-    'google_calendar',
-    totalRawEvents,
-    visibleCalendarAgendaItems.length,
-    visibleCalendarAgendaItems.map((item) => item.title),
-  );
+  const resolved = resolveBriefingCalendarEvents({
+    snapshot: params.snapshot ?? {
+      calendarConnection: { provider: 'google', status: 'connected' },
+      upcomingCalendarEvents: params.upcomingEvents,
+    },
+    referenceNow,
+  });
+  const visibleCalendarAgendaItems = mapCalendarEventsToAgenda(resolved.events, limit);
 
   return {
-    source: 'google_calendar',
-    totalRawEvents,
-    visibleEvents,
+    source: resolved.source === 'google_calendar' ? 'google_calendar' : 'fallback_demo',
+    totalRawEvents: resolved.fetchedEventCount,
+    visibleEvents: resolved.events,
     visibleCalendarAgendaItems,
   };
 }
@@ -108,7 +109,6 @@ export function resolveVisibleCalendarAgenda(params: {
 export function resolveHomeCalendarAgenda(params: {
   isCalendarConnected: boolean;
   upcomingEvents: CalendarEvent[];
-  demoAgenda: AgendaItem[];
   referenceDate?: Date;
   limit?: number;
 }): AgendaItem[] {

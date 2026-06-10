@@ -1,9 +1,10 @@
-import { buildCalendarAvailabilitySummary } from '@/src/features/agent/calendar/calendarNaturalLanguage';
 import type { ReminderItem } from '@/src/entities/reminder/types';
 import type { TaskItem } from '@/src/entities/task/types';
 import { formatLocationShort } from '@/src/features/agent/calendar/calendarLocation';
 import { formatTimeInLocalTimezone } from '@/src/features/agent/calendar/calendarTime';
+import { resolveBriefingCalendarEvents } from '@/src/features/agent/calendar/briefingCalendarEvents';
 import type { ExecutiveAgentContext, ExecutiveAgentSnapshot, MorningBriefing, MorningBriefingSection } from '@/src/features/agent/types';
+import { NO_CALENDAR_EVENTS_TODAY_MESSAGE } from '@/src/features/home/utils/homeCalendarAgenda';
 
 function sortTasksByUrgency(tasks: TaskItem[]) {
   const priorityOrder = {
@@ -38,38 +39,49 @@ function formatEventListItem(event: { title: string; startsAt: string; location?
   return `${timeLabel} — ${event.title}${locationSuffix}`;
 }
 
-function buildScheduleSection(snapshot: ExecutiveAgentSnapshot): MorningBriefingSection | null {
-  if (!snapshot.calendarSummary?.eventsCount && snapshot.upcomingCalendarEvents.length === 0) {
+function buildScheduleSummary(events: Array<{ title: string; startsAt: string; location?: string }>) {
+  if (events.length === 0) {
+    return NO_CALENDAR_EVENTS_TODAY_MESSAGE;
+  }
+
+  if (events.length === 1) {
+    return formatEventListItem(events[0]);
+  }
+
+  return `You have ${events.length} events today.`;
+}
+
+function buildScheduleSection(
+  snapshot: ExecutiveAgentSnapshot,
+  referenceNow: Date,
+): MorningBriefingSection | null {
+  const resolved = resolveBriefingCalendarEvents({ snapshot, referenceNow });
+
+  if (resolved.source === 'disconnected') {
     return null;
   }
 
-  const summary =
-    snapshot.calendarSummary?.transitionSummary ??
-    (snapshot.calendarSummary
-      ? buildCalendarAvailabilitySummary(snapshot.calendarSummary)
-      : `You have ${snapshot.upcomingCalendarEvents.length} events today.`);
+  if (resolved.events.length === 0) {
+    return {
+      kind: 'schedule',
+      title: 'Schedule',
+      summary: NO_CALENDAR_EVENTS_TODAY_MESSAGE,
+      items: [],
+      priority: 'info',
+    };
+  }
 
-  const nextEvent = snapshot.calendarSummary?.nextEvent;
-  const followingEvent = snapshot.calendarSummary?.followingEvent;
-  const mentionedIds = new Set([nextEvent?.id, followingEvent?.id].filter(Boolean));
-  const items: string[] = [];
-
-  snapshot.upcomingCalendarEvents
-    .filter((event) => !mentionedIds.has(event.id))
-    .slice(0, 3)
-    .forEach((event) => {
-      items.push(formatEventListItem(event));
-    });
+  const items = resolved.events.map((event) => formatEventListItem(event)).slice(0, 3);
 
   return {
     kind: 'schedule',
     title: 'Schedule',
-    summary,
-    items: items.slice(0, 2),
+    summary: buildScheduleSummary(resolved.events),
+    items,
     priority:
       snapshot.calendarSummary?.timePressure === 'heavy'
         ? 'attention'
-        : snapshot.calendarSummary?.eventsCount && snapshot.calendarSummary.eventsCount >= 5
+        : resolved.events.length >= 5
           ? 'attention'
           : 'info',
   };
@@ -201,8 +213,9 @@ export function buildMorningBriefing(
   context: ExecutiveAgentContext,
   snapshot: ExecutiveAgentSnapshot,
 ): MorningBriefing {
+  const referenceNow = new Date(context.now);
   const sections = [
-    buildScheduleSection(snapshot),
+    buildScheduleSection(snapshot, referenceNow),
     buildTaskSection(snapshot),
     buildReminderSection(snapshot),
     buildEmailSection(snapshot),

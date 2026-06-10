@@ -5,8 +5,6 @@ export function getHomeDashboardContent(): {
   profile: ExecutiveProfile;
   dashboard: HomeDashboardData;
 } {
-  console.log('[Calendar Audit] getHomeDashboardContent() — static demo agenda/weather (not Google Calendar)');
-
   return {
     profile: {
       firstName: 'Andriy',
@@ -51,23 +49,7 @@ export function getHomeDashboardContent(): {
           },
         ],
       },
-      agenda: [
-        {
-          time: '09:00',
-          title: 'Board prep',
-          detail: 'Review Q3 talking points',
-        },
-        {
-          time: '11:30',
-          title: 'Investor sync',
-          detail: 'Finalize briefing notes',
-        },
-        {
-          time: '15:00',
-          title: 'Leadership 1:1s',
-          detail: '3 conversations scheduled',
-        },
-      ],
+      agenda: [],
     },
   };
 }

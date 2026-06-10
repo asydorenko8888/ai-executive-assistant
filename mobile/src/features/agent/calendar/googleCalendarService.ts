@@ -11,10 +11,6 @@ import {
 } from '@/src/features/agent/calendar/googleCalendarBackendApi';
 import { refreshCalendarAuthCapabilities } from '@/src/features/agent/calendar/calendarAuthCapabilities';
 import {
-  getLiveCalendarEvents,
-  mergeCalendarEventLists,
-} from '@/src/features/agent/calendar/calendarLiveState';
-import {
   getCalendarAgendaWindow,
   getLocalDayBounds,
   getMinutesUntilEvent,
@@ -29,6 +25,7 @@ import {
   buildCalendarAvailabilitySummary,
   buildCalendarTransitionSummary,
 } from '@/src/features/agent/calendar/calendarNaturalLanguage';
+import { logBriefingCalendarEventSource } from '@/src/features/agent/calendar/briefingCalendarEvents';
 import {
   filterTimedEventsForDay,
   filterUpcomingTimedEvents,
@@ -282,19 +279,28 @@ export async function getGoogleCalendarMorningContext(referenceDate: string): Pr
     : parsedReferenceDate;
 
   const remoteEvents = await fetchGoogleCalendarEventsForAgenda(effectiveReferenceDate);
-  const liveEvents = getLiveCalendarEvents();
-  const calendarEvents =
-    liveEvents.length > 0
-      ? mergeCalendarEventLists(liveEvents, remoteEvents)
-      : sortEventsChronologically(remoteEvents);
+  const { dayEnd } = getLocalDayBounds(effectiveReferenceDate);
+  const todayRemoteEvents = filterTimedEventsForDay(
+    remoteEvents,
+    effectiveReferenceDate,
+    dayEnd.getTime(),
+  );
+  const calendarEvents = sortEventsChronologically(todayRemoteEvents);
   const upcomingEvents = filterUpcomingTimedEvents(calendarEvents, effectiveReferenceDate);
+
+  logBriefingCalendarEventSource({
+    source: 'google_calendar',
+    fetchedEventCount: remoteEvents.length,
+    todayEventCount: todayRemoteEvents.length,
+    visibleEventCount: upcomingEvents.length,
+    titles: upcomingEvents.map((event) => event.title),
+  });
 
   console.log('[Calendar Audit] getGoogleCalendarMorningContext — fetched real events', {
     remoteCount: remoteEvents.length,
-    liveCount: getLiveCalendarEvents().length,
-    mergedCount: calendarEvents.length,
+    todayCount: todayRemoteEvents.length,
     upcomingCount: upcomingEvents.length,
-    titles: upcomingEvents.slice(0, 8).map((event) => event.title),
+    titles: upcomingEvents.map((event) => event.title),
     connectedEmail: connection.connectedEmail ?? null,
   });
 

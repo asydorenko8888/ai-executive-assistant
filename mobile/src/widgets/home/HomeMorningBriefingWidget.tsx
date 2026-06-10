@@ -140,7 +140,7 @@ export function HomeMorningBriefingWidget({
       <GlassCard style={styles.container}>
         <SectionTitle
           title="Morning Briefing"
-          subtitle="Local companion preview"
+          subtitle={isCalendarConnected ? 'From your Google Calendar' : 'Connect Google Calendar for your schedule'}
           icon="sparkles-outline"
           iconColor={colors.accentBlueSoft}
           iconBackgroundColor={colors.overlaySky}

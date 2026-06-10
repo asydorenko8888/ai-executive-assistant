@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { GlassCard } from '@/src/components/ui/GlassCard';
 import { SectionTitle } from '@/src/components/ui/SectionTitle';
 import type { AgendaItem } from '@/src/entities/home/types';
+import { NO_CALENDAR_EVENTS_TODAY_MESSAGE } from '@/src/features/home/utils/homeCalendarAgenda';
 import {
   colors,
   fontSizes,
@@ -16,9 +17,13 @@ import {
 
 type HomeCalendarWidgetProps = {
   agenda: AgendaItem[];
+  isCalendarConnected?: boolean;
 };
 
-export function HomeCalendarWidget({ agenda }: HomeCalendarWidgetProps) {
+export function HomeCalendarWidget({
+  agenda,
+  isCalendarConnected = false,
+}: HomeCalendarWidgetProps) {
   return (
     <GlassCard>
       <SectionTitle
@@ -67,6 +72,11 @@ const styles = StyleSheet.create({
   },
   agendaList: {
     gap: spacing.md,
+  },
+  emptyState: {
+    color: colors.textMuted,
+    fontSize: fontSizes.sm,
+    lineHeight: lineHeights.md,
   },
   agendaItem: {
     flexDirection: 'row',
