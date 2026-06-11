@@ -53,7 +53,7 @@ async function finalizeVerifiedDelete(params: {
   if (params.tool.status === 'SUCCESS' && params.tool.verified) {
     clearPendingCalendarDeleteIntent();
     endCalendarOperation({ failed: false });
-    recordVerifiedCalendarEventContext({
+    await recordVerifiedCalendarEventContext({
       eventId: params.event.id,
       title: params.event.title,
       startISO: params.event.startsAt,
@@ -282,7 +282,7 @@ export async function executeCalendarDeleteEvent(
           };
         }
 
-        recordVerifiedCalendarEventContext({
+        await recordVerifiedCalendarEventContext({
           eventId: event.id,
           title: event.title,
           startISO: event.startsAt,

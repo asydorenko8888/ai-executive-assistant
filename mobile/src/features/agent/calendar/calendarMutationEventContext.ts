@@ -11,11 +11,13 @@ import {
 import { clearPendingIntent } from '@/src/features/agent/calendar/calendarPendingIntent';
 import { clearPendingCalendarState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 import { logCalendarMoveWorkflow } from '@/src/features/agent/calendar/calendarMoveWorkflowLogger';
+import { markCalendarMutationRefreshRequired, resetCalendarMutationRefreshRequirement } from '@/src/features/agent/calendar/calendarPreMutationRefreshState';
+import { mergeMutationSearchEventsWithLocalStore } from '@/src/features/agent/calendar/calendarPreMutationRefresh';
 import { syncCalendarSnapshotAfterMutation } from '@/src/features/agent/calendar/calendarSnapshotSync';
 import type { LastCalendarEventActionType } from '@/src/features/agent/calendar/calendarLastEventContext';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
-export function recordVerifiedCalendarEventContext(params: {
+export async function recordVerifiedCalendarEventContext(params: {
   eventId: string;
   title: string;
   startISO: string;
@@ -64,13 +66,19 @@ export function recordVerifiedCalendarEventContext(params: {
     clearPendingCalendarState(params.clearPendingReason);
   }
 
-  if (params.referenceNow) {
-    logCalendarMoveWorkflow('CALENDAR_REFRESH_START', {
-      eventId: params.eventId,
-      actionType: params.actionType,
-    });
+  if (!params.referenceNow) {
+    return;
+  }
 
-    void syncCalendarSnapshotAfterMutation({
+  markCalendarMutationRefreshRequired(`verified_${params.actionType}`);
+
+  logCalendarMoveWorkflow('CALENDAR_REFRESH_START', {
+    eventId: params.eventId,
+    actionType: params.actionType,
+  });
+
+  try {
+    const result = await syncCalendarSnapshotAfterMutation({
       referenceNow: params.referenceNow,
       eventId: params.eventId,
       eventStartIso: params.startISO,
@@ -84,27 +92,29 @@ export function recordVerifiedCalendarEventContext(params: {
             : params.actionType === 'delete'
               ? 'post_delete'
               : 'post_mutation',
-    })
-      .then((result) => {
-        if (result.ok) {
-          logCalendarMoveWorkflow('CALENDAR_REFRESH_SUCCESS', {
-            eventId: params.eventId,
-            eventCount: result.events.length,
-          });
-          setLastCalendarSnapshot(result.events, 'verified_mutation_sync');
-          return;
-        }
+    });
 
-        console.log('[Calendar Move Workflow] CALENDAR_REFRESH_FAILED', {
-          eventId: params.eventId,
-          failureReply: result.failureReply,
-        });
-      })
-      .catch((error) => {
-        console.log('[Calendar Move Workflow] CALENDAR_REFRESH_FAILED', {
-          eventId: params.eventId,
-          message: error instanceof Error ? error.message : String(error),
-        });
+    if (result.ok) {
+      logCalendarMoveWorkflow('CALENDAR_REFRESH_SUCCESS', {
+        eventId: params.eventId,
+        eventCount: result.events.length,
       });
+      setLastCalendarSnapshot(
+        mergeMutationSearchEventsWithLocalStore(result.events),
+        'verified_mutation_sync',
+      );
+      resetCalendarMutationRefreshRequirement('verified_mutation_sync_complete');
+      return;
+    }
+
+    console.log('[Calendar Move Workflow] CALENDAR_REFRESH_FAILED', {
+      eventId: params.eventId,
+      failureReply: result.failureReply,
+    });
+  } catch (error) {
+    console.log('[Calendar Move Workflow] CALENDAR_REFRESH_FAILED', {
+      eventId: params.eventId,
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 }

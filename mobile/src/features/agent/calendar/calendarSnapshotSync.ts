@@ -1,5 +1,6 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
 import { refreshCalendarStateAfterMutation } from '@/src/features/agent/calendar/calendarAgendaSync';
+import { augmentEventsWithConversationContext } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import {
   beginCalendarSnapshotSync,
   endCalendarSnapshotSync,
@@ -56,7 +57,10 @@ export async function syncCalendarSnapshotAfterMutation(params: {
         }),
     );
 
-    setLastCalendarSnapshot(agenda.horizonEvents, params.reason ?? 'post_mutation');
+    setLastCalendarSnapshot(
+      augmentEventsWithConversationContext(agenda.horizonEvents),
+      params.reason ?? 'post_mutation',
+    );
     resetCalendarRefreshAttempts('refresh_success');
     endCalendarSnapshotSync({ success: true, reason: 'snapshot_synced' });
 

@@ -219,7 +219,7 @@ async function executeVerifiedCalendarUpdate(params: {
       clearPendingCalendarConflictContext();
       params.endOperation(false);
       if (tool.eventId && tool.event) {
-        recordVerifiedCalendarEventContext({
+        await recordVerifiedCalendarEventContext({
           eventId: tool.eventId,
           title: tool.event.summary ?? params.matchedTitle,
           startISO: tool.event.startsAt,

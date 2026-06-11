@@ -1,4 +1,5 @@
 import { normalizeCalendarEventTitle } from '@/src/features/agent/calendar/calendarEventTitleNormalization';
+import { titlesMatchCrossAlphabet } from '@/src/features/agent/calendar/calendarTitleTransliteration';
 
 function normalizeTitleKey(title: string) {
   return title
@@ -41,5 +42,10 @@ export function calendarConversationTitlesMatch(a: string, b: string) {
     return false;
   }
 
-  return left === right || left.includes(right) || right.includes(left);
+  return (
+    left === right ||
+    left.includes(right) ||
+    right.includes(left) ||
+    titlesMatchCrossAlphabet(a, b)
+  );
 }

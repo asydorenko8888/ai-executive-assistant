@@ -1,22 +1,28 @@
 import { collapseCalendarEventCandidates } from '@/src/features/agent/calendar/calendarEventDeduplication';
+import {
+  normalizeTitleComparisonKey,
+  titlesMatchCrossAlphabet,
+} from '@/src/features/agent/calendar/calendarTitleTransliteration';
 
-export type TitleMatchTier = 'exact' | 'case_insensitive' | 'substring' | 'fuzzy' | 'none';
+export type TitleMatchTier =
+  | 'exact'
+  | 'case_insensitive'
+  | 'transliteration'
+  | 'substring'
+  | 'fuzzy'
+  | 'none';
 
 const TIER_RANK: Record<TitleMatchTier, number> = {
   exact: 400,
   case_insensitive: 300,
+  transliteration: 280,
   substring: 200,
   fuzzy: 100,
   none: 0,
 };
 
 function normalizeTitleKey(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\d]+/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return normalizeTitleComparisonKey(value);
 }
 
 function tokenize(value: string) {
@@ -80,6 +86,10 @@ function tokensRoughlyMatch(queryToken: string, eventToken: string) {
   const query = normalizeTitleToken(queryToken);
   const event = normalizeTitleToken(eventToken);
 
+  if (titlesMatchCrossAlphabet(queryToken, eventToken)) {
+    return true;
+  }
+
   if (query === event) {
     return true;
   }
@@ -124,6 +134,10 @@ export function classifyTitleMatchTier(titleQuery: string, eventTitle: string): 
 
   if (eventNorm.includes(queryNorm) || queryNorm.includes(eventNorm)) {
     return 'substring';
+  }
+
+  if (titlesMatchCrossAlphabet(titleQuery, eventTitle)) {
+    return 'transliteration';
   }
 
   const queryTokens = tokenize(queryNorm);

@@ -446,7 +446,7 @@ export async function executeCalendarCreateEvent(
       }
 
       if (tool.verified && tool.event && tool.eventId) {
-        recordVerifiedCalendarEventContext({
+        await recordVerifiedCalendarEventContext({
           eventId: tool.eventId,
           title: tool.event.summary ?? payloadResult.payload.summary,
           startISO: tool.event.startsAt,

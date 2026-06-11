@@ -49,6 +49,15 @@ export async function runDedupedCalendarSnapshotRefresh<T>(
   return inFlightRefresh as Promise<T>;
 }
 
+export async function waitForCalendarSnapshotRefresh(): Promise<void> {
+  if (!inFlightRefresh) {
+    return;
+  }
+
+  console.log('[CALENDAR REFRESH LOCK] waiting for in-flight refresh');
+  await inFlightRefresh.catch(() => undefined);
+}
+
 export function resetCalendarSnapshotRefreshLock(reason: string) {
   inFlightRefresh = null;
   refreshStartedAtMs = null;

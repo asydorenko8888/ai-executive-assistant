@@ -1,4 +1,4 @@
-import { resetConversationEventMemory } from '@/src/features/agent/calendar/calendarConversationEventMemory';
+import { resetCalendarMutationRefreshRequirement } from '@/src/features/agent/calendar/calendarPreMutationRefreshState';
 import { clearPendingIntent } from '@/src/features/agent/calendar/calendarPendingIntent';
 import { clearPendingCalendarState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
 import { isTransientCalendarToolErrorCode } from '@/src/features/agent/calendar/calendarApiErrorClassification';
@@ -532,4 +532,5 @@ export function resetCalendarExecutionSession() {
   clearPendingCalendarState('session_reset');
   clearPendingIntent('session_reset');
   resetConversationEventMemory('session_reset');
+  resetCalendarMutationRefreshRequirement('session_reset');
 }
