@@ -1,9 +1,6 @@
-type PendingActionType = 'delete_event' | 'move_event' | 'update_event';
+import { devConsoleLog } from '@/src/shared/logging/devConsoleLog';
 
-function logMarker(marker: string, payload: Record<string, unknown>) {
-  console.log(marker);
-  console.log(JSON.stringify(payload));
-}
+type PendingActionType = 'delete_event' | 'move_event' | 'update_event';
 
 export function logPendingActionCreated(params: {
   type: PendingActionType;
@@ -13,7 +10,7 @@ export function logPendingActionCreated(params: {
   candidateEventIds: string[];
   pendingActionId?: string | null;
 }) {
-  logMarker('PENDING_ACTION_CREATED', {
+  devConsoleLog('PENDING_ACTION_CREATED', {
     type: params.type,
     title: params.title ?? null,
     candidateCount: params.candidateCount,
@@ -31,7 +28,7 @@ export function logPendingActionMatched(params: {
   selectedStartsAt: string;
   pendingActionId?: string | null;
 }) {
-  logMarker('PENDING_ACTION_MATCHED', {
+  devConsoleLog('PENDING_ACTION_MATCHED', {
     type: params.type,
     selectedEventId: params.selectedEventId,
     selectedTitle: params.selectedTitle,
@@ -47,7 +44,7 @@ export function logPendingActionResolved(params: {
   sourceTranscriptPreview: string;
   pendingActionId?: string | null;
 }) {
-  logMarker('PENDING_ACTION_RESOLVED', {
+  devConsoleLog('PENDING_ACTION_RESOLVED', {
     type: params.type,
     selectedEventId: params.selectedEventId,
     pendingActionId: params.pendingActionId ?? null,
@@ -60,7 +57,7 @@ export function logPendingActionCleared(params: {
   reason: string;
   pendingActionId?: string | null;
 }) {
-  logMarker('PENDING_ACTION_CLEARED', {
+  devConsoleLog('PENDING_ACTION_CLEARED', {
     type: params.type ?? null,
     reason: params.reason,
     pendingActionId: params.pendingActionId ?? null,

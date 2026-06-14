@@ -20,7 +20,10 @@ import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendar
 import { getPendingCalendarConflictContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import { isCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
-import { isLocalAlarmIntent } from '@/src/features/local-alarms/localAlarmClassification';
+import {
+  isLocalAlarmIntent,
+  shouldRouteToLocalAlarmWorkflow,
+} from '@/src/features/local-alarms/localAlarmClassification';
 import { isLocalReminderIntent } from '@/src/features/local-reminders/localReminderClassification';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -81,7 +84,7 @@ function hasExplicitActionVerb(transcript: string) {
   return (
     EXPLICIT_ACTION_VERB_AT_START.test(transcript.trim()) ||
     requiresCalendarCommandExecution(transcript) ||
-    isLocalAlarmIntent(transcript) ||
+    shouldRouteToLocalAlarmWorkflow(transcript) ||
     isLocalReminderIntent(transcript) ||
     REMINDER_ACTION.test(transcript.trim()) ||
     isActionContinuation(transcript)
@@ -116,20 +119,22 @@ function isCompanionQuery(transcript: string, intent: AssistantIntentAnalysis) {
 }
 
 function resolveSelectedTool(transcript: string): SelectedActionTool {
+  if (shouldRouteToLocalAlarmWorkflow(transcript)) {
+    return 'create_reminder';
+  }
+
+  if (
+    isLocalReminderIntent(transcript) ||
+    REMINDER_ACTION.test(transcript.trim()) ||
+    /\b(?:remind|reminder|нагадай|напомни|напомню|разбуди|wake\s+me)\b/iu.test(transcript)
+  ) {
+    return 'create_reminder';
+  }
+
   const calendarIntent = detectCalendarCommandIntent(transcript);
 
   if (calendarIntent !== 'none') {
     return calendarIntent;
-  }
-
-  if (
-    isLocalAlarmIntent(transcript) ||
-    isLocalAlarmIntent(transcript) ||
-    isLocalReminderIntent(transcript) ||
-    REMINDER_ACTION.test(transcript.trim()) ||
-    /\b(?:remind|reminder|нагадай|напомни|напомню|разбуди|будильник|wake\s+me|alarm)\b/iu.test(transcript)
-  ) {
-    return 'create_reminder';
   }
 
   return 'none';
@@ -148,6 +153,27 @@ export function resolveAssistantBehavior(params: {
     referenceNow: params.referenceNow,
   });
   const actionTranscript = contextMerge.mergedTranscript;
+
+  if (
+    shouldRouteToLocalAlarmWorkflow(params.transcript) ||
+    shouldRouteToLocalAlarmWorkflow(actionTranscript)
+  ) {
+    const route: AssistantBehaviorRoute = {
+      requiredFields: [],
+      missingFields: [],
+      selectedTool: 'create_reminder',
+      actionTranscript,
+      clarificationReply: null,
+      blockEmotionalRouting: true,
+      blockCalendarMutation: true,
+      mode: 'ACTION_MODE',
+      intent: 'local_alarm',
+      reason: 'alarm_domain_preempts_calendar',
+    };
+
+    logBehaviorRoute(route);
+    return route;
+  }
 
   if (
     !isAwaitingEventDisambiguationSelectionReply(params.transcript, params.referenceNow) &&

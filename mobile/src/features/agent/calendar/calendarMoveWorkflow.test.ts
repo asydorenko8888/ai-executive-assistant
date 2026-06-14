@@ -11,8 +11,8 @@ describe('calendarMoveWorkflow', () => {
     console.log = (...args: unknown[]) => {
       const first = args[0];
 
-      if (typeof first === 'string' && first.startsWith('[Calendar Move Workflow]')) {
-        steps.push(first.replace('[Calendar Move Workflow] ', '').trim());
+      if (typeof first === 'string' && first.startsWith('CALENDAR_MOVE_WORKFLOW_')) {
+        steps.push(first.replace('CALENDAR_MOVE_WORKFLOW_', '').trim());
       }
     };
 

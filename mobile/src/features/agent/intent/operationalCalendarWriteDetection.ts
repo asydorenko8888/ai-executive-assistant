@@ -13,7 +13,11 @@ import { isCalendarQueryOrFindIntent } from '@/src/features/agent/calendar/calen
 import { isBareRelativeRescheduleRequest } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import { isLocalReminderIntent } from '@/src/features/local-reminders/localReminderClassification';
-import { isLocalAlarmIntent } from '@/src/features/local-alarms/localAlarmClassification';
+import {
+  containsLocalAlarmDomain,
+  containsLocalAlarmKeyword,
+  isLocalAlarmIntent,
+} from '@/src/features/local-alarms/localAlarmClassification';
 import { parseCalendarDayPeriodMinutes } from '@/src/features/agent/calendar/calendarReschedulePeriods';
 
 function isExactTimeReadQuery(transcript: string) {
@@ -88,6 +92,10 @@ export function isOperationalCalendarDeleteRequest(transcript: string) {
     return false;
   }
 
+  if (isLocalAlarmIntent(normalized) || containsLocalAlarmDomain(normalized)) {
+    return false;
+  }
+
   if (DELETE_VERB_AT_START.test(normalized)) {
     return true;
   }
@@ -113,6 +121,10 @@ export function isOperationalCalendarUpdateRequest(transcript: string) {
     return false;
   }
 
+  if (isLocalAlarmIntent(normalized) || containsLocalAlarmDomain(normalized)) {
+    return false;
+  }
+
   if (isBareRelativeRescheduleRequest(normalized)) {
     return true;
   }
@@ -135,6 +147,10 @@ export function isOperationalCalendarUpdateRequest(transcript: string) {
 
 export function isOperationalCalendarCreateRequest(transcript: string) {
   const normalized = transcript.trim();
+
+  if (isLocalAlarmIntent(normalized) || containsLocalAlarmDomain(normalized)) {
+    return false;
+  }
 
   if (
     !normalized ||
@@ -182,7 +198,7 @@ export function isOperationalCalendarWriteRequest(transcript: string) {
     return false;
   }
 
-  if (isLocalAlarmIntent(normalized) || isLocalReminderIntent(normalized)) {
+  if (isLocalAlarmIntent(normalized) || containsLocalAlarmDomain(normalized) || isLocalReminderIntent(normalized)) {
     return false;
   }
 

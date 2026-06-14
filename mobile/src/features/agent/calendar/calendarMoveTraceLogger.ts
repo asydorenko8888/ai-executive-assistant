@@ -1,4 +1,5 @@
 import type { CalendarCommandKind } from '@/src/features/agent/calendar/calendarCommandTypes';
+import { devConsoleLog } from '@/src/shared/logging/devConsoleLog';
 
 export type CalendarMoveTraceGate =
   | 'pipeline_turn_start'
@@ -17,16 +18,12 @@ export type CalendarMoveTraceGate =
   | 'stale_terminal_blocked'
   | 'conversation_intercept';
 
-function logMarker(marker: string, details: Record<string, unknown>) {
-  console.error(marker, details);
-}
-
 export function logCalendarMovePipelineTurn(params: {
   userTranscript: string;
   actionTranscript: string;
   behaviorMode: string;
 }) {
-  logMarker('CALENDAR_MOVE_PIPELINE_TURN', {
+  devConsoleLog('CALENDAR_MOVE_PIPELINE_TURN', {
     userTranscriptPreview: params.userTranscript.slice(0, 160),
     actionTranscriptPreview: params.actionTranscript.slice(0, 160),
     behaviorMode: params.behaviorMode,
@@ -38,7 +35,7 @@ export function logCalendarMoveIntentDetected(params: {
   transcript: string;
   source: string;
 }) {
-  logMarker('CALENDAR_INTENT_DETECTED', {
+  devConsoleLog('CALENDAR_INTENT_DETECTED', {
     intent: params.intent,
     source: params.source,
     transcriptPreview: params.transcript.slice(0, 160),
@@ -50,7 +47,7 @@ export function logCalendarMoveRequiresExecution(params: {
   transcript: string;
   reason: string;
 }) {
-  logMarker('CALENDAR_REQUIRES_EXECUTION', {
+  devConsoleLog('CALENDAR_REQUIRES_EXECUTION', {
     allowed: params.allowed,
     reason: params.reason,
     transcriptPreview: params.transcript.slice(0, 160),
@@ -64,7 +61,7 @@ export function logCalendarMoveMutationReadiness(params: {
   ambiguityReason: string | null;
   transcript: string;
 }) {
-  logMarker('CALENDAR_MUTATION_READINESS', {
+  devConsoleLog('CALENDAR_MUTATION_READINESS', {
     intent: params.intent,
     ready: params.ready,
     missingFields: params.missingFields,
@@ -80,7 +77,7 @@ export function logCalendarMoveExecutionGate(params: {
   behaviorMode: string;
   transcript: string;
 }) {
-  logMarker('CALENDAR_EXECUTION_GATE', {
+  devConsoleLog('CALENDAR_EXECUTION_GATE', {
     allowed: params.allowed,
     blockedBy: params.blockedBy,
     intent: params.intent,
@@ -93,7 +90,7 @@ export function logCalendarMoveExecutorCalled(params: {
   executor: 'executeCalendarCommand' | 'executeCalendarUpdateEvent' | 'updateGoogleCalendarEvent';
   transcript: string;
 }) {
-  logMarker('CALENDAR_EXECUTOR_CALLED', {
+  devConsoleLog('CALENDAR_EXECUTOR_CALLED', {
     executor: params.executor,
     transcriptPreview: params.transcript.slice(0, 160),
   });
@@ -104,7 +101,7 @@ export function logCalendarUpdateExecutorStarted(params: {
   selectedEventId?: string | null;
   storedUpdateTargetId?: string | null;
 }) {
-  logMarker('CALENDAR_UPDATE_EXECUTOR_STARTED', {
+  devConsoleLog('CALENDAR_UPDATE_EXECUTOR_STARTED', {
     transcriptPreview: params.transcript.slice(0, 160),
     selectedEventId: params.selectedEventId ?? null,
     storedUpdateTargetId: params.storedUpdateTargetId ?? null,
@@ -117,7 +114,7 @@ export function logCalendarMoveEventSelected(params: {
   startsAt: string;
   endsAt: string;
 }) {
-  logMarker('CALENDAR_MOVE_EVENT_SELECTED', {
+  devConsoleLog('CALENDAR_MOVE_EVENT_SELECTED', {
     eventId: params.eventId,
     title: params.title,
     startsAt: params.startsAt,
@@ -130,7 +127,7 @@ export function logCalendarMoveTargetTimeResolved(params: {
   requestedStart: string;
   requestedEnd: string;
 }) {
-  logMarker('CALENDAR_MOVE_TARGET_TIME', {
+  devConsoleLog('CALENDAR_MOVE_TARGET_TIME', {
     eventId: params.eventId,
     requestedStart: params.requestedStart,
     requestedEnd: params.requestedEnd,
@@ -142,7 +139,7 @@ export function logCalendarMoveConversationIntercept(params: {
   reason: string;
   transcript: string;
 }) {
-  logMarker('CALENDAR_CONVERSATION_INTERCEPT', {
+  devConsoleLog('CALENDAR_CONVERSATION_INTERCEPT', {
     handled: params.handled,
     reason: params.reason,
     transcriptPreview: params.transcript.slice(0, 160),
@@ -154,7 +151,7 @@ export function logCalendarMoveStaleTerminalBlocked(params: {
   staleTranscript: string;
   intent: CalendarCommandKind;
 }) {
-  logMarker('CALENDAR_STALE_TERMINAL_BLOCKED', {
+  devConsoleLog('CALENDAR_STALE_TERMINAL_BLOCKED', {
     requestedTranscriptPreview: params.requestedTranscript.slice(0, 160),
     staleTranscriptPreview: params.staleTranscript.slice(0, 160),
     intent: params.intent,
@@ -169,7 +166,7 @@ export function logCalendarExecutionBlocked(params: {
   transcript?: string;
   source?: string;
 }) {
-  logMarker('CALENDAR_EXECUTION_BLOCKED', {
+  devConsoleLog('CALENDAR_EXECUTION_BLOCKED', {
     reason: params.reason,
     intent: params.intent,
     eventId: params.eventId ?? null,
@@ -187,7 +184,7 @@ export function logCalendarPendingActionCreated(params: {
   candidateEventIds: string[];
   toStartISO?: string | null;
 }) {
-  logMarker('CALENDAR_PENDING_ACTION_CREATED', {
+  devConsoleLog('CALENDAR_PENDING_ACTION_CREATED', {
     action: params.action,
     title: params.title ?? null,
     candidateCount: params.candidateCount,
@@ -205,7 +202,7 @@ export function logCalendarPendingActionResolved(params: {
   replyPreview: string;
   sourceTranscriptPreview: string;
 }) {
-  logMarker('CALENDAR_PENDING_ACTION_RESOLVED', {
+  devConsoleLog('CALENDAR_PENDING_ACTION_RESOLVED', {
     action: params.action,
     selectedEventId: params.selectedEventId,
     fromStartISO: params.fromStartISO ?? null,
@@ -220,7 +217,7 @@ export function logCalendarPendingActionExecuted(params: {
   selectedEventId: string;
   sourceTranscript: string;
 }) {
-  logMarker('CALENDAR_PENDING_ACTION_EXECUTED', {
+  devConsoleLog('CALENDAR_PENDING_ACTION_EXECUTED', {
     action: params.action,
     selectedEventId: params.selectedEventId,
     sourceTranscriptPreview: params.sourceTranscript.slice(0, 160),

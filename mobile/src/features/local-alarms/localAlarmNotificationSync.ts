@@ -26,6 +26,23 @@ export function syncLocalAlarmNotificationSchedule(alarm: LocalAlarm) {
     });
 }
 
+export function syncLocalAlarmNotificationReschedule(alarm: LocalAlarm) {
+  if (!isReactNativeRuntime()) {
+    return;
+  }
+
+  void import('@/src/features/local-scheduling/notificationSchedulerService')
+    .then(({ rescheduleScheduledItem }) =>
+      rescheduleScheduledItem(alarm.id, 'alarm', new Date(alarm.triggerAtMs).toISOString(), {
+        status: 'scheduled',
+        snoozeCount: alarm.snoozeCount,
+      }),
+    )
+    .catch((error) => {
+      logNotificationError('LOCAL_ALARM_NOTIFICATION_RESCHEDULE_ERROR', alarm.id, error);
+    });
+}
+
 export function syncLocalAlarmNotificationCancel(alarmId: string) {
   if (!isReactNativeRuntime()) {
     return;

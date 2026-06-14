@@ -19,18 +19,37 @@ export type LocalAlarmCreateIntent = {
   requestedDelayMs?: number;
 };
 
+import type { LocalAlarmQueryVariant } from '@/src/features/local-alarms/localAlarmQueryDetection';
+
+export type LocalAlarmStatusIntent = {
+  kind: 'status';
+  sourceTranscript: string;
+  queryVariant?: LocalAlarmQueryVariant;
+};
+
 export type LocalAlarmListIntent = {
   kind: 'list';
   sourceTranscript: string;
+  queryVariant?: LocalAlarmQueryVariant;
 };
 
 export type LocalAlarmCancelIntent = {
   kind: 'cancel';
   sourceTranscript: string;
-  titleQuery?: string;
+  timeSelector?: string;
+};
+
+export type LocalAlarmRescheduleIntent = {
+  kind: 'reschedule';
+  sourceTranscript: string;
+  targetTime?: Date;
+  sourceTimeSelector?: string;
+  relativeDeltaMs?: number;
 };
 
 export type ParsedLocalAlarmIntent =
   | LocalAlarmCreateIntent
   | LocalAlarmListIntent
-  | LocalAlarmCancelIntent;
+  | LocalAlarmStatusIntent
+  | LocalAlarmCancelIntent
+  | LocalAlarmRescheduleIntent;

@@ -117,6 +117,28 @@ export function snoozeLocalAlarm(id: string, snoozeMinutes: number, referenceNow
   return getLocalAlarmById(id);
 }
 
+export function rescheduleLocalAlarm(id: string, triggerAt: Date) {
+  const existing = getLocalAlarmById(id);
+
+  if (!existing || existing.status !== 'scheduled') {
+    return null;
+  }
+
+  const triggerAtMs = triggerAt.getTime();
+
+  alarms = alarms.map((alarm) =>
+    alarm.id === id
+      ? {
+          ...alarm,
+          triggerAtMs,
+        }
+      : alarm,
+  );
+
+  notifyListeners();
+  return getLocalAlarmById(id);
+}
+
 export function cancelLocalAlarm(id: string) {
   const existing = getLocalAlarmById(id);
 

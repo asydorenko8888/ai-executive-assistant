@@ -19,6 +19,11 @@ import {
   isOperationalCalendarUpdateRequest,
   isOperationalCalendarWriteRequest,
 } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import {
+  containsLocalAlarmDomain,
+  containsLocalAlarmKeyword,
+  isLocalAlarmIntent,
+} from '@/src/features/local-alarms/localAlarmClassification';
 
 export type CalendarCommandKind =
   | 'create_calendar_event'
@@ -29,7 +34,7 @@ export type CalendarCommandKind =
 export function detectCalendarCommandIntent(transcript: string): CalendarCommandKind {
   const normalized = transcript.trim();
 
-  if (!normalized) {
+  if (!normalized || isLocalAlarmIntent(normalized) || containsLocalAlarmDomain(normalized)) {
     return 'none';
   }
 

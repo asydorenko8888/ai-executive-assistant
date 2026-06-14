@@ -19,6 +19,7 @@ import {
   isOperationalCalendarDeleteRequest,
   isOperationalCalendarUpdateRequest,
 } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { containsLocalAlarmDomain, isLocalAlarmIntent } from '@/src/features/local-alarms/localAlarmClassification';
 import { detectCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
 import { isCalendarFreeTimeTodayQuery } from '@/src/features/agent/calendar/calendarFreeTimeQuery';
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
@@ -51,6 +52,10 @@ function mapUpdateMissingFields(missingFields: CalendarUpdateMissingField[]): Ac
 }
 
 function detectActionKind(transcript: string): ActionFieldValidation['actionKind'] {
+  if (isLocalAlarmIntent(transcript) || containsLocalAlarmDomain(transcript)) {
+    return 'none';
+  }
+
   if (isCalendarExactTimeReadQuery(transcript) || isCalendarFreeTimeTodayQuery(transcript)) {
     return 'none';
   }

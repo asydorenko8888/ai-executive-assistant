@@ -1,8 +1,5 @@
 import type { CalendarDisambiguationCandidate } from '@/src/features/agent/calendar/calendarEventDisambiguation';
-
-function logMarker(marker: string, details: Record<string, unknown>) {
-  console.error(marker, details);
-}
+import { devConsoleLog } from '@/src/shared/logging/devConsoleLog';
 
 export function logClarificationStarted(params: {
   kind: 'move_event' | 'delete_event';
@@ -10,7 +7,7 @@ export function logClarificationStarted(params: {
   title?: string | null;
   pendingActionId?: string | null;
 }) {
-  logMarker('CLARIFICATION_STARTED', {
+  devConsoleLog('CLARIFICATION_STARTED', {
     kind: params.kind,
     title: params.title ?? null,
     pendingActionId: params.pendingActionId ?? null,
@@ -22,7 +19,7 @@ export function logClarificationCandidates(params: {
   kind: 'move_event' | 'delete_event';
   candidates: CalendarDisambiguationCandidate[];
 }) {
-  logMarker('CLARIFICATION_CANDIDATES', {
+  devConsoleLog('CLARIFICATION_CANDIDATES', {
     kind: params.kind,
     candidateCount: params.candidates.length,
     candidates: params.candidates.map((candidate) => ({
@@ -39,7 +36,7 @@ export function logClarificationResolved(params: {
   selectedEventId: string;
   sourceTranscriptPreview: string;
 }) {
-  logMarker('CLARIFICATION_RESOLVED', {
+  devConsoleLog('CLARIFICATION_RESOLVED', {
     kind: params.kind,
     replyPreview: params.replyPreview,
     selectedEventId: params.selectedEventId,
@@ -54,7 +51,7 @@ export function logClarificationSelectedEvent(params: {
   startsAt: string;
   toStartISO?: string | null;
 }) {
-  logMarker('CLARIFICATION_SELECTED_EVENT', {
+  devConsoleLog('CLARIFICATION_SELECTED_EVENT', {
     kind: params.kind,
     eventId: params.eventId,
     title: params.title,

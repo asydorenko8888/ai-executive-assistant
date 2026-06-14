@@ -76,10 +76,16 @@ import {
 import type { AssistantBehaviorMode } from '@/src/features/agent/intent/assistantBehaviorRouter';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import {
+  classifyLocalAlarmIntentKind,
   isLocalAlarmCreateQuery,
   isLocalAlarmIntent,
+  shouldRouteToLocalAlarmWorkflow,
 } from '@/src/features/local-alarms/localAlarmClassification';
-import { resolveLocalAlarmTurn } from '@/src/features/local-alarms/resolveLocalAlarmTurn';
+import {
+  detectAlarmPipelineIntent,
+  logAlarmRoutingDiagnostic,
+} from '@/src/features/local-alarms/localAlarmRouting';
+import { hasPendingLocalAlarmAction, resolveLocalAlarmTurn } from '@/src/features/local-alarms/resolveLocalAlarmTurn';
 import {
   isLocalReminderCreateQuery,
   isLocalReminderIntent,
@@ -423,7 +429,7 @@ function tryResolveLocalAlarmTurn(params: {
   behaviorMode: AssistantBehaviorMode;
   selectedTool: string;
 }): AssistantTurnResolution | null {
-  if (!isLocalAlarmIntent(params.userTranscript)) {
+  if (!shouldRouteToLocalAlarmWorkflow(params.userTranscript) && !hasPendingLocalAlarmAction()) {
     return null;
   }
 
@@ -434,7 +440,7 @@ function tryResolveLocalAlarmTurn(params: {
   });
 
   if (!localResult) {
-    if (!isLocalAlarmCreateQuery(params.userTranscript)) {
+    if (!shouldRouteToLocalAlarmWorkflow(params.userTranscript) && !hasPendingLocalAlarmAction()) {
       return null;
     }
 
@@ -513,7 +519,7 @@ function tryResolveLocalReminderTurn(params: {
   behaviorMode: AssistantBehaviorMode;
   selectedTool: string;
 }): AssistantTurnResolution | null {
-  if (isLocalAlarmIntent(params.userTranscript)) {
+  if (shouldRouteToLocalAlarmWorkflow(params.userTranscript)) {
     return null;
   }
 
@@ -796,7 +802,48 @@ async function tryExecuteReadyCalendarMutation(params: {
 export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): Promise<AssistantTurnResolution> {
   const userMessage = getLatestUserMessage(params.messages);
   const userTranscript = userMessage?.content.trim() ?? '';
+
+  logAlarmRoutingDiagnostic({ userText: userTranscript });
+
   const intent = classifyAssistantIntent(userTranscript);
+  const factualGrounding = buildFactualGroundingContext({
+    orchestrator: params.orchestrator,
+    languageCode: params.languageCode,
+    userTranscript,
+  });
+  const modeDefaults = resolutionDefaults(factualGrounding);
+
+  const preBehaviorAlarmTurn = tryResolveLocalAlarmTurn({
+    userTranscript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+    intent,
+    behaviorPrompt: null,
+    userMessage,
+    factualGrounding,
+    behaviorMode: 'ACTION_MODE',
+    selectedTool: 'create_reminder',
+  });
+
+  if (preBehaviorAlarmTurn) {
+    const pipelineIntent = detectAlarmPipelineIntent(userTranscript);
+    logAlarmRoutingDiagnostic({
+      userText: userTranscript,
+      selectedPipeline: pipelineIntent ? `${pipelineIntent}_PIPELINE` : 'ALARM_PIPELINE',
+    });
+
+    if (preBehaviorAlarmTurn.reply) {
+      logAssistantReplyGenerated({
+        source: 'local_alarm',
+        transcriptPreview: userTranscript,
+        replyPreview: preBehaviorAlarmTurn.reply,
+        route: preBehaviorAlarmTurn.route,
+      });
+    }
+
+    return preBehaviorAlarmTurn;
+  }
+
   const behavior = resolveAssistantBehavior({
     transcript: userTranscript,
     messages: params.messages,
@@ -807,12 +854,6 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const actionTranscript = behavior.actionTranscript;
   const calendarCommandIntent = detectCalendarCommandIntent(actionTranscript);
   const operationalStarted = behavior.mode === 'ACTION_MODE' || behavior.mode === 'CLARIFICATION_MODE';
-  const factualGrounding = buildFactualGroundingContext({
-    orchestrator: params.orchestrator,
-    languageCode: params.languageCode,
-    userTranscript,
-  });
-  const modeDefaults = resolutionDefaults(factualGrounding);
   const behaviorPrompt = buildBehaviorModeSystemPrompt(behavior.mode);
 
   logTurnPipeline('behavior mode', {
@@ -850,6 +891,12 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   });
 
   if (localAlarmTurn) {
+    const pipelineIntent = detectAlarmPipelineIntent(userTranscript);
+    logAlarmRoutingDiagnostic({
+      userText: userTranscript,
+      selectedPipeline: pipelineIntent ? `${pipelineIntent}_PIPELINE` : 'ALARM_PIPELINE',
+    });
+
     logAssistantReplyGenerated({
       source: 'local_alarm',
       transcriptPreview: userTranscript,
@@ -910,10 +957,16 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     readOnlyCalendar: isCalendarReadOnlyQuery(userTranscript),
   });
 
+  const deferCalendarForAlarm =
+    shouldRouteToLocalAlarmWorkflow(userTranscript) ||
+    shouldRouteToLocalAlarmWorkflow(actionTranscript) ||
+    hasPendingLocalAlarmAction();
+
   if (
-    isCalendarReadOnlyQuery(userTranscript) ||
-    requiresCalendarCommandExecution(actionTranscript) ||
-    calendarCommandIntent !== 'none'
+    !deferCalendarForAlarm &&
+    (isCalendarReadOnlyQuery(userTranscript) ||
+      requiresCalendarCommandExecution(actionTranscript) ||
+      calendarCommandIntent !== 'none')
   ) {
     logCalendarPipelineEntered({
       stage: 'resolve_turn',
@@ -922,19 +975,21 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     });
   }
 
-  const calendarReadTurn = await tryResolveCalendarReadTurn({
-    userTranscript,
-    messages: params.messages,
-    languageCode: params.languageCode,
-    referenceNow: params.referenceNow,
-    calendarConnected,
-    calendarEvents,
-    intent,
-    behaviorPrompt,
-    userMessage,
-    factualGroundingStatus: factualGrounding.snapshot.status,
-    behaviorMode: behavior.mode,
-  });
+  const calendarReadTurn = deferCalendarForAlarm
+    ? null
+    : await tryResolveCalendarReadTurn({
+        userTranscript,
+        messages: params.messages,
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+        calendarConnected,
+        calendarEvents,
+        intent,
+        behaviorPrompt,
+        userMessage,
+        factualGroundingStatus: factualGrounding.snapshot.status,
+        behaviorMode: behavior.mode,
+      });
 
   if (calendarReadTurn) {
     logAssistantReplyGenerated({
@@ -946,20 +1001,22 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     return calendarReadTurn;
   }
 
-  const readyCalendarMutation = await tryExecuteReadyCalendarMutation({
-    actionTranscript,
-    userTranscript,
-    languageCode: params.languageCode,
-    calendarConnected,
-    referenceNow: params.referenceNow,
-    behaviorMode: behavior.mode,
-    calendarCommandIntent,
-    selectedTool: behavior.selectedTool,
-    intent,
-    behaviorPrompt,
-    userMessage,
-    factualGroundingStatus: factualGrounding.snapshot.status,
-  });
+  const readyCalendarMutation = deferCalendarForAlarm
+    ? null
+    : await tryExecuteReadyCalendarMutation({
+        actionTranscript,
+        userTranscript,
+        languageCode: params.languageCode,
+        calendarConnected,
+        referenceNow: params.referenceNow,
+        behaviorMode: behavior.mode,
+        calendarCommandIntent,
+        selectedTool: behavior.selectedTool,
+        intent,
+        behaviorPrompt,
+        userMessage,
+        factualGroundingStatus: factualGrounding.snapshot.status,
+      });
 
   if (readyCalendarMutation) {
     return readyCalendarMutation;
@@ -1006,6 +1063,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   }
 
   if (
+    !deferCalendarForAlarm &&
     behavior.mode === 'CLARIFICATION_MODE' &&
     behavior.clarificationReply &&
     !isDeterministicCalendarReadQuery(userTranscript)
@@ -1058,8 +1116,14 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   }
 
   if (behavior.mode === 'ACTION_MODE' && behavior.selectedTool === 'create_reminder') {
+    const alarmTranscript = shouldRouteToLocalAlarmWorkflow(actionTranscript)
+      ? actionTranscript
+      : shouldRouteToLocalAlarmWorkflow(userTranscript)
+        ? userTranscript
+        : actionTranscript;
+
     const localAlarmResult = resolveLocalAlarmTurn({
-      transcript: actionTranscript,
+      transcript: alarmTranscript,
       languageCode: params.languageCode,
       referenceNow: params.referenceNow,
     });
@@ -1091,7 +1155,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       };
     }
 
-    if (isLocalAlarmCreateQuery(actionTranscript)) {
+    if (classifyLocalAlarmIntentKind(actionTranscript) === 'create') {
       const clarificationReply = buildLocalAlarmParseFailureReply(params.languageCode);
 
       logTurnPipeline('route selected', {

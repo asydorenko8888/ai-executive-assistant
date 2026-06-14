@@ -1,3 +1,5 @@
+import { devConsoleLog } from '@/src/shared/logging/devConsoleLog';
+
 export type CalendarMoveWorkflowStep =
   | 'MOVE_START'
   | 'MOVE_TARGET_RESOLVED'
@@ -22,19 +24,6 @@ export type CalendarMoveWorkflowStep =
   | 'MOVE_STATE_CLEARED'
   | 'MOVE_COMPLETE';
 
-const MOVE_ERROR_STEPS = new Set<CalendarMoveWorkflowStep>([
-  'MOVE_START',
-  'MOVE_TARGET_RESOLVED',
-  'MOVE_NEW_TIME_PARSED',
-  'MOVE_PATCH_ATTEMPT',
-  'MOVE_PATCH_RESULT',
-  'MOVE_VERIFY_RESULT',
-  'MOVE_EXCEPTION',
-  'MOVE_FAILED',
-  'MOVE_VERIFY_FAILED',
-  'MOVE_STATE_CLEARED',
-]);
-
 export function logCalendarMoveWorkflow(
   step: CalendarMoveWorkflowStep,
   details?: Record<string, unknown>,
@@ -44,12 +33,7 @@ export function logCalendarMoveWorkflow(
     ...details,
   };
 
-  if (MOVE_ERROR_STEPS.has(step)) {
-    console.error(`[Calendar Move Workflow] ${step}`, payload);
-    return;
-  }
-
-  console.log(`[Calendar Move Workflow] ${step}`, payload);
+  devConsoleLog(`CALENDAR_MOVE_WORKFLOW_${step}`, payload);
 }
 
 export function logCalendarMoveTargetEvent(params: {

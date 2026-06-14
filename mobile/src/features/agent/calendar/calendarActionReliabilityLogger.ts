@@ -1,9 +1,6 @@
-type CalendarActionKind = 'delete' | 'move' | 'update';
+import { devConsoleLog } from '@/src/shared/logging/devConsoleLog';
 
-function logMarker(marker: string, payload: Record<string, unknown>) {
-  console.log(marker);
-  console.log(JSON.stringify(payload));
-}
+type CalendarActionKind = 'delete' | 'move' | 'update';
 
 export function logCalendarActionPendingCreated(params: {
   type: CalendarActionKind;
@@ -16,7 +13,7 @@ export function logCalendarActionPendingCreated(params: {
   candidateCount?: number;
   sourceTranscriptPreview?: string;
 }) {
-  logMarker('CALENDAR_ACTION_PENDING_CREATED', {
+  devConsoleLog('CALENDAR_ACTION_PENDING_CREATED', {
     type: params.type,
     eventId: params.eventId ?? null,
     title: params.title ?? null,
@@ -39,7 +36,7 @@ export function logCalendarActionConfirmationReceived(params: {
   targetEndTime?: string | null;
   replyPreview: string;
 }) {
-  logMarker('CALENDAR_ACTION_CONFIRMATION_RECEIVED', {
+  devConsoleLog('CALENDAR_ACTION_CONFIRMATION_RECEIVED', {
     type: params.type,
     eventId: params.eventId,
     title: params.title,
@@ -52,11 +49,11 @@ export function logCalendarActionConfirmationReceived(params: {
 }
 
 export function logCalendarDeleteApiCalled(eventId: string) {
-  logMarker('CALENDAR_DELETE_API_CALLED', { eventId });
+  devConsoleLog('CALENDAR_DELETE_API_CALLED', { eventId });
 }
 
 export function logCalendarDeleteApiSuccess(eventId: string) {
-  logMarker('CALENDAR_DELETE_API_SUCCESS', { eventId });
+  devConsoleLog('CALENDAR_DELETE_API_SUCCESS', { eventId });
 }
 
 export function logCalendarDeleteApiFailed(params: {
@@ -64,7 +61,7 @@ export function logCalendarDeleteApiFailed(params: {
   errorCode?: string | null;
   message?: string | null;
 }) {
-  logMarker('CALENDAR_DELETE_API_FAILED', {
+  devConsoleLog('CALENDAR_DELETE_API_FAILED', {
     eventId: params.eventId,
     errorCode: params.errorCode ?? null,
     message: params.message?.slice(0, 160) ?? null,
@@ -72,14 +69,14 @@ export function logCalendarDeleteApiFailed(params: {
 }
 
 export function logCalendarDeleteVerified(eventId: string) {
-  logMarker('CALENDAR_DELETE_VERIFIED', { eventId });
+  devConsoleLog('CALENDAR_DELETE_VERIFIED', { eventId });
 }
 
 export function logCalendarDeleteVerificationFailed(params: {
   eventId: string;
   reason: string;
 }) {
-  logMarker('CALENDAR_DELETE_VERIFICATION_FAILED', {
+  devConsoleLog('CALENDAR_DELETE_VERIFICATION_FAILED', {
     eventId: params.eventId,
     reason: params.reason,
   });
@@ -90,7 +87,7 @@ export function logCalendarMoveApiCalled(params: {
   targetStartTime?: string | null;
   targetEndTime?: string | null;
 }) {
-  logMarker('CALENDAR_MOVE_API_CALLED', {
+  devConsoleLog('CALENDAR_MOVE_API_CALLED', {
     eventId: params.eventId,
     targetStartTime: params.targetStartTime ?? null,
     targetEndTime: params.targetEndTime ?? null,
@@ -98,7 +95,7 @@ export function logCalendarMoveApiCalled(params: {
 }
 
 export function logCalendarMoveApiSuccess(eventId: string) {
-  logMarker('CALENDAR_MOVE_API_SUCCESS', { eventId });
+  devConsoleLog('CALENDAR_MOVE_API_SUCCESS', { eventId });
 }
 
 export function logCalendarMoveApiFailed(params: {
@@ -106,7 +103,7 @@ export function logCalendarMoveApiFailed(params: {
   errorCode?: string | null;
   message?: string | null;
 }) {
-  logMarker('CALENDAR_MOVE_API_FAILED', {
+  devConsoleLog('CALENDAR_MOVE_API_FAILED', {
     eventId: params.eventId,
     errorCode: params.errorCode ?? null,
     message: params.message?.slice(0, 160) ?? null,
@@ -114,14 +111,14 @@ export function logCalendarMoveApiFailed(params: {
 }
 
 export function logCalendarMoveVerified(eventId: string) {
-  logMarker('CALENDAR_MOVE_VERIFIED', { eventId });
+  devConsoleLog('CALENDAR_MOVE_VERIFIED', { eventId });
 }
 
 export function logCalendarMoveVerificationFailed(params: {
   eventId: string;
   reason: string;
 }) {
-  logMarker('CALENDAR_MOVE_VERIFICATION_FAILED', {
+  devConsoleLog('CALENDAR_MOVE_VERIFICATION_FAILED', {
     eventId: params.eventId,
     reason: params.reason,
   });
