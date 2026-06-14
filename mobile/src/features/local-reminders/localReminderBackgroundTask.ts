@@ -1,22 +1,40 @@
 import { NativeModules, Platform } from 'react-native';
 
-import { queueReminderDeliveryForLater } from '@/src/features/local-reminders/localReminderDeliveryCoordinator';
+import { queueAlarmDeliveryForLater } from '@/src/features/local-alarms/localAlarmDeliveryCoordinator';
 
+export const LOCAL_SCHEDULING_BACKGROUND_NOTIFICATION_TASK =
+  'LOCAL_SCHEDULING_BACKGROUND_NOTIFICATION_TASK';
+
+/** @deprecated Use LOCAL_SCHEDULING_BACKGROUND_NOTIFICATION_TASK */
 export const LOCAL_REMINDER_BACKGROUND_NOTIFICATION_TASK =
-  'LOCAL_REMINDER_BACKGROUND_NOTIFICATION_TASK';
+  LOCAL_SCHEDULING_BACKGROUND_NOTIFICATION_TASK;
 
 function isExpoTaskManagerNativeModuleAvailable() {
   return Platform.OS !== 'web' && Boolean(NativeModules.ExpoTaskManager);
 }
 
-function extractReminderIdFromNotificationData(data: Record<string, unknown> | undefined) {
-  if (!data || data.type !== 'local_reminder') {
+function extractScheduledItemFromNotificationData(data: Record<string, unknown> | undefined) {
+  if (!data) {
     return null;
   }
 
-  const reminderId = data.itemId ?? data.reminderId;
+  if (data.type === 'local_reminder') {
+    const reminderId = data.itemId ?? data.reminderId;
 
-  return typeof reminderId === 'string' && reminderId.trim() ? reminderId.trim() : null;
+    return typeof reminderId === 'string' && reminderId.trim()
+      ? { kind: 'reminder' as const, itemId: reminderId.trim() }
+      : null;
+  }
+
+  if (data.type === 'local_alarm') {
+    const alarmId = data.itemId ?? data.alarmId;
+
+    return typeof alarmId === 'string' && alarmId.trim()
+      ? { kind: 'alarm' as const, itemId: alarmId.trim() }
+      : null;
+  }
+
+  return null;
 }
 
 let taskDefined = false;
@@ -28,19 +46,22 @@ async function ensureBackgroundTaskDefined() {
   }
 
   if (!isExpoTaskManagerNativeModuleAvailable()) {
-    console.warn('LOCAL_REMINDER_BACKGROUND_TASK_UNAVAILABLE', {
+    console.warn('LOCAL_SCHEDULING_BACKGROUND_TASK_UNAVAILABLE', {
       reason: 'ExpoTaskManager native module missing; rebuild Android dev client after installing expo-task-manager',
     });
     return false;
   }
 
   const TaskManager = await import('expo-task-manager');
+  const { queueReminderDeliveryForLater } = await import(
+    '@/src/features/local-reminders/localReminderDeliveryCoordinator'
+  );
 
   TaskManager.defineTask(
-    LOCAL_REMINDER_BACKGROUND_NOTIFICATION_TASK,
+    LOCAL_SCHEDULING_BACKGROUND_NOTIFICATION_TASK,
     async ({ data, error }) => {
       if (error) {
-        console.error('LOCAL_REMINDER_BACKGROUND_TASK_ERROR', {
+        console.error('LOCAL_SCHEDULING_BACKGROUND_TASK_ERROR', {
           message: error.message,
         });
         return;
@@ -52,19 +73,28 @@ async function ensureBackgroundTaskDefined() {
         payload && 'notification' in payload
           ? (payload.notification?.request?.content?.data as Record<string, unknown> | undefined)
           : undefined;
-      const reminderId = extractReminderIdFromNotificationData(notificationData);
+      const scheduledItem = extractScheduledItemFromNotificationData(notificationData);
 
-      if (!reminderId) {
+      if (!scheduledItem) {
         return;
       }
 
       const title =
         payload && 'notification' in payload
-          ? String(payload.notification?.request?.content?.title ?? reminderId)
-          : reminderId;
+          ? String(payload.notification?.request?.content?.title ?? scheduledItem.itemId)
+          : scheduledItem.itemId;
+
+      if (scheduledItem.kind === 'alarm') {
+        await queueAlarmDeliveryForLater({
+          alarmId: scheduledItem.itemId,
+          title,
+          source: 'background_task',
+        });
+        return;
+      }
 
       await queueReminderDeliveryForLater({
-        reminderId,
+        reminderId: scheduledItem.itemId,
         title,
         source: 'background_task',
       });
@@ -75,7 +105,7 @@ async function ensureBackgroundTaskDefined() {
   return true;
 }
 
-export async function registerLocalReminderBackgroundNotificationTask() {
+export async function registerLocalSchedulingBackgroundNotificationTask() {
   if (registerTaskPromise) {
     return registerTaskPromise;
   }
@@ -89,13 +119,18 @@ export async function registerLocalReminderBackgroundNotificationTask() {
       }
 
       const Notifications = await import('expo-notifications');
-      await Notifications.registerTaskAsync(LOCAL_REMINDER_BACKGROUND_NOTIFICATION_TASK);
+      await Notifications.registerTaskAsync(LOCAL_SCHEDULING_BACKGROUND_NOTIFICATION_TASK);
     } catch (error) {
-      console.error('LOCAL_REMINDER_BACKGROUND_TASK_REGISTER_ERROR', {
+      console.error('LOCAL_SCHEDULING_BACKGROUND_TASK_REGISTER_ERROR', {
         message: error instanceof Error ? error.message : String(error),
       });
     }
   })();
 
   return registerTaskPromise;
+}
+
+/** @deprecated Use registerLocalSchedulingBackgroundNotificationTask */
+export async function registerLocalReminderBackgroundNotificationTask() {
+  return registerLocalSchedulingBackgroundNotificationTask();
 }

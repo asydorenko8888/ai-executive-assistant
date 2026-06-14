@@ -21,12 +21,40 @@ function extractCancelTitleQuery(transcript: string) {
   return match?.[1]?.trim().replace(/[.!?]+$/g, '') || undefined;
 }
 
+function extractAlarmTimePhrase(transcript: string) {
+  const patterns = [
+    /(?:постав(?:ь|ьте|ити|\s+)?\s*будильник|set\s+(?:an?\s+)?alarm)\s+(?:на|for)\s+(.+)/iu,
+    /(?:постав(?:ь|ьте|ити|\s+)?\s*будильник|set\s+(?:an?\s+)?alarm)\s+(.+)/iu,
+    /(?:разбуди(?:ть)?(?:\s+меня)?|розбуди(?:ти)?(?:\s+мене)?|wake\s+me(?:\s+up)?)\s+(?:в|на|о|at)\s+(.+)/iu,
+    /(?:разбуди(?:ть)?(?:\s+меня)?|розбуди(?:ти)?(?:\s+мене)?|wake\s+me(?:\s+up)?)\s+(.+)/iu,
+    /^(?:будильник|alarm)\s+(?:на\s+)?(.+)/iu,
+  ];
+
+  for (const pattern of patterns) {
+    const match = transcript.match(pattern);
+
+    if (!match?.[1]) {
+      continue;
+    }
+
+    const phrase = match[1].trim().replace(/[.!?]+$/g, '');
+
+    if (!phrase || /^через\s+/iu.test(phrase)) {
+      continue;
+    }
+
+    return phrase;
+  }
+
+  return null;
+}
+
 function parseRelativeAlarmIntent(
   transcript: string,
   referenceNow: Date,
 ): ParsedLocalAlarmIntent | null {
   const match = transcript.match(
-    /(?:постав(?:ь|ьте|ити|\s+)?\s*будильник|set\s+(?:an?\s+)?alarm|разбуди(?:ть)?(?:\s+меня)?|розбуди(?:ти)?(?:\s+мене)?|wake\s+me(?:\s+up)?)\s+через\s+(.+)/iu,
+    /(?:постав(?:ь|ьте|ити|\s+)?\s*будильник|set\s+(?:an?\s+)?alarm|разбуди(?:ть)?(?:\s+меня)?|розбуди(?:ти)?(?:\s+мене)?|wake\s+me(?:\s+up)?)\s+(?:через|in)\s+(.+)/iu,
   );
 
   if (!match?.[1]) {
@@ -52,38 +80,24 @@ function parseAbsoluteAlarmIntent(
   transcript: string,
   referenceNow: Date,
 ): ParsedLocalAlarmIntent | null {
-  const patterns = [
-    /(?:постав(?:ь|ьте|ити|\s+)?\s*будильник|set\s+(?:an?\s+)?alarm)\s+на\s+(.+)/iu,
-    /(?:разбуди(?:ть)?(?:\s+меня)?|розбуди(?:ти)?(?:\s+мене)?|wake\s+me(?:\s+up)?)\s+(?:в|на|о|at)\s+(.+)/iu,
-    /(?:разбуди(?:ть)?(?:\s+меня)?|розбуди(?:ти)?(?:\s+мене)?|wake\s+me(?:\s+up)?)\s+(.+)/iu,
-  ];
+  const timePhrase = extractAlarmTimePhrase(transcript);
 
-  for (const pattern of patterns) {
-    const match = transcript.match(pattern);
-
-    if (!match?.[1]) {
-      continue;
-    }
-
-    if (/^через\s+/iu.test(match[1].trim())) {
-      continue;
-    }
-
-    const triggerAt = parseAbsoluteReminderTime(match[1], referenceNow);
-
-    if (!triggerAt) {
-      continue;
-    }
-
-    return {
-      kind: 'create',
-      title: 'Будильник',
-      triggerAt,
-      sourceTranscript: transcript,
-    };
+  if (!timePhrase) {
+    return null;
   }
 
-  return null;
+  const triggerAt = parseAbsoluteReminderTime(timePhrase, referenceNow);
+
+  if (!triggerAt) {
+    return null;
+  }
+
+  return {
+    kind: 'create',
+    title: 'Будильник',
+    triggerAt,
+    sourceTranscript: transcript,
+  };
 }
 
 export function parseLocalAlarmIntent(

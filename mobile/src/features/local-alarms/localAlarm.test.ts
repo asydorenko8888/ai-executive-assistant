@@ -26,18 +26,18 @@ import { resolveLocalAlarmTurn } from '@/src/features/local-alarms/resolveLocalA
 
 const TEST_TRANSCRIPT = 'Поставь будильник через 2 минуты';
 
-function captureConsoleError() {
+function captureDevLog() {
   const entries: unknown[][] = [];
-  const original = console.error;
+  const original = console.log;
 
-  console.error = (...args: unknown[]) => {
+  console.log = (...args: unknown[]) => {
     entries.push(args);
   };
 
   return {
     entries,
     restore() {
-      console.error = original;
+      console.log = original;
     },
   };
 }
@@ -135,7 +135,7 @@ describe('local alarm runtime flow', () => {
   });
 
   it('creates alarm and confirms exact parsed delay', () => {
-    const logs = captureConsoleError();
+    const logs = captureDevLog();
     const referenceNow = new Date('2026-05-28T10:00:00+03:00');
 
     try {
@@ -160,7 +160,7 @@ describe('local alarm runtime flow', () => {
   });
 
   it('logs alarm session lifecycle markers for stop and snooze', () => {
-    const logs = captureConsoleError();
+    const logs = captureDevLog();
     const referenceNow = new Date('2026-05-28T10:00:00+03:00');
 
     try {

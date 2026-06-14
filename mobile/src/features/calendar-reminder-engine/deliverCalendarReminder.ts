@@ -1,3 +1,4 @@
+import { devConsoleLog } from '@/src/shared/logging/devConsoleLog';
 import { buildCalendarReminderAnnouncement } from '@/src/features/calendar-reminder-engine/calendarReminderAnnouncement';
 import {
   buildActiveCalendarReminderNotification,
@@ -34,7 +35,7 @@ export async function deliverCalendarReminderAnnouncement(params: {
     startsAt: params.startsAt,
   });
 
-  console.error('CALENDAR_REMINDER_TRIGGERED', {
+  devConsoleLog('CALENDAR_REMINDER_TRIGGERED', {
     source: params.source ?? 'engine',
     eventId: params.eventId,
     title: params.eventTitle,

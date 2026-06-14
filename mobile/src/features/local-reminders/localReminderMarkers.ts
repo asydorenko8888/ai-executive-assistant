@@ -1,3 +1,5 @@
+import { devConsoleLog } from '@/src/shared/logging/devConsoleLog';
+
 export function logLocalReminderCreated(params: {
   id: string;
   text: string;
@@ -5,7 +7,7 @@ export function logLocalReminderCreated(params: {
   kind: string;
   sourceTranscript: string;
 }) {
-  console.error('LOCAL_REMINDER_CREATED', {
+  devConsoleLog('LOCAL_REMINDER_CREATED', {
     id: params.id,
     text: params.text,
     triggerAt: params.triggerAtIso,
@@ -20,7 +22,7 @@ export function logLocalReminderTriggered(params: {
   triggerAtIso: string;
   kind: string;
 }) {
-  console.error('LOCAL_REMINDER_TRIGGERED', {
+  devConsoleLog('LOCAL_REMINDER_TRIGGERED', {
     id: params.id,
     title: params.text,
     text: params.text,
@@ -34,7 +36,7 @@ export function logLocalReminderCancelled(params: {
   text: string;
   reason: string;
 }) {
-  console.error('LOCAL_REMINDER_CANCELLED', {
+  devConsoleLog('LOCAL_REMINDER_CANCELLED', {
     id: params.id,
     text: params.text,
     reason: params.reason,
@@ -42,15 +44,15 @@ export function logLocalReminderCancelled(params: {
 }
 
 export function logLocalReminderEngineStarted() {
-  console.log('LOCAL_REMINDER_ENGINE_STARTED');
+  devConsoleLog('LOCAL_REMINDER_ENGINE_STARTED');
 }
 
 export function logLocalReminderDueCheck(params: { count: number }) {
-  console.log('LOCAL_REMINDER_DUE_CHECK', { count: params.count });
+  devConsoleLog('LOCAL_REMINDER_DUE_CHECK', { count: params.count });
 }
 
 export function logLocalReminderVoicePlay(params: { id: string; title: string }) {
-  console.error('LOCAL_REMINDER_VOICE_PLAY', {
+  devConsoleLog('LOCAL_REMINDER_VOICE_PLAY', {
     id: params.id,
     title: params.title,
   });
@@ -61,7 +63,7 @@ export function logLocalReminderVoiceBlocked(params: {
   title: string;
   reason: string;
 }) {
-  console.error('LOCAL_REMINDER_VOICE_BLOCKED', {
+  devConsoleLog('LOCAL_REMINDER_VOICE_BLOCKED', {
     id: params.id,
     title: params.title,
     reason: params.reason,
@@ -72,7 +74,7 @@ export function logLocalReminderConfirmationBuilt(params: {
   requestedDelayMs: number | null;
   replyText: string;
 }) {
-  console.error('LOCAL_REMINDER_CONFIRMATION_BUILT', {
+  devConsoleLog('LOCAL_REMINDER_CONFIRMATION_BUILT', {
     requestedDelayMs: params.requestedDelayMs,
     replyText: params.replyText,
   });

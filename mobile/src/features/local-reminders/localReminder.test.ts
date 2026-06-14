@@ -19,18 +19,18 @@ import { resolveLocalReminderTurn } from '@/src/features/local-reminders/resolve
 
 const TEST_TRANSCRIPT = 'Напомни мне через 2 минуты выпить воду';
 
-function captureConsoleError() {
+function captureDevLog() {
   const entries: unknown[][] = [];
-  const original = console.error;
+  const original = console.log;
 
-  console.error = (...args: unknown[]) => {
+  console.log = (...args: unknown[]) => {
     entries.push(args);
   };
 
   return {
     entries,
     restore() {
-      console.error = original;
+      console.log = original;
     },
   };
 }
@@ -158,7 +158,7 @@ describe('local reminder confirmation reply', () => {
   it('uses parsed delay for 2-minute reminder confirmation', () => {
     assert.equal(formatRequestedDelayLabel(2 * 60_000, 'ru-RU'), 'через 2 минуты');
 
-    const logs = captureConsoleError();
+    const logs = captureDevLog();
     const referenceNow = new Date('2026-05-28T10:00:00+03:00');
 
     try {
@@ -181,7 +181,7 @@ describe('local reminder confirmation reply', () => {
   });
 
   it('acceptance: напомни через 2 минуты выпить воду', () => {
-    const logs = captureConsoleError();
+    const logs = captureDevLog();
     const referenceNow = new Date('2026-05-28T10:00:00+03:00');
 
     try {
@@ -198,7 +198,7 @@ describe('local reminder confirmation reply', () => {
   });
 
   it('acceptance: Напомни, выпить кофе через 2 минуты', () => {
-    const logs = captureConsoleError();
+    const logs = captureDevLog();
     const referenceNow = new Date('2026-05-28T10:00:00+03:00');
 
     try {
@@ -255,7 +255,7 @@ describe('local reminder runtime flow', () => {
   });
 
   it('creates reminder and logs LOCAL_REMINDER_CREATED for the test phrase', () => {
-    const logs = captureConsoleError();
+    const logs = captureDevLog();
     const referenceNow = new Date('2026-05-28T10:00:00+03:00');
 
     try {
@@ -279,7 +279,7 @@ describe('local reminder runtime flow', () => {
   });
 
   it('triggers due reminder and logs LOCAL_REMINDER_TRIGGERED', () => {
-    const logs = captureConsoleError();
+    const logs = captureDevLog();
     const referenceNow = new Date('2026-05-28T10:00:00+03:00');
 
     try {
@@ -322,7 +322,7 @@ describe('local reminder runtime flow', () => {
   });
 
   it('cancels a single reminder and logs LOCAL_REMINDER_CANCELLED', () => {
-    const logs = captureConsoleError();
+    const logs = captureDevLog();
     const referenceNow = new Date('2026-05-28T10:00:00+03:00');
 
     try {

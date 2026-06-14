@@ -8,6 +8,11 @@ const LOCAL_ALARM_VERB = new RegExp(
   'iu',
 );
 
+const LOCAL_ALARM_NOUN = new RegExp(
+  `${CALENDAR_WORD_EDGE}(?:будильник|alarm)${CALENDAR_WORD_END}`,
+  'iu',
+);
+
 const LOCAL_ALARM_LIST = new RegExp(
   `${CALENDAR_WORD_EDGE}(?:какие\\s+у\\s+меня\\s+будильники|мои\\s+будильники|what\\s+alarms?\\s+do\\s+i\\s+have|list\\s+my\\s+alarms?)${CALENDAR_WORD_END}`,
   'iu',
@@ -36,7 +41,7 @@ export function isLocalAlarmCreateQuery(transcript: string) {
     return false;
   }
 
-  return LOCAL_ALARM_VERB.test(normalized);
+  return LOCAL_ALARM_VERB.test(normalized) || LOCAL_ALARM_NOUN.test(normalized);
 }
 
 export function isLocalAlarmIntent(transcript: string) {

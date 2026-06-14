@@ -1,6 +1,40 @@
 import { parseNaturalDayOffset } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
+import { parseSpokenTimeFragment } from '@/src/features/agent/calendar/calendarSpokenTime';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import { parseSpokenClockTime } from '@/src/features/reminders/reminderTimeParser';
+
+const DAY_WORD_PATTERN =
+  /\b(?:завтра|tomorrow|післязавтра|послезавтра|сьогодні|сегодня|today)\b/giu;
+
+function clockFromSpokenFragment(
+  fragment: string,
+  referenceNow: Date,
+  rollToNextDayIfPast: boolean,
+) {
+  const [hoursRaw, minutesRaw] = fragment.split(':');
+  const hours = Number(hoursRaw);
+  const minutes = Number(minutesRaw ?? '0');
+
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) {
+    return null;
+  }
+
+  const candidate = new Date(
+    referenceNow.getFullYear(),
+    referenceNow.getMonth(),
+    referenceNow.getDate(),
+    hours,
+    minutes,
+    0,
+    0,
+  );
+
+  if (rollToNextDayIfPast && candidate.getTime() <= referenceNow.getTime()) {
+    candidate.setDate(candidate.getDate() + 1);
+  }
+
+  return candidate;
+}
 
 export type ParsedRelativeDuration = {
   totalMs: number;
@@ -123,22 +157,31 @@ export function parseAbsoluteReminderTime(
 
   const naturalDay = parseNaturalDayOffset(normalized, referenceNow, timeZone);
   const dayOffset = naturalDay?.dayOffset ?? 0;
-  const withoutDay = normalized
-    .replace(
-      /\b(?:завтра|tomorrow|післязавтра|послезавтра|сьогодні|сегодня|today)\b/giu,
-      ' ',
-    )
-    .replace(/\s+/g, ' ')
-    .trim();
+  const withoutDay = normalized.replace(DAY_WORD_PATTERN, ' ').replace(/\s+/g, ' ').trim();
 
   const clockSource = withoutDay
     .replace(/^(?:на|в|о)\s+/iu, '')
     .replace(/^at\s+/i, '')
     .trim();
 
-  const clock = parseSpokenClockTime(clockSource, referenceNow, {
-    rollToNextDayIfPast: dayOffset === 0,
-  });
+  let clock =
+    parseSpokenClockTime(clockSource, referenceNow, {
+      rollToNextDayIfPast: dayOffset === 0,
+    }) ??
+    (() => {
+      const spokenFragment =
+        parseSpokenTimeFragment(clockSource) ?? parseSpokenTimeFragment(withoutDay);
+
+      if (!spokenFragment) {
+        return null;
+      }
+
+      return clockFromSpokenFragment(
+        spokenFragment,
+        referenceNow,
+        dayOffset === 0,
+      );
+    })();
 
   if (!clock) {
     return null;

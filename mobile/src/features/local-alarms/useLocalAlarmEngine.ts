@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 
+import {
+  markAlarmDeliveredFromCoordinator,
+  processPendingAlarmDeliveries,
+  queueAlarmDeliveryForLater,
+  type AlarmDeliverySource,
+} from '@/src/features/local-alarms/localAlarmDeliveryCoordinator';
 import {
   logAlarmRepeat,
   logAlarmSnoozed,
@@ -36,6 +43,7 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
   const [activeSessions, setActiveSessions] = useState<ActiveAlarmSession[]>([]);
   const isCheckingRef = useRef(false);
   const languageCodeRef = useRef(languageCode);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const engineStartedRef = useRef(false);
   const activeSessionIdsRef = useRef(new Set<string>());
   const repeatTimersRef = useRef(new Map<string, ReturnType<typeof setInterval>>());
@@ -89,11 +97,12 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
   );
 
   const startAlarmSession = useCallback(
-    (alarm: LocalAlarm) => {
+    (alarm: LocalAlarm, source: AlarmDeliverySource = 'foreground_poll') => {
       if (activeSessionIdsRef.current.has(alarm.id)) {
         return;
       }
 
+      markAlarmDeliveredFromCoordinator(alarm.id);
       markLocalAlarmRinging(alarm.id);
 
       const ringingAlarm = getLocalAlarmById(alarm.id) ?? alarm;
@@ -104,13 +113,15 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
         title: session.title,
       });
 
-      playSessionVoice(session, false);
+      if (appStateRef.current === 'active' || source === 'notification_tap') {
+        playSessionVoice(session, false);
 
-      const repeatTimerId = setInterval(() => {
-        playSessionVoice(session, true);
-      }, ALARM_VOICE_REPEAT_INTERVAL_MS);
+        const repeatTimerId = setInterval(() => {
+          playSessionVoice(session, true);
+        }, ALARM_VOICE_REPEAT_INTERVAL_MS);
 
-      repeatTimersRef.current.set(alarm.id, repeatTimerId);
+        repeatTimersRef.current.set(alarm.id, repeatTimerId);
+      }
 
       setActiveSessions((current) => {
         if (current.some((item) => item.alarmId === session.alarmId)) {
@@ -170,7 +181,7 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
   );
 
   const checkDueAlarms = useCallback(() => {
-    if (isCheckingRef.current) {
+    if (isCheckingRef.current || appStateRef.current !== 'active') {
       return;
     }
 
@@ -186,7 +197,7 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
           continue;
         }
 
-        startAlarmSession(alarm);
+        startAlarmSession(alarm, 'foreground_poll');
       }
     } catch (error) {
       console.error('LOCAL_ALARM_ENGINE_ERROR', {
@@ -196,6 +207,16 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
       isCheckingRef.current = false;
     }
   }, [startAlarmSession]);
+
+  const runResumeCatchUp = useCallback(() => {
+    void processPendingAlarmDeliveries({
+      languageCode: languageCodeRef.current,
+      onAlarmReady: (alarm, source) => {
+        startAlarmSession(alarm, source);
+      },
+    });
+    checkDueAlarms();
+  }, [checkDueAlarms, startAlarmSession]);
 
   useEffect(() => {
     if (!engineStartedRef.current) {
@@ -215,7 +236,16 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
           return;
         }
 
-        startAlarmSession(alarm);
+        if (appStateRef.current === 'active') {
+          startAlarmSession(alarm, 'notification_received');
+          return;
+        }
+
+        void queueAlarmDeliveryForLater({
+          alarmId,
+          title: alarm.title,
+          source: 'notification_received',
+        });
       },
     });
 
@@ -223,16 +253,27 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
       checkDueAlarms();
     });
 
-    checkDueAlarms();
+    runResumeCatchUp();
+
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      appStateRef.current = nextState;
+
+      if (nextState === 'active') {
+        runResumeCatchUp();
+      }
+    });
 
     const intervalId = setInterval(() => {
-      checkDueAlarms();
+      if (appStateRef.current === 'active') {
+        checkDueAlarms();
+      }
     }, POLL_INTERVAL_MS);
 
     return () => {
       clearInterval(intervalId);
       unsubscribe();
       unsubscribeNotifications();
+      appStateSubscription.remove();
 
       for (const timerId of repeatTimersRef.current.values()) {
         clearInterval(timerId);
@@ -241,7 +282,7 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
       repeatTimersRef.current.clear();
       syncActiveSessions([]);
     };
-  }, [checkDueAlarms, startAlarmSession, syncActiveSessions]);
+  }, [checkDueAlarms, runResumeCatchUp, startAlarmSession, syncActiveSessions]);
 
   return {
     activeSessions,

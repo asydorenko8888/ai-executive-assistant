@@ -20,6 +20,7 @@ const SPOKEN_NUMBER_TO_HOUR: Record<string, number> = {
   "п'ять": 5,
   five: 5,
   шесть: 6,
+  шість: 6,
   six: 6,
   семь: 7,
   сім: 7,
@@ -69,7 +70,7 @@ const SPOKEN_MERIDIEM =
   '(?:вечера|вечером|вечора|увечері|утра|утром|ранку|дня|днём|днем|ночи|ночью|ночі)';
 
 const SPOKEN_HOUR_TOKEN =
-  '(\\d{1,2}|один|одну|одного|два|две|три|четыре|четверо|чотири|пять|п[\\u2019\']ять|шесть|семь|сім|восемь|вісім|девять|дев[\\u2019\']ять|десять|одиннадцать|двенадцать|тринадцать|тринадцять|четырнадцать|чотирнадцять|пятнадцать|п[\\u2019\']ятнадцять|шестнадцать|шістнадцять|семнадцать|сімнадцять|восемнадцать|вісімнадцять|девятнадцать|дев[\\u2019\']ятнадцять|двадцать|двадцять|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)';
+  '(\\d{1,2}|один|одну|одного|два|две|три|четыре|четверо|чотири|пять|п[\\u2019\']ять|шесть|шість|семь|сім|восемь|вісім|девять|дев[\\u2019\']ять|десять|одиннадцать|двенадцать|тринадцать|тринадцять|четырнадцать|чотирнадцять|пятнадцать|п[\\u2019\']ятнадцять|шестнадцать|шістнадцять|семнадцать|сімнадцять|восемнадцать|вісімнадцять|девятнадцать|дев[\\u2019\']ятнадцять|двадцать|двадцять|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)';
 
 const SPOKEN_HOUR_COUNT_PATTERN = new RegExp(
   `${SPOKEN_TIME_EDGE}(?:в|на|о|at)?\\s*${SPOKEN_HOUR_TOKEN}\\s+(?:час(?:а|ов|у)?|годин(?:у|и|ы)?|hours?)(?:[,.!\\s]|$)`,
@@ -78,6 +79,11 @@ const SPOKEN_HOUR_COUNT_PATTERN = new RegExp(
 
 const SPOKEN_COLON_MERIDIEM_PATTERN = new RegExp(
   `${SPOKEN_TIME_EDGE}(?:в|на|о|at)?\\s*(\\d{1,2}):(\\d{2})\\s+${SPOKEN_MERIDIEM}(?:[,.!\\s]|$)`,
+  'iu',
+);
+
+const SPOKEN_BARE_HOUR_PATTERN = new RegExp(
+  `${SPOKEN_TIME_EDGE}(?:at\\s+)?${SPOKEN_HOUR_TOKEN}(?:\\s+${SPOKEN_MERIDIEM})?(?:[,.!\\s]|$)`,
   'iu',
 );
 
@@ -231,7 +237,9 @@ export function parseSpokenTimeFragment(transcript: string) {
   }
 
   const match =
-    normalized.match(SPOKEN_TIME_PATTERN) ?? normalized.match(ENGLISH_EVENING_PATTERN);
+    normalized.match(SPOKEN_TIME_PATTERN) ??
+    normalized.match(SPOKEN_BARE_HOUR_PATTERN) ??
+    normalized.match(ENGLISH_EVENING_PATTERN);
 
   if (!match?.[1]) {
     return null;

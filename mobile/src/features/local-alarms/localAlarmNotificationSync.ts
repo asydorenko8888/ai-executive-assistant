@@ -1,11 +1,12 @@
 import type { LocalAlarm } from '@/src/features/local-alarms/types';
+import { devConsoleLog } from '@/src/shared/logging/devConsoleLog';
 
 function isReactNativeRuntime() {
   return typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
 }
 
 function logNotificationError(scope: string, id: string, error: unknown) {
-  console.error(scope, {
+  devConsoleLog(scope, {
     id,
     message: error instanceof Error ? error.message : String(error),
   });

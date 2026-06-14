@@ -1,3 +1,5 @@
+import { devConsoleLog } from '@/src/shared/logging/devConsoleLog';
+
 export function logCalendarTokenExpiration(params: {
   expiresAt?: string | null;
   connectedEmail?: string | null;
@@ -51,7 +53,7 @@ export function logCalendarAuthStart(params: {
   platform: string;
   redirectUri: string;
 }) {
-  console.error('CALENDAR_AUTH_START', params);
+  devConsoleLog('CALENDAR_AUTH_START', params);
 }
 
 export function logCalendarAuthSuccess(params: {
@@ -59,7 +61,7 @@ export function logCalendarAuthSuccess(params: {
   hasRefreshToken: boolean;
   runtime?: string;
 }) {
-  console.error('CALENDAR_AUTH_SUCCESS', params);
+  devConsoleLog('CALENDAR_AUTH_SUCCESS', params);
 }
 
 export function logCalendarAuthError(params: {
@@ -67,7 +69,7 @@ export function logCalendarAuthError(params: {
   runtime?: string;
   stage?: string;
 }) {
-  console.error('CALENDAR_AUTH_ERROR', params);
+  devConsoleLog('CALENDAR_AUTH_ERROR', params);
 }
 
 export function logCalendarEventsFetchStart(params: {
@@ -75,7 +77,7 @@ export function logCalendarEventsFetchStart(params: {
   timeMax: string;
   source: string;
 }) {
-  console.error('CALENDAR_EVENTS_FETCH_START', params);
+  devConsoleLog('CALENDAR_EVENTS_FETCH_START', params);
 }
 
 export function logCalendarEventsFetchSuccess(params: {
@@ -84,7 +86,7 @@ export function logCalendarEventsFetchSuccess(params: {
   timeMin: string;
   timeMax: string;
 }) {
-  console.error('CALENDAR_EVENTS_FETCH_SUCCESS', params);
+  devConsoleLog('CALENDAR_EVENTS_FETCH_SUCCESS', params);
 }
 
 export function logCalendarEventsFetchError(params: {
@@ -93,5 +95,5 @@ export function logCalendarEventsFetchError(params: {
   timeMin?: string;
   timeMax?: string;
 }) {
-  console.error('CALENDAR_EVENTS_FETCH_ERROR', params);
+  devConsoleLog('CALENDAR_EVENTS_FETCH_ERROR', params);
 }

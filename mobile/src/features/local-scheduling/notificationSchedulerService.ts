@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 
+import { logAlarmScheduledExact } from '@/src/features/local-alarms/localAlarmMarkers';
 import { registerLocalReminderBackgroundNotificationTask } from '@/src/features/local-reminders/localReminderBackgroundTask';
 import {
   logExactAlarmPermissionStatus,
@@ -336,7 +337,9 @@ async function scheduleOsNotification(params: {
   await Notifications.cancelScheduledNotificationAsync(params.id);
 
   const notificationSound =
-    params.type === 'reminder' ? LOCAL_REMINDER_NOTIFICATION_SOUND : 'default';
+    params.type === 'reminder' || params.type === 'alarm'
+      ? LOCAL_REMINDER_NOTIFICATION_SOUND
+      : 'default';
 
   let notificationId: string;
 
@@ -350,7 +353,7 @@ async function scheduleOsNotification(params: {
         priority: Notifications.AndroidNotificationPriority.MAX,
         sticky: params.type === 'alarm',
         autoDismiss: params.type === 'reminder',
-        ...(Platform.OS === 'android' && params.type === 'reminder'
+        ...(Platform.OS === 'android'
           ? { vibrate: [0, 500, 250, 500] }
           : {}),
         data: {
@@ -428,6 +431,17 @@ export async function scheduleAlarm(payload: ScheduleAlarmPayload) {
       snoozeCount: payload.snoozeCount ?? 0,
     },
   });
+
+  if (result.scheduled) {
+    logAlarmScheduledExact({
+      id: payload.id,
+      triggerAt: payload.scheduledAt,
+      triggerAtMs: Date.parse(payload.scheduledAt),
+      channelId: LOCAL_ALARM_NOTIFICATION_CHANNEL_ID,
+      platform: Platform.OS,
+      exactAlarmTarget: true,
+    });
+  }
 
   return result.scheduled;
 }
