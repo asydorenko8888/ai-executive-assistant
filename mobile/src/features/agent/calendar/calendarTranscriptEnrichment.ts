@@ -20,7 +20,7 @@ import {
 const PRONOUN_REFERENCE = EVENT_PRONOUN_REFERENCE;
 
 const IMPLICIT_REFERENCE_UPDATE =
-  /^(?:please\s+)?(?:перенеси|перенести|move|reschedule|shift|сдвинь|сдвинуть)\b/iu;
+  /^(?:please\s+)?(?:перенеси|перенести|move|reschedule|shift|rename|переимен(?:уй|ить|и)|переймен(?:уй|и)|сдвинь|сдвинуть)\b/iu;
 
 const IMPLICIT_REFERENCE_DELETE =
   /^(?:please\s+)?(?:удали|удалить|видали|видалити|delete|remove|cancel)\b/iu;
@@ -209,7 +209,7 @@ export function enrichCalendarCommandTranscript(params: {
     return enriched;
   }
 
-  if (hasExplicitEventTitleAndTime(normalized)) {
+  if (isOperationalCalendarCreateRequest(normalized) || hasExplicitEventTitleAndTime(normalized)) {
     return normalized;
   }
 

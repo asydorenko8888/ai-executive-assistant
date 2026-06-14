@@ -182,6 +182,19 @@ export async function handleCalendarConflictFollowUp(params: {
   }
 
   if (followUp?.kind === 'suggest_slots') {
+    if (pending.confirmationKind === 'duplicate_title') {
+      clearPendingCalendarConflictContext();
+      const reply = buildCalendarConflictCancelledReply(locale);
+
+      return mapVerifiedOutcome({
+        intent: 'create_calendar_event',
+        tool: createCalendarToolFailure('CALENDAR_DUPLICATE_TITLE', 'User cancelled duplicate create'),
+        reply,
+        spokenReply: reply,
+        verified: false,
+      });
+    }
+
     const slotResult = await buildFreeSlotsReplyForPending(pending);
     syncConversationStateForConflictAlternatives(pending, slotResult.alternativeStartMs);
 
@@ -238,6 +251,7 @@ export async function handleCalendarConflictFollowUp(params: {
       calendarConnected: params.calendarConnected,
       referenceNow: params.referenceNow,
       skipScheduleConflictCheck: true,
+      skipDuplicateTitleConfirmation: pending.confirmationKind === 'duplicate_title',
     });
 
     clearPendingCalendarConflictContext();

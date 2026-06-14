@@ -1,10 +1,14 @@
 import { Platform } from 'react-native';
 
+import {
+  logTranscribeError,
+  logTranscribeStart,
+  logTranscribeSuccess,
+} from '@/src/features/voice/speechPipelineLog';
+import { SPEECH_TRANSCRIBE_TIMEOUT_MS } from '@/src/features/voice/speechTranscriptionUserMessage';
 import { ApiError, createApiErrorFromResponse, toApiError } from '@/src/shared/api';
 import { getAppApiKeyHeaders } from '@/src/shared/api/authHeaders';
 import { env } from '@/src/shared/config';
-
-const SPEECH_TRANSCRIBE_TIMEOUT_MS = 45_000;
 
 function getRuntimeApiBaseUrl() {
   const configuredBaseUrl = env.apiBaseUrl;
@@ -54,6 +58,8 @@ export async function transcribeAudioFile(params: {
     formData.append('language', params.language);
   }
 
+  logTranscribeStart({ language: params.language });
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), SPEECH_TRANSCRIBE_TIMEOUT_MS);
 
@@ -80,30 +86,41 @@ export async function transcribeAudioFile(params: {
         : '';
 
     if (!transcript) {
-      throw new ApiError({
+      const emptyError = new ApiError({
         message: 'Speech transcription returned an empty result.',
         status: 502,
         code: 'SPEECH_EMPTY_TRANSCRIPT',
         retryable: true,
       });
+      logTranscribeError({ message: emptyError.message, code: emptyError.code });
+      throw emptyError;
     }
+
+    logTranscribeSuccess({
+      transcriptPreview: transcript.slice(0, 120),
+    });
 
     return transcript;
   } catch (error) {
     if (error instanceof ApiError) {
+      logTranscribeError({ message: error.message, code: error.code });
       throw error;
     }
 
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new ApiError({
+      const timeoutError = new ApiError({
         message: 'Speech transcription timed out.',
         status: 408,
         code: 'SPEECH_TRANSCRIBE_TIMEOUT',
         retryable: true,
       });
+      logTranscribeError({ message: timeoutError.message, code: timeoutError.code });
+      throw timeoutError;
     }
 
-    throw toApiError(error);
+    const apiError = toApiError(error);
+    logTranscribeError({ message: apiError.message, code: apiError.code });
+    throw apiError;
   } finally {
     clearTimeout(timeoutId);
   }

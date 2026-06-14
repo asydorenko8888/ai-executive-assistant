@@ -11,7 +11,7 @@ import {
   isCalendarConflictDecisionState,
 } from '@/src/features/agent/calendar/calendarConversationState';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
-import { resolveDisambiguationSelection, inferCalendarDisambiguationLocale } from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import { resolveDisambiguationSelection, inferCalendarDisambiguationLocale, looksLikeDisambiguationSelectionAttempt } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import { titlesReferToSameEvent } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
@@ -58,27 +58,6 @@ function isBareShortReply(transcript: string) {
   }
 
   return BARE_SHORT_REPLY.test(normalized) || classifyCalendarShortReply(normalized) !== null;
-}
-
-function isPendingEventDisambiguationActive() {
-  const snapshot = getCalendarConversationSnapshot();
-
-  if (
-    snapshot.state !== 'WAITING_EVENT_SELECTION' &&
-    snapshot.state !== 'AWAITING_EVENT_SELECTION'
-  ) {
-    return false;
-  }
-
-  const updatePending = getPendingCalendarUpdateContext();
-  const deletePending = getPendingCalendarDeleteContext();
-  const storedMoveCandidates = getStoredMoveClarificationCandidates();
-
-  return Boolean(
-    updatePending?.candidates?.length ||
-      deletePending?.candidates?.length ||
-      storedMoveCandidates.length > 0,
-  );
 }
 
 export function isNewCalendarCommandMessage(transcript: string) {
@@ -181,7 +160,7 @@ function looksLikeAlternateTimeReply(transcript: string) {
   return /^[1-9]\d*$/.test(normalized) || /^(?:вариант|option|варіант)\s+[1-9]\d*$/iu.test(normalized);
 }
 
-export function isAwaitingEventDisambiguationSelectionReply(transcript: string) {
+export function isPendingEventDisambiguationActive() {
   const snapshot = getCalendarConversationSnapshot();
 
   if (
@@ -191,6 +170,32 @@ export function isAwaitingEventDisambiguationSelectionReply(transcript: string) 
     return false;
   }
 
+  const updatePending = getPendingCalendarUpdateContext();
+  const deletePending = getPendingCalendarDeleteContext();
+  const storedMoveCandidates = getStoredMoveClarificationCandidates();
+
+  return Boolean(
+    updatePending?.candidates?.length ||
+      deletePending?.candidates?.length ||
+      storedMoveCandidates.length > 0,
+  );
+}
+
+export function isAwaitingEventDisambiguationSelectionReply(
+  transcript: string,
+  referenceNow: Date = new Date(),
+) {
+  if (!isPendingEventDisambiguationActive()) {
+    return false;
+  }
+
+  const normalized = transcript.trim();
+
+  if (looksLikeDisambiguationSelectionAttempt(normalized)) {
+    return true;
+  }
+
+  const snapshot = getCalendarConversationSnapshot();
   const updatePending = getPendingCalendarUpdateContext();
   const deletePending = getPendingCalendarDeleteContext();
   const storedMoveCandidates = getStoredMoveClarificationCandidates();
@@ -212,7 +217,7 @@ export function isAwaitingEventDisambiguationSelectionReply(transcript: string) 
     resolveDisambiguationSelection({
       reply: transcript,
       candidates,
-      referenceNow: new Date(),
+      referenceNow,
       locale,
       pendingTitle: updatePending?.title ?? deletePending?.title,
     })

@@ -1,4 +1,5 @@
 import { CALENDAR_RECURRENCE_TITLE_STRIP_PATTERN } from '@/src/features/agent/calendar/calendarCreateRecurrenceParser';
+import { stripCalendarDayPeriodPhrases } from '@/src/features/agent/calendar/calendarReschedulePeriods';
 import { stripSpokenTimePhrases } from '@/src/features/agent/calendar/calendarSpokenTime';
 import { stripCalendarClockPhrases } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import { stripNaturalDatePhrases } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
@@ -50,7 +51,7 @@ const LEADING_SCHEDULE_PREP = /^(?:at|on|in|by|after|before|within|@|о|в|на)
 
 /** Colloquial lead-ins and create verbs that must not appear in event titles. */
 const TITLE_CONVERSATIONAL_FILLER = new RegExp(
-  `${CALENDAR_WORD_EDGE}(?:совсем\\s+забыл|чуть\\s+не\\s+забыл|кстати|ой|добав(?:ь|ьте|ить)|додай|додати|постав(?:ь|ить)?|створи|создай|создать|запланируй|заплануй)${CALENDAR_WORD_END}`,
+  `${CALENDAR_WORD_EDGE}(?:совсем\\s+забыл|чуть\\s+не\\s+забыл|кстати|ой|привет|здравствуй(?:те)?|спасибо|благодарю|как\\s+дела|как\\s+ты|у\\s+меня\\s+отлично|у\\s+меня\\s+хорошо|у\\s+меня\\s+вс[её]\\s+хорошо|у\\s+меня\\s+нормально|отлично|хорошо|нормально|добав(?:ь|ьте|ить)|додай|додати|постав(?:ь|ить)?|створи|создай|создать|запланируй|заплануй)${CALENDAR_WORD_END}`,
   'giu',
 );
 
@@ -206,6 +207,7 @@ export function cleanCreateEventTitleText(text: string) {
   let cleaned = text.trim();
   cleaned = stripTitleConversationalFillers(cleaned);
   cleaned = cleaned.replace(CALENDAR_RECURRENCE_TITLE_STRIP_PATTERN, ' ');
+  cleaned = stripCalendarDayPeriodPhrases(cleaned);
   cleaned = stripSpokenTimePhrases(cleaned);
   cleaned = stripCalendarClockPhrases(cleaned);
   cleaned = stripNaturalDatePhrases(cleaned);

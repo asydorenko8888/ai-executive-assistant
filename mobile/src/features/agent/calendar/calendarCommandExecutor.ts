@@ -86,6 +86,7 @@ import {
   logCalendarMoveStaleTerminalBlocked,
   logCalendarPendingActionExecuted,
 } from '@/src/features/agent/calendar/calendarMoveTraceLogger';
+import { logPendingActionResolved } from '@/src/features/agent/calendar/calendarPendingActionLogger';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import {
   assessCalendarMutationReadiness,
@@ -304,6 +305,14 @@ async function tryRunPendingCalendarDeleteSelection(params: {
         )
       : outcome.reply;
 
+  if (contractOk) {
+    logPendingActionResolved({
+      type: 'delete_event',
+      selectedEventId,
+      sourceTranscriptPreview: pending.sourceTranscript,
+    });
+  }
+
   rememberCalendarCommandOutcome(
     {
       intent: 'delete_calendar_event',
@@ -402,6 +411,14 @@ async function tryRunPendingCalendarUpdateSelection(params: {
           'API reported success but verified update confirmation is missing',
         )
       : outcome.reply;
+
+  if (contractOk) {
+    logPendingActionResolved({
+      type: 'move_event',
+      selectedEventId,
+      sourceTranscriptPreview: sourceTranscript,
+    });
+  }
 
   rememberCalendarCommandOutcome(
     {
@@ -1006,6 +1023,52 @@ async function executeCalendarCommandUnsafe(params: {
       referenceNow: params.referenceNow,
       intent: 'create_calendar_event',
     });
+
+    if (createReadiness.ready) {
+      const outcome = await executeCalendarCreateEvent({
+        transcript: enrichedTranscript,
+        titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
+        languageCode: params.languageCode,
+        calendarConnected: params.calendarConnected,
+        referenceNow: params.referenceNow,
+      });
+
+      const contractOk = isVerifiedCalendarCreateSuccess(outcome.tool);
+      const terminalReply =
+        outcome.tool.status === 'SUCCESS' && !contractOk
+          ? buildFailureTerminalReply(
+              'CALENDAR_EXECUTION_CONTRACT',
+              'API reported success but verified eventId is missing',
+            )
+          : outcome.reply;
+
+      rememberCalendarCommandOutcome(
+        {
+          intent,
+          tool: outcome.tool,
+          terminalReply,
+          verified: contractOk,
+        },
+        enrichedTranscript,
+      );
+
+      return {
+        matched: true,
+        intent,
+        reply: terminalReply,
+        spokenReply: outcome.spokenReply,
+        toolStatus: outcome.tool.status,
+        executionState: contractOk
+          ? 'tool_success'
+          : outcome.tool.status === 'PENDING'
+            ? 'tool_call'
+            : 'tool_failure',
+        verified: contractOk,
+        requiresCalendarAuth: outcome.requiresCalendarAuth,
+        eventId: outcome.tool.eventId ?? null,
+      };
+    }
+
     const validation = validateActionFields({
       transcript: enrichedTranscript,
       referenceNow: params.referenceNow,

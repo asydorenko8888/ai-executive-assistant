@@ -144,6 +144,11 @@ const EN_AN_HOUR_LATER = new RegExp(
   'i',
 );
 
+const EN_AN_HOUR_EARLIER = new RegExp(
+  `(?:^|[\\s,.;:!?—-]+)(?:an?\\s+hour|one\\s+hour)\\s+earlier${PHRASE_END}`,
+  'i',
+);
+
 const EN_HALF_HOUR_LATER = new RegExp(
   `(?:^|[\\s,.;:!?—-]+)(?:a\\s+)?half\\s+hour\\s+later${PHRASE_END}`,
   'i',
@@ -259,6 +264,7 @@ function parseRelativeOffset(transcript: string): CalendarUpdateSchedule | null 
   const enMinutesLater = transcript.match(EN_MINUTES_LATER);
   const enHoursLater = transcript.match(EN_HOURS_LATER);
   const enAnHourLater = transcript.match(EN_AN_HOUR_LATER);
+  const enAnHourEarlier = transcript.match(EN_AN_HOUR_EARLIER);
   const enHalfHourLater = transcript.match(EN_HALF_HOUR_LATER);
   const enMinutesEarlier = transcript.match(EN_MINUTES_EARLIER);
   const enHoursEarlier = transcript.match(EN_HOURS_EARLIER);
@@ -289,6 +295,15 @@ function parseRelativeOffset(transcript: string): CalendarUpdateSchedule | null 
       kind: 'relative_offset',
       offsetMs: 60 * 60_000,
       direction: 'later',
+    };
+  }
+
+  if (enAnHourEarlier) {
+    return {
+      ok: true,
+      kind: 'relative_offset',
+      offsetMs: 60 * 60_000,
+      direction: 'earlier',
     };
   }
 
@@ -627,6 +642,7 @@ export function stripCalendarUpdateSchedulePhrases(transcript: string) {
   cleaned = cleaned.replace(EN_MINUTES_LATER, ' ');
   cleaned = cleaned.replace(EN_HOURS_LATER, ' ');
   cleaned = cleaned.replace(EN_AN_HOUR_LATER, ' ');
+  cleaned = cleaned.replace(EN_AN_HOUR_EARLIER, ' ');
   cleaned = cleaned.replace(EN_HALF_HOUR_LATER, ' ');
   cleaned = cleaned.replace(EN_MINUTES_EARLIER, ' ');
   cleaned = cleaned.replace(EN_HOURS_EARLIER, ' ');

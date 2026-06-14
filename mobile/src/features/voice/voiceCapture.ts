@@ -8,10 +8,23 @@ import {
 } from '@/src/features/voice/nativeRecording';
 import { transcribeAudioFile } from '@/src/features/voice/transcribeAudio';
 import {
+  logAudioFileReady,
+  logRecordingStarted,
+  logRecordingStopped,
+  logTranscribeError,
+} from '@/src/features/voice/speechPipelineLog';
+import {
+  resolveSpeechTranscriptionUserMessage,
+  SPEECH_TRANSCRIBE_TIMEOUT_MS,
+} from '@/src/features/voice/speechTranscriptionUserMessage';
+import { ApiError } from '@/src/shared/api';
+import {
   logRecordingStoppedOk,
   logStartRecordingCalled,
   logStopRecordingCalled,
 } from '@/src/features/voice/voiceMicDiagnostics';
+
+const NATIVE_TRANSCRIPTION_PHASE_TIMEOUT_MS = SPEECH_TRANSCRIBE_TIMEOUT_MS + 3_000;
 
 type VoiceCaptureCallbacks = {
   language: string;
@@ -70,6 +83,7 @@ function startWebVoiceCapture({
     speechEndDelayMs,
     onStart: () => {
       logStartRecordingCalled();
+      logRecordingStarted();
       started = true;
       onStart?.();
     },
@@ -88,6 +102,7 @@ function startWebVoiceCapture({
     onError,
     onEnd: () => {
       if (started) {
+        logRecordingStopped({ reason: 'web_recognition_end' });
         logRecordingStoppedOk();
       }
       onEnd(finalTranscript.trim());
@@ -133,13 +148,39 @@ function startNativeVoiceCapture({
     }
 
     disposed = true;
+    let transcriptionSettled = false;
+
+    const settleTranscription = (handler: () => void) => {
+      if (transcriptionSettled) {
+        return;
+      }
+
+      transcriptionSettled = true;
+      finishStop(handler);
+    };
 
     void (async () => {
+      const phaseTimeout = setTimeout(() => {
+        if (transcriptionSettled) {
+          return;
+        }
+
+        const message = resolveSpeechTranscriptionUserMessage(
+          new Error('Speech transcription phase timed out.'),
+        );
+        logTranscribeError({ message, code: 'SPEECH_TRANSCRIBE_PHASE_TIMEOUT' });
+        settleTranscription(() => {
+          onError(message);
+          onEnd('');
+        });
+      }, NATIVE_TRANSCRIPTION_PHASE_TIMEOUT_MS);
+
       try {
         const recording = await recordingPromise;
 
         if (!recording) {
-          finishStop(() => {
+          logRecordingStopped({ reason: 'missing_recording' });
+          settleTranscription(() => {
             logRecordingStoppedOk();
             onEnd('');
           });
@@ -147,21 +188,37 @@ function startNativeVoiceCapture({
         }
 
         onPartialTranscript?.('Transcribing...');
+        logRecordingStopped({ reason: 'native_stop_requested' });
         const uri = await stopNativeAudioRecording(recording);
+        logAudioFileReady({ uri });
         const transcript = await transcribeAudioFile({
           uri,
           language,
           mimeType: 'audio/m4a',
         });
-        finishStop(() => {
+
+        if (transcriptionSettled) {
+          return;
+        }
+
+        clearTimeout(phaseTimeout);
+        settleTranscription(() => {
           logRecordingStoppedOk();
           onEnd(transcript.trim());
         });
       } catch (error) {
+        if (transcriptionSettled) {
+          return;
+        }
+
+        clearTimeout(phaseTimeout);
         await cancelNativeAudioRecording();
-        finishStop(() => {
-          const message =
-            error instanceof Error ? error.message : 'Voice transcription failed.';
+        const message = resolveSpeechTranscriptionUserMessage(error);
+        logTranscribeError({
+          message,
+          code: error instanceof ApiError ? error.code : undefined,
+        });
+        settleTranscription(() => {
           onError(message);
           onEnd('');
         });
@@ -183,6 +240,7 @@ function startNativeVoiceCapture({
       }
 
       logStartRecordingCalled();
+      logRecordingStarted();
       onStart?.();
       onPartialTranscript?.('Recording...');
       autoStopTimer = setTimeout(() => {

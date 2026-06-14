@@ -75,6 +75,68 @@ describe('local reminder intent parser', () => {
     assert.equal(intent.triggerAt.getTime(), referenceNow.getTime() + 2 * 60_000);
   });
 
+  it('parses common Russian reminder phrasings', () => {
+    const phrases = [
+      {
+        transcript: 'напомни мне через 2 минуты выпить кофе',
+        text: 'выпить кофе',
+      },
+      {
+        transcript: 'напомни через 2 минуты выпить кофе',
+        text: 'выпить кофе',
+      },
+      {
+        transcript: 'напомни через 2 минуты выпить воду',
+        text: 'выпить воду',
+      },
+      {
+        transcript: 'напомни, через 2 минуты выпить воду',
+        text: 'выпить воду',
+      },
+      {
+        transcript: 'напомни мне выпить кофе через 2 минуты',
+        text: 'выпить кофе',
+      },
+      {
+        transcript: 'напомни, мне через 2 минуты выпить кофе',
+        text: 'выпить кофе',
+      },
+      {
+        transcript: 'напомни мне, через 2 минуты выпить кофе',
+        text: 'выпить кофе',
+      },
+      {
+        transcript: 'напомни мне через 2 минуты, выпить кофе',
+        text: 'выпить кофе',
+      },
+      {
+        transcript: 'Напомни, выпить кофе через 2 минуты',
+        text: 'выпить кофе',
+      },
+      {
+        transcript: 'Напомни, выпить кофе через 2 минуты.',
+        text: 'выпить кофе',
+      },
+      {
+        transcript: 'Напомню, выпить кофе через 2 минуты',
+        text: 'выпить кофе',
+      },
+    ];
+
+    for (const phrase of phrases) {
+      const intent = parseLocalReminderIntent(phrase.transcript, referenceNow);
+
+      assert.equal(intent?.kind, 'create', phrase.transcript);
+
+      if (intent?.kind !== 'create') {
+        continue;
+      }
+
+      assert.equal(intent.text, phrase.text, phrase.transcript);
+      assert.equal(intent.requestedDelayMs, 2 * 60_000, phrase.transcript);
+    }
+  });
+
   it('parses minute+second relative duration', () => {
     const parsed = parseRelativeDurationPhrase('6 минут 30 секунд');
 
@@ -101,12 +163,12 @@ describe('local reminder confirmation reply', () => {
 
     try {
       const result = resolveLocalReminderTurn({
-        transcript: TEST_TRANSCRIPT,
+        transcript: 'напомни мне через 2 минуты выпить кофе',
         languageCode: 'ru-RU',
         referenceNow,
       });
 
-      assert.equal(result?.reply, 'Хорошо. Напомню через 2 минуты: выпить воду.');
+      assert.equal(result?.reply, 'Хорошо. Напомню через 2 минуты: выпить кофе.');
 
       const confirmationLog = logs.entries.find((entry) => entry[0] === 'LOCAL_REMINDER_CONFIRMATION_BUILT');
 
@@ -116,6 +178,51 @@ describe('local reminder confirmation reply', () => {
     } finally {
       logs.restore();
     }
+  });
+
+  it('acceptance: напомни через 2 минуты выпить воду', () => {
+    const logs = captureConsoleError();
+    const referenceNow = new Date('2026-05-28T10:00:00+03:00');
+
+    try {
+      const result = resolveLocalReminderTurn({
+        transcript: 'напомни через 2 минуты выпить воду',
+        languageCode: 'ru-RU',
+        referenceNow,
+      });
+
+      assert.equal(result?.reply, 'Хорошо. Напомню через 2 минуты: выпить воду.');
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it('acceptance: Напомни, выпить кофе через 2 минуты', () => {
+    const logs = captureConsoleError();
+    const referenceNow = new Date('2026-05-28T10:00:00+03:00');
+
+    try {
+      const result = resolveLocalReminderTurn({
+        transcript: 'Напомни, выпить кофе через 2 минуты',
+        languageCode: 'ru-RU',
+        referenceNow,
+      });
+
+      assert.equal(result?.reply, 'Хорошо. Напомню через 2 минуты: выпить кофе.');
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it('acceptance: STT future-tense Напомню routes to scheduler', () => {
+    const referenceNow = new Date('2026-05-28T10:00:00+03:00');
+    const result = resolveLocalReminderTurn({
+      transcript: 'Напомню, выпить кофе через 2 минуты',
+      languageCode: 'ru-RU',
+      referenceNow,
+    });
+
+    assert.equal(result?.reply, 'Хорошо. Напомню через 2 минуты: выпить кофе.');
   });
 
   it('uses parsed delay for minute+second confirmation', () => {

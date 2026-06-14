@@ -172,8 +172,7 @@ async function tryHealBackendFromLocal(localSession: GoogleCalendarSession) {
   }
 
   try {
-    await syncGoogleCalendarSessionToBackend(localSession);
-    const backendStatus = await fetchGoogleCalendarBackendStatus();
+    const backendStatus = await syncGoogleCalendarSessionToBackend(localSession);
 
     return {
       backendStatus,
@@ -210,7 +209,7 @@ export async function refreshCalendarAuthCapabilities(options?: {
     !env.googleCalendarAndroidClientId;
 
   let localSession = await loadGoogleCalendarSession();
-  let backendStatus = await fetchGoogleCalendarBackendStatus().catch(() => null);
+  let backendStatus = await fetchGoogleCalendarBackendStatus({ localSession }).catch(() => null);
 
   let desyncReason: string | undefined;
   let healed = false;

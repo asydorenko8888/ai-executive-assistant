@@ -153,6 +153,65 @@ describe('calendar delete disambiguation flow', () => {
     assert.equal(selected?.eventId, 'walk-5pm');
   });
 
+  it('selects duplicate-title delete candidate by Russian spoken hour count', () => {
+    const candidates = [
+      { eventId: 'walk-7pm', title: 'Прогулка', startsAt: '2026-05-28T19:00:00-05:00', endsAt: '2026-05-28T20:00:00-05:00' },
+      { eventId: 'walk-9pm', title: 'Прогулка', startsAt: '2026-05-28T21:00:00-05:00', endsAt: '2026-05-28T22:00:00-05:00' },
+    ];
+
+    for (const reply of ['Сегодня 19.00', 'Сегодня девятнадцать часов', 'девятнадцать часов', '19 часов']) {
+      const merged = tryMergePendingCalendarDeleteReply({
+        pending: pendingDelete({ sourceTranscript: 'Удали прогулку', title: 'прогулку', candidates }),
+        reply,
+        referenceNow,
+        timeZone,
+      });
+
+      assert.equal(merged?.selectedEventId, 'walk-7pm', `reply=${reply}`);
+    }
+  });
+
+  it('selects duplicate-title delete candidate by Cyrillic day and dot clock', () => {
+    const referenceAt1738 = new Date('2026-05-28T17:38:00+03:00');
+    const candidates = [
+      {
+        eventId: 'walk-430',
+        title: 'Прогулка',
+        startsAt: '2026-05-28T16:30:00+03:00',
+        endsAt: '2026-05-28T17:30:00+03:00',
+      },
+      {
+        eventId: 'walk-700',
+        title: 'Прогулка',
+        startsAt: '2026-05-28T19:00:00+03:00',
+        endsAt: '2026-05-28T20:00:00+03:00',
+      },
+    ];
+
+    const selected = resolveDisambiguationSelection({
+      reply: 'Сегодня 16.30',
+      candidates,
+      referenceNow: referenceAt1738,
+      timeZone: 'Europe/Kyiv',
+      pendingTitle: 'прогулка',
+    });
+
+    assert.equal(selected?.eventId, 'walk-430');
+
+    const merged = tryMergePendingCalendarDeleteReply({
+      pending: pendingDelete({
+        sourceTranscript: 'Удали прогулку',
+        title: 'прогулка',
+        candidates,
+      }),
+      reply: 'Сегодня 16.30',
+      referenceNow: referenceAt1738,
+      timeZone: 'Europe/Kyiv',
+    });
+
+    assert.equal(merged?.selectedEventId, 'walk-430');
+  });
+
   it('selects by Cyrillic ordinal (первое)', () => {
     const candidates = [
       { eventId: 'walk-5pm', title: 'Walk', startsAt: '2026-05-28T17:00:00-05:00', endsAt: '2026-05-28T18:00:00-05:00' },

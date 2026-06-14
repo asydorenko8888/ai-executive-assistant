@@ -25,6 +25,7 @@ export type CalendarToolErrorCode =
   | 'CALENDAR_RECURRING_NOT_SUPPORTED'
   | 'CALENDAR_ALL_DAY_NOT_SUPPORTED'
   | 'CALENDAR_SCHEDULE_CONFLICT'
+  | 'CALENDAR_DUPLICATE_TITLE'
   | 'CALENDAR_SCHEDULE_IN_PAST';
 
 export type CalendarToolResponse = {

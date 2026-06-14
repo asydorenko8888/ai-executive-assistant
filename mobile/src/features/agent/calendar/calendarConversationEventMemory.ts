@@ -102,7 +102,19 @@ function buildMemoryView(): CalendarConversationEventMemory {
       ? pointerToRecord(store.lastModified, 'update', 'last_updated')
       : null,
     lastReferencedEvent: store.lastReferenced
-      ? pointerToRecord(store.lastReferenced, 'search', 'search')
+      ? pointerToRecord(
+          store.lastReferenced,
+          store.lastReferenced.eventId === store.lastModified?.eventId
+            ? 'update'
+            : store.lastReferenced.eventId === store.lastCreated?.eventId
+              ? 'create'
+              : 'search',
+          store.lastReferenced.eventId === store.lastModified?.eventId
+            ? 'last_updated'
+            : store.lastReferenced.eventId === store.lastCreated?.eventId
+              ? 'last_created'
+              : 'search',
+        )
       : null,
     lastReferencedRecurringSeries,
   };

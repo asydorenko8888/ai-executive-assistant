@@ -1,5 +1,9 @@
 import { parseLocalReminderIntent } from '@/src/features/local-reminders/localReminderIntentParser';
 import {
+  syncLocalReminderNotificationCancel,
+  syncLocalReminderNotificationSchedule,
+} from '@/src/features/local-reminders/localReminderNotificationSync';
+import {
   buildLocalReminderCancelReply,
   buildLocalReminderClarificationReply,
   buildLocalReminderCreatedReply,
@@ -57,6 +61,8 @@ export function resolveLocalReminderTurn(params: {
       sourceTranscript: intent.sourceTranscript,
     });
 
+    syncLocalReminderNotificationSchedule(reminder);
+
     const reply = buildLocalReminderCreatedReply({
       reminder,
       languageCode: params.languageCode,
@@ -106,6 +112,12 @@ export function resolveLocalReminderTurn(params: {
     }
 
     const cancelled = matches.map((reminder) => cancelLocalReminder(reminder.id, 'user_cancel')).filter(Boolean);
+
+    for (const reminder of cancelled) {
+      if (reminder) {
+        syncLocalReminderNotificationCancel(reminder.id);
+      }
+    }
 
     return {
       reply: buildLocalReminderCancelReply({

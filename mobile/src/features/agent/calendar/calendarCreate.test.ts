@@ -140,6 +140,14 @@ describe('calendar create integration', () => {
       extractCreateEventTitle('Чуть не забыл, створи каву завтра о 9:00'),
       'Кава',
     );
+    assert.equal(
+      extractCreateEventTitle('У меня отлично. Добавь на 7 вечера прогулку.'),
+      'Прогулка',
+    );
+    assert.equal(
+      extractCreateEventTitle('Привет, у меня отлично. Добавь прогулку на 7 вечера.'),
+      'Прогулка',
+    );
   });
 
   it('does not leak previous user message into title when titleSource is current message only', () => {

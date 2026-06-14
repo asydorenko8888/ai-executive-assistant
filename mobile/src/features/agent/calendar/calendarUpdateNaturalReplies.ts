@@ -43,14 +43,14 @@ export function buildCalendarUpdateTimeParseFailedReply(locale: CalendarUpdateLo
 
 export function buildCalendarUpdateVerificationFailedReply(locale: CalendarUpdateLocale) {
   if (locale === 'uk') {
-    return 'Не вдалося перенести подію. Календар не підтвердив зміну.';
+    return 'Не вдалося виконати дію. Календар не змінено. Перенесення не підтверджено.';
   }
 
   if (locale === 'ru') {
-    return 'Не удалось перенести событие. Календарь не подтвердил изменение.';
+    return 'Не удалось выполнить действие. Календарь не изменён. Перенос не подтверждён.';
   }
 
-  return 'Could not move the event. Calendar did not confirm the change.';
+  return 'Could not complete the action. Your calendar was not changed. Move verification failed.';
 }
 
 export function buildCalendarUpdateNotFoundReply(locale: CalendarUpdateLocale) {

@@ -5,7 +5,7 @@ import {
 import { isLocalAlarmIntent } from '@/src/features/local-alarms/localAlarmClassification';
 
 const LOCAL_REMINDER_VERB = new RegExp(
-  `${CALENDAR_WORD_EDGE}(?:remind(?:\\s+me)?|reminder|нагадай(?:ти)?|напомни(?:ть)?)${CALENDAR_WORD_END}`,
+  `${CALENDAR_WORD_EDGE}(?:remind(?:\\s+me)?|reminder|нагадай(?:ти)?|нагадаю|напомни(?:ть)?|напомню)${CALENDAR_WORD_END}`,
   'iu',
 );
 

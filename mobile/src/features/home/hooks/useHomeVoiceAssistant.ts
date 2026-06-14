@@ -66,6 +66,7 @@ import {
   DEFAULT_VOICE_CAPTURE_MAX_MS,
   type VoiceCaptureSession,
 } from '@/src/features/voice/voiceCapture';
+import { logAssistantRequestStart } from '@/src/features/voice/speechPipelineLog';
 import {
   logMicButtonPressed,
   logMicStateBefore,
@@ -602,6 +603,9 @@ export function useHomeVoiceAssistant() {
       },
       onPartialTranscript: (transcript) => {
         setLiveTranscript(transcript);
+        if (transcript === 'Transcribing...') {
+          setStatusText('Transcribing...');
+        }
       },
       onError: (message) => {
         resetVoiceUiToReady(message);
@@ -620,6 +624,10 @@ export function useHomeVoiceAssistant() {
 
         setHeardTranscript(transcript);
         setLiveTranscript(transcript);
+        logAssistantRequestStart({
+          transcriptPreview: transcript.slice(0, 120),
+          source: 'home_voice',
+        });
         setVoiceStatus('processing');
         setStatusText('Thinking...');
         void sendTranscriptToAssistant(transcript);

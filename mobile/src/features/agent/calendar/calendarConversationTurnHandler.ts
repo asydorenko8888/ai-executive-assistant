@@ -251,6 +251,7 @@ type ExecutePendingMutationParams = {
   referenceNow: Date;
   calendarConnected: boolean;
   skipScheduleConflictCheck?: boolean;
+  skipDuplicateTitleConfirmation?: boolean;
   transcriptOverride?: string;
   selectedEventId?: string | null;
   scheduleOverride?: {
@@ -379,6 +380,7 @@ async function executePendingMutation(params: ExecutePendingMutationParams) {
     calendarConnected: params.calendarConnected,
     referenceNow: params.referenceNow,
     skipScheduleConflictCheck: params.skipScheduleConflictCheck,
+    skipDuplicateTitleConfirmation: params.skipDuplicateTitleConfirmation,
     scheduleOverride: params.scheduleOverride,
   });
 
@@ -593,6 +595,8 @@ async function handleConflictDecisionState(params: {
       referenceNow: params.referenceNow,
       calendarConnected: params.calendarConnected,
       skipScheduleConflictCheck: resolution.skipScheduleConflictCheck,
+      skipDuplicateTitleConfirmation:
+        params.pending.clarificationKind === 'create_duplicate_confirmation',
     };
 
     beginConfirmedConflictMutation(mutationParams);

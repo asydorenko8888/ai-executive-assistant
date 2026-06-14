@@ -17,6 +17,8 @@ import {
   buildMoveClarificationPendingActionFields,
   recordMoveClarificationStarted,
 } from '@/src/features/agent/calendar/calendarMoveClarificationState';
+import { logPendingActionCreated } from '@/src/features/agent/calendar/calendarPendingActionLogger';
+import { logPendingDeleteActionCreated } from '@/src/features/agent/calendar/calendarPendingActionBinding';
 
 function persistPendingEventAsActiveContext(pending: CalendarPendingAction) {
   setPendingEventFromAction(pending);
@@ -81,15 +83,37 @@ function deleteContextToPendingAction(
   context: PendingCalendarDeleteContext,
   languageCode: CalendarPendingAction['languageCode'],
 ): CalendarPendingAction {
+  const selected =
+    context.candidates?.find((candidate) => candidate.eventId === context.selectedEventId) ?? null;
+
   return buildCalendarPendingAction({
     actionType: 'delete',
     originalIntent: context.sourceTranscript,
-    eventTitle: context.title?.trim() || 'event',
+    eventTitle: (selected?.title ?? context.title?.trim()) || 'event',
     sourceTranscript: context.sourceTranscript,
     languageCode,
-    proposedStartMs: 0,
-    proposedEndMs: 0,
+    proposedStartMs: selected ? Date.parse(selected.startsAt) : 0,
+    proposedEndMs: selected ? Date.parse(selected.endsAt) : 0,
     deleteTitleQuery: context.title,
+    candidateEventId: context.selectedEventId ?? null,
+    targetEventId: context.selectedEventId ?? null,
+    originalStart: selected?.startsAt ?? null,
+    originalEnd: selected?.endsAt ?? null,
+    conflictEvents:
+      context.candidates?.map((candidate) => ({
+        eventId: candidate.eventId,
+        title: candidate.title,
+        startsAt: candidate.startsAt,
+        endsAt: candidate.endsAt,
+      })) ?? [],
+    clarificationKind: 'delete_event',
+    selectionCandidates:
+      context.candidates?.map((candidate) => ({
+        eventId: candidate.eventId,
+        title: candidate.title,
+        startsAt: candidate.startsAt,
+        endsAt: candidate.endsAt,
+      })) ?? [],
   });
 }
 
@@ -114,6 +138,22 @@ function updateContextToPendingAction(
     updateFromStartISO: context.fromStartISO,
     updateToStartISO: context.toStartISO,
   });
+}
+
+export function syncConversationStateForCreateDuplicateConfirmation(
+  context: PendingCalendarConflictContext,
+) {
+  const pendingAction = {
+    ...conflictContextToPendingAction(context),
+    clarificationKind: 'create_duplicate_confirmation' as const,
+  };
+
+  transitionCalendarConversationState({
+    toState: 'WAITING_CONFLICT_DECISION',
+    pendingAction,
+    reason: 'create_duplicate_title_confirmation',
+  });
+  persistPendingEventAsActiveContext(pendingAction);
 }
 
 export function syncConversationStateForConflict(
@@ -191,6 +231,15 @@ export function syncConversationStateForDeleteSelection(
     reason: 'delete_event_ambiguous',
   });
   persistPendingEventAsActiveContext(pendingAction);
+  logPendingDeleteActionCreated(context);
+  logPendingActionCreated({
+    type: 'delete_event',
+    sourceTranscript: context.sourceTranscript,
+    title: context.title,
+    candidateCount: context.candidates?.length ?? 0,
+    candidateEventIds: context.candidates?.map((candidate) => candidate.eventId) ?? [],
+    pendingActionId: pendingAction.pendingActionId,
+  });
 }
 
 export function syncConversationStateForMoveClarification(
@@ -239,4 +288,12 @@ export function syncConversationStateForUpdateSelection(
     title: context.title,
   });
   touchCalendarConversationContext();
+  logPendingActionCreated({
+    type: context.action === 'move' ? 'move_event' : 'update_event',
+    sourceTranscript: context.sourceTranscript,
+    title: context.title,
+    candidateCount: context.candidates?.length ?? 0,
+    candidateEventIds: context.candidates?.map((candidate) => candidate.eventId) ?? [],
+    pendingActionId: pendingAction.pendingActionId,
+  });
 }

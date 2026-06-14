@@ -1,3 +1,4 @@
+import { resetConversationEventMemory } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { resetCalendarMutationRefreshRequirement } from '@/src/features/agent/calendar/calendarPreMutationRefreshState';
 import { clearPendingIntent } from '@/src/features/agent/calendar/calendarPendingIntent';
 import { clearPendingCalendarState } from '@/src/features/agent/calendar/calendarPendingStateLifecycle';
@@ -71,6 +72,8 @@ export type PendingCalendarConflictContext = {
   conflictingStartsAt: string;
   conflictingEndsAt: string;
   proceedDespiteConflict: boolean;
+  confirmationKind?: 'schedule_overlap' | 'duplicate_title';
+  exactDuplicate?: boolean;
 };
 
 export type LastCalendarReadMatch = {
@@ -359,7 +362,9 @@ export function endCalendarOperation(params: {
     const transientFailure = isTransientCalendarToolErrorCode(lastToolResponse?.errorCode);
     const awaitingConflictConfirmation =
       lastToolResponse?.errorCode === 'CALENDAR_SCHEDULE_CONFLICT' ||
-      params.failureReason === 'schedule_conflict_blocked';
+      lastToolResponse?.errorCode === 'CALENDAR_DUPLICATE_TITLE' ||
+      params.failureReason === 'schedule_conflict_blocked' ||
+      params.failureReason === 'duplicate_title_blocked';
 
     if (awaitingConflictConfirmation || transientFailure) {
       calendarRetryCount = 0;

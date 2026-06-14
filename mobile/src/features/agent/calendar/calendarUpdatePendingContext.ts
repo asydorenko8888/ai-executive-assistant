@@ -20,6 +20,8 @@ import {
 import {
   logCalendarPendingActionResolved,
 } from '@/src/features/agent/calendar/calendarMoveTraceLogger';
+import { logPendingActionMatched } from '@/src/features/agent/calendar/calendarPendingActionLogger';
+import { bindPendingCalendarMoveSelection } from '@/src/features/agent/calendar/calendarPendingActionBinding';
 import type { CalendarDisambiguationCandidate } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 
 const TIME_ONLY_REPLY = /^(\d{1,2}:\d{2})$/;
@@ -286,6 +288,19 @@ export function tryMergePendingCalendarUpdateReply(params: {
         toStartISO: next.toStartISO,
         replyPreview: reply.slice(0, 120),
         sourceTranscriptPreview: params.pending.sourceTranscript.slice(0, 120),
+      });
+      logPendingActionMatched({
+        type: params.pending.action === 'move' ? 'move_event' : 'update_event',
+        replyPreview: reply,
+        selectedEventId: selected.eventId,
+        selectedTitle: selected.title,
+        selectedStartsAt: selected.startsAt,
+      });
+
+      bindPendingCalendarMoveSelection({
+        context: next,
+        selectedEventId: selected.eventId,
+        replyPreview: reply,
       });
 
       return {

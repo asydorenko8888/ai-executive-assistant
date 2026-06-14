@@ -10,6 +10,7 @@ import { isCalendarConversationContextFresh } from '@/src/features/agent/calenda
 import { clearPendingIntent } from '@/src/features/agent/calendar/calendarPendingIntent';
 import type { CalendarToolResponse } from '@/src/features/agent/execution/calendarToolContract';
 import { logCalendarMoveWorkflow } from '@/src/features/agent/calendar/calendarMoveWorkflowLogger';
+import { logPendingActionCleared } from '@/src/features/agent/calendar/calendarPendingActionLogger';
 import {
   clearPendingCalendarConflictContext,
   clearPendingCalendarDeleteIntent,
@@ -146,6 +147,19 @@ export function clearPendingCalendarState(reason: string, incomingMessage?: stri
   console.log(`reason=${reason}`);
   console.log(`pendingActionId=${pending?.pendingActionId ?? 'none'}`);
   console.log(`hadAwaitingInput=${awaitingInput}`);
+
+  logPendingActionCleared({
+    type:
+      pending?.actionType === 'delete'
+        ? 'delete_event'
+        : pending?.actionType === 'update'
+          ? pending?.clarificationKind === 'move_event'
+            ? 'move_event'
+            : 'update_event'
+          : null,
+    reason,
+    pendingActionId: pending?.pendingActionId ?? null,
+  });
 
   if (incomingMessage) {
     console.log(`incomingMessage=${incomingMessage.slice(0, 160)}`);

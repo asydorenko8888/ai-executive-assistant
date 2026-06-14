@@ -4,6 +4,8 @@ import {
   logPendingDeleteSelectedCandidate,
   logPendingDeleteUserReply,
 } from '@/src/features/agent/calendar/calendarDeleteDiagnostics';
+import { logPendingActionCreated, logPendingActionMatched } from '@/src/features/agent/calendar/calendarPendingActionLogger';
+import { bindPendingCalendarDeleteSelection } from '@/src/features/agent/calendar/calendarPendingActionBinding';
 import { refreshPendingDeleteCandidates } from '@/src/features/agent/calendar/refreshPendingDeleteCandidates';
 import {
   resolveDisambiguationSelection,
@@ -33,6 +35,13 @@ export function createPendingCalendarDeleteContext(params: {
     originalUserText: context.originalUserText,
     title: context.title,
     candidateCount: context.candidates?.length ?? 0,
+  });
+  logPendingActionCreated({
+    type: 'delete_event',
+    sourceTranscript: context.sourceTranscript,
+    title: context.title,
+    candidateCount: context.candidates?.length ?? 0,
+    candidateEventIds: context.candidates?.map((candidate) => candidate.eventId) ?? [],
   });
   logPendingDeleteCandidates({
     candidates: context.candidates ?? [],
@@ -79,6 +88,13 @@ export async function resolvePendingCalendarDeleteFromReply(params: {
     startsAt: selected.startsAt,
     replyPreview: reply.slice(0, 120),
   });
+  logPendingActionMatched({
+    type: 'delete_event',
+    replyPreview: reply,
+    selectedEventId: selected.eventId,
+    selectedTitle: selected.title,
+    selectedStartsAt: selected.startsAt,
+  });
 
   const context: PendingCalendarDeleteContext = {
     ...params.pending,
@@ -86,6 +102,12 @@ export async function resolvePendingCalendarDeleteFromReply(params: {
     selectedEventId: selected.eventId,
     dayHint: null,
   };
+
+  bindPendingCalendarDeleteSelection({
+    context,
+    selectedEventId: selected.eventId,
+    replyPreview: reply,
+  });
 
   return { context, selected };
 }

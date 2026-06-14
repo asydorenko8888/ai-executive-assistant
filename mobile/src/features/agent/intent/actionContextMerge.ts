@@ -80,6 +80,7 @@ export function mergeActionContextFromHistory(params: {
     const mergedPendingDelete = tryMergePendingCalendarDeleteReply({
       pending: pendingDelete,
       reply: normalized,
+      referenceNow: params.referenceNow,
     });
 
     if (mergedPendingDelete) {

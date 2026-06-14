@@ -15,6 +15,13 @@ import {
 } from '@/src/features/agent/execution/calendarToolContract';
 import { logCalendarGoogleApiResponse } from '@/src/features/agent/calendar/calendarExecutionDebugLog';
 import { mapCaughtCalendarApiError } from '@/src/features/agent/calendar/calendarApiToolErrorMapper';
+import {
+  logCalendarMoveApiCalled,
+  logCalendarMoveApiFailed,
+  logCalendarMoveApiSuccess,
+  logCalendarMoveVerificationFailed,
+  logCalendarMoveVerified,
+} from '@/src/features/agent/calendar/calendarActionReliabilityLogger';
 import { logCalendarMoveWorkflow } from '@/src/features/agent/calendar/calendarMoveWorkflowLogger';
 import {
   logCalendarMoveExecutorCalled,
@@ -89,6 +96,11 @@ export async function updateGoogleCalendarEvent(
     summary: payload.summary ?? null,
     start: payload.start.dateTime ?? null,
     end: payload.end.dateTime ?? null,
+  });
+  logCalendarMoveApiCalled({
+    eventId,
+    targetStartTime: payload.start.dateTime ?? null,
+    targetEndTime: payload.end.dateTime ?? null,
   });
 
   try {
@@ -173,6 +185,8 @@ export async function updateGoogleCalendarEvent(
       logCalendarMoveWorkflow('MOVE_VERIFY_SUCCESS', {
         eventId: tool.event.id,
       });
+      logCalendarMoveApiSuccess(eventId);
+      logCalendarMoveVerified(tool.event.id);
       logCalendarUpdateVerified({
         eventId: tool.event.id,
         startsAt: tool.event.startsAt,
@@ -186,6 +200,18 @@ export async function updateGoogleCalendarEvent(
         reason: tool.errorCode ?? 'authoritative_read_failed',
         error: tool.error ?? null,
       });
+      if (tool.errorCode === 'VERIFY_FAILED') {
+        logCalendarMoveVerificationFailed({
+          eventId,
+          reason: tool.error ?? 'move verification failed',
+        });
+      } else {
+        logCalendarMoveApiFailed({
+          eventId,
+          errorCode: tool.errorCode ?? null,
+          message: tool.error ?? null,
+        });
+      }
       logCalendarUpdateFailed({
         eventId,
         reason: 'authoritative_read_failed',
@@ -239,6 +265,10 @@ export async function updateGoogleCalendarEvent(
       phase: 'googleCalendarUpdateService',
       eventId,
       reason: message,
+    });
+    logCalendarMoveApiFailed({
+      eventId,
+      message,
     });
 
     logCalendarUpdateFailed({

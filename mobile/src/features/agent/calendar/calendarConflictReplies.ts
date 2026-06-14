@@ -152,6 +152,82 @@ export function buildCalendarConflictFreeSlotsReply(params: {
   return `Nearest free slots:\n${top.join('\n')}\nSay "yes" to keep the requested time anyway, or pick another time.`;
 }
 
+function formatDuplicateConfirmationDayLabel(dayOffset: number, locale: CalendarConflictLocale) {
+  if (dayOffset === 0) {
+    if (locale === 'uk') {
+      return 'сьогодні';
+    }
+
+    if (locale === 'ru') {
+      return 'сегодня';
+    }
+
+    return 'today';
+  }
+
+  if (dayOffset === 1) {
+    if (locale === 'uk') {
+      return 'завтра';
+    }
+
+    if (locale === 'ru') {
+      return 'завтра';
+    }
+
+    return 'tomorrow';
+  }
+
+  if (locale === 'uk') {
+    return 'цей день';
+  }
+
+  if (locale === 'ru') {
+    return 'этот день';
+  }
+
+  return 'that day';
+}
+
+export function buildCreateDuplicateTitleConfirmationReply(params: {
+  locale: CalendarConflictLocale;
+  dayOffset: number;
+  existingTitle: string;
+  existingStartMs: number;
+  proposedTitle: string;
+  proposedStartMs: number;
+  exactDuplicate: boolean;
+}) {
+  const timeZone = getExecutiveCalendarTimezone();
+
+  if (params.exactDuplicate) {
+    if (params.locale === 'uk') {
+      return 'Така подія вже є. Створити дубль?';
+    }
+
+    if (params.locale === 'ru') {
+      return 'Такое событие уже есть. Создать дубль?';
+    }
+
+    return 'That event already exists. Create a duplicate?';
+  }
+
+  const dayLabel = formatDuplicateConfirmationDayLabel(params.dayOffset, params.locale);
+  const existingTime = formatConflictTimeLabel(params.existingStartMs, timeZone);
+  const proposedTime = formatConflictTimeLabel(params.proposedStartMs, timeZone);
+  const existingTitle = params.existingTitle.trim() || params.proposedTitle.trim();
+  const proposedTitle = params.proposedTitle.trim() || existingTitle;
+
+  if (params.locale === 'uk') {
+    return `На ${dayLabel} вже є «${existingTitle}» о ${existingTime}. Створити ще одну «${proposedTitle}» о ${proposedTime}?`;
+  }
+
+  if (params.locale === 'ru') {
+    return `На ${dayLabel} уже есть «${existingTitle}» в ${existingTime}. Создать ещё одну «${proposedTitle}» в ${proposedTime}?`;
+  }
+
+  return `On ${dayLabel} you already have "${existingTitle}" at ${existingTime}. Create another "${proposedTitle}" at ${proposedTime}?`;
+}
+
 export function buildCalendarCreateConflictInitialReply(params: {
   locale: CalendarConflictLocale;
   proposedTitle: string;

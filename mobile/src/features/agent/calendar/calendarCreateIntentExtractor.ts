@@ -21,11 +21,22 @@ const CREATE_VERB_ANYWHERE = new RegExp(
   'giu',
 );
 
-/** If multiple create verbs appear (merged transcript leak), keep only the last command span. */
+function resetCreateVerbRegex() {
+  CREATE_VERB_ANYWHERE.lastIndex = 0;
+}
+
+function textContainsCreateVerb(text: string) {
+  resetCreateVerbRegex();
+
+  return CREATE_VERB_ANYWHERE.test(text);
+}
+
+/** Keep only the span from the last create verb so conversational prefixes are not part of the title. */
 function isolateLastCreateCommandSegment(text: string) {
+  resetCreateVerbRegex();
   const matches = [...text.matchAll(CREATE_VERB_ANYWHERE)];
 
-  if (matches.length <= 1) {
+  if (matches.length === 0) {
     return text.trim();
   }
 
@@ -40,6 +51,7 @@ function isolateLastCreateCommandSegment(text: string) {
 
 function stripCreateVerbs(text: string) {
   let cleaned = text.replace(CREATE_COMMAND_PREFIX, '').trim();
+  resetCreateVerbRegex();
   cleaned = cleaned.replace(CREATE_VERB_ANYWHERE, ' ');
 
   return cleaned.replace(/\s+/g, ' ').trim();
@@ -68,7 +80,7 @@ export function extractCreateEventTitle(
     return null;
   }
 
-  if (!CREATE_COMMAND_PREFIX.test(originalText) && !CREATE_VERB_ANYWHERE.test(originalText)) {
+  if (!CREATE_COMMAND_PREFIX.test(originalText) && !textContainsCreateVerb(originalText)) {
     logCreateParse({
       originalText,
       cleanedText: '',

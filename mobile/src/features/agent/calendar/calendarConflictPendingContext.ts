@@ -84,6 +84,7 @@ export function pendingConflictContextFromCheck(params: {
     conflictingStartsAt: params.conflictingStartsAt,
     conflictingEndsAt: params.conflictingEndsAt,
     proceedDespiteConflict: false,
+    confirmationKind: 'schedule_overlap',
   };
 }
 

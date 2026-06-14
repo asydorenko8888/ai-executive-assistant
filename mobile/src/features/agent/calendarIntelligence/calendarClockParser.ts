@@ -10,6 +10,7 @@ import {
   CALENDAR_WORD_EDGE,
   CALENDAR_WORD_END,
 } from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
+import { parseCalendarDayPeriodMinutes } from '@/src/features/agent/calendar/calendarReschedulePeriods';
 import {
   computeDayOffsetFromInstant,
   formatResolvedDateLabel,
@@ -78,6 +79,10 @@ const CLOCK_FRAGMENT_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   {
     id: 'colon_24h',
     pattern: /\b(\d{1,2}:\d{2})\b/,
+  },
+  {
+    id: 'dot_24h',
+    pattern: /\b(\d{1,2})\.(\d{2})\b/u,
   },
   {
     id: 'english_meridiem',
@@ -163,6 +168,12 @@ function applyEveningContextHint(hours: number, contextText: string) {
 }
 
 export function normalizeSplitClockFragment(fragment: string) {
+  const dotMatch = fragment.trim().match(/^(\d{1,2})\.(\d{2})$/u);
+
+  if (dotMatch) {
+    return `${dotMatch[1]}:${dotMatch[2]}`;
+  }
+
   const splitMatch = fragment.trim().match(/^(\d{1,2})\s+и\s+(\d{2})$/iu);
 
   if (splitMatch) {
@@ -176,7 +187,7 @@ export function parseClockFragmentToMinutes(fragment: string, contextText = '') 
   const normalizedFragment = normalizeSplitClockFragment(fragment);
   const meridiemContext = `${normalizedFragment} ${contextText}`.trim().toLowerCase();
 
-  const colonMatch = normalizedFragment.match(/^(\d{1,2}):(\d{2})/);
+  const colonMatch = normalizedFragment.match(/^(\d{1,2})[:.](\d{2})/u);
 
   if (colonMatch) {
     let hours = Number(colonMatch[1]);
@@ -213,6 +224,7 @@ const CLOCK_FRAGMENT_PRIORITY = [
   'meridiem_clock',
   'english_meridiem',
   'colon_24h',
+  'dot_24h',
   'prep_split_minutes',
   'prep_hour_minutes',
 ] as const;
@@ -293,6 +305,14 @@ function buildCalendarClockMatchFromPattern(
       fragment: `${match[2]}${minutes}`,
       patternId,
       preposition: match[1] ?? null,
+    };
+  }
+
+  if (patternId === 'dot_24h') {
+    return {
+      fragment: `${match[1]}:${match[2]}`,
+      patternId,
+      preposition: null,
     };
   }
 
@@ -537,6 +557,27 @@ export function parseCalendarPointSchedule(
   }
 
   if (startMinutes === null) {
+    const periodMinutes = parseCalendarDayPeriodMinutes(transcript);
+
+    if (periodMinutes !== null) {
+      const startMs = zonedMinutesToInstantMs(day, periodMinutes);
+      const endMs = startMs + 60 * 60_000;
+
+      logDateParser({
+        original: transcript,
+        resolvedDate: formatResolvedDateLabel(startMs, timeZone),
+        resolvedTime: formatResolvedTimeLabel(startMs, timeZone),
+      });
+
+      return {
+        ok: true,
+        startMs,
+        endMs,
+        hasExplicitTime: true,
+        explicitDayOffset: day.dayOffset,
+      };
+    }
+
     return {
       ok: false,
       reason: 'date_parse_failed',

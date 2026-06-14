@@ -69,12 +69,14 @@ export function splitDayEventsByPastAndFuture(
 ) {
   const nowMs = referenceNow.getTime();
   const pastEvents: NormalizedCalendarEvent[] = [];
+  const currentEvents: NormalizedCalendarEvent[] = [];
   const futureEvents: NormalizedCalendarEvent[] = [];
 
   for (const event of getEventsForDay(events, day)) {
+    const startMs = parseGoogleCalendarInstant(event.startISO);
     const endMs = parseGoogleCalendarInstant(event.endISO);
 
-    if (endMs === null) {
+    if (startMs === null || endMs === null) {
       continue;
     }
 
@@ -83,10 +85,15 @@ export function splitDayEventsByPastAndFuture(
       continue;
     }
 
+    if (startMs <= nowMs) {
+      currentEvents.push(event);
+      continue;
+    }
+
     futureEvents.push(event);
   }
 
-  return { pastEvents, futureEvents };
+  return { pastEvents, currentEvents, futureEvents };
 }
 
 function getBusyEventsForFreeTime(

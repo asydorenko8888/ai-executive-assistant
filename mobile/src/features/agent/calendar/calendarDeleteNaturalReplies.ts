@@ -14,19 +14,17 @@ export function buildCalendarDeleteNotFoundReply(locale: CalendarDeleteLocale) {
 
 export function buildCalendarDeleteApiFailureReply(
   locale: CalendarDeleteLocale,
-  reason: string,
+  _reason: string,
 ) {
-  const detail = reason.trim() || 'unknown error';
-
   if (locale === 'uk') {
-    return `Не вдалося видалити: Google Calendar повернув помилку: ${detail}. Я не змінював ваш календар.`;
+    return 'Не вдалося виконати дію. Календар не змінено.';
   }
 
   if (locale === 'ru') {
-    return `Не удалось удалить: Google Calendar вернул ошибку: ${detail}. Я не менял ваш календар.`;
+    return 'Не удалось выполнить действие. Календарь не изменён.';
   }
 
-  return `Could not delete because Google Calendar returned error: ${detail}. I did not change your calendar.`;
+  return 'Could not complete the action. Your calendar was not changed.';
 }
 
 export function buildCalendarDeleteAmbiguousReply(locale: CalendarDeleteLocale) {
@@ -55,14 +53,14 @@ export function buildCalendarDeleteRecurringNotSupportedReply(locale: CalendarDe
 
 export function buildCalendarDeleteVerificationFailedReply(locale: CalendarDeleteLocale) {
   if (locale === 'uk') {
-    return 'Не вдалося видалити подію. Календар не підтвердив зміну.';
+    return 'Не вдалося виконати дію. Календар не змінено. Видалення не підтверджено.';
   }
 
   if (locale === 'ru') {
-    return 'Не удалось удалить событие. Календарь не подтвердил изменение.';
+    return 'Не удалось выполнить действие. Календарь не изменён. Удаление не подтверждено.';
   }
 
-  return 'Could not delete the event. Calendar did not confirm the change.';
+  return 'Could not complete the action. Your calendar was not changed. Delete verification failed.';
 }
 
 export function buildCalendarDeleteAllDayNotSupportedReply(locale: CalendarDeleteLocale) {

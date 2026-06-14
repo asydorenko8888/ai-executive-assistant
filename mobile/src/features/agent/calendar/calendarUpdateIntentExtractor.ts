@@ -68,7 +68,7 @@ function normalizeUpdateTitle(title: string) {
 }
 
 const SCHEDULE_FRAGMENT_BOUNDARY =
-  /\s+(?:(?:на|to|в|через)\s+(?:\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|pm|am)?|\d+\s*(?:час|годин|hour|минут|minutes|хвилин)|завтра|tomorrow|сьогодні|сегодня)|(?:\d+\s+)?(?:час(?:а|ов|у)?|hours?|годин(?:у|и)?)\s+(?:раньше|раніше|позже|пізніше|earlier|later))/iu;
+  /\s+(?:(?:на|to|в|через)\s+(?:\d{1,2}(?::\d{2})?\s*(?:вечера|вечером|утра|утром|pm|am)?|\d+\s*(?:час|годин|hour|минут|minutes|хвилин)|(?:one|a|an)\s+(?:hour|half\s+hour)|завтра|tomorrow|сьогодні|сегодня)|(?:(?:\d+|one|a|an)\s+)?(?:half\s+hour|час(?:а|ов|у)?|hours?|годин(?:у|и)?)\s+(?:раньше|раніше|позже|пізніше|earlier|later))/iu;
 
 function extractTitleBeforeScheduleFragment(text: string) {
   const match = SCHEDULE_FRAGMENT_BOUNDARY.exec(text);

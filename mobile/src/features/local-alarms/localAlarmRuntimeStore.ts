@@ -136,3 +136,15 @@ export function resetLocalAlarmsForTests() {
   alarms = [];
   notifyListeners();
 }
+
+export function hydrateRuntimeAlarmsFromPersisted(incoming: LocalAlarm[]) {
+  const ringing = alarms.filter((alarm) => alarm.status === 'ringing');
+  const incomingScheduled = incoming.filter((alarm) => alarm.status === 'scheduled');
+  const ringingIds = new Set(ringing.map((alarm) => alarm.id));
+
+  alarms = [
+    ...ringing,
+    ...incomingScheduled.filter((alarm) => !ringingIds.has(alarm.id)),
+  ];
+  notifyListeners();
+}

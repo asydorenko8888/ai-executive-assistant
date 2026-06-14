@@ -7,6 +7,7 @@ import {
 } from '@/src/features/agent/calendar/calendarDeleteDiagnostics';
 import { resolveDisambiguationSelection } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import type { CalendarDisambiguationCandidate } from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import { bindPendingCalendarDeleteSelection } from '@/src/features/agent/calendar/calendarPendingActionBinding';
 import type { PendingCalendarDeleteContext } from '@/src/features/agent/execution/calendarExecutionSession';
 
 const DAY_HINT_REPLY =
@@ -100,6 +101,12 @@ export function tryMergePendingCalendarDeleteReply(params: {
         selectedEventId: selected.eventId,
         selectedTitle: selected.title,
         selectedStartsAt: selected.startsAt,
+      });
+
+      bindPendingCalendarDeleteSelection({
+        context: next,
+        selectedEventId: selected.eventId,
+        replyPreview: reply,
       });
 
       return {

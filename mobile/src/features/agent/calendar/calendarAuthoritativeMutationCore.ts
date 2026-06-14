@@ -24,7 +24,9 @@ export function backendClaimsVerified(
 }
 
 export type ReadVerifiedCalendarEventById = (eventId: string) => Promise<VerifiedCalendarEvent | null>;
-export type ConfirmCalendarEventDeleted = (eventId: string) => Promise<boolean>;
+export type ConfirmCalendarEventDeleted = (
+  eventId: string,
+) => Promise<'confirmed' | 'still_present' | 'unavailable'>;
 
 export async function buildAuthoritativeCreateToolResponseCore(params: {
   eventId: string;
@@ -103,9 +105,16 @@ export async function buildAuthoritativeDeleteToolResponseCore(params: {
     );
   }
 
-  const stillPresent = !(await params.confirmDeleted(params.eventId));
+  const deleteConfirmation = await params.confirmDeleted(params.eventId);
 
-  if (stillPresent) {
+  if (deleteConfirmation === 'unavailable') {
+    return createCalendarToolFailure(
+      'VERIFY_FAILED',
+      'Could not verify deletion because calendar read failed.',
+    );
+  }
+
+  if (deleteConfirmation === 'still_present') {
     return createCalendarToolFailure(
       'VERIFY_FAILED',
       'Google Calendar still returned the event after delete.',

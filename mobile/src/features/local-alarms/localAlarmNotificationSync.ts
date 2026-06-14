@@ -16,8 +16,10 @@ export function syncLocalAlarmNotificationSchedule(alarm: LocalAlarm) {
     return;
   }
 
-  void import('@/src/features/local-alarms/localAlarmNotificationService')
-    .then(({ scheduleLocalAlarmNotification }) => scheduleLocalAlarmNotification(alarm))
+  void import('@/src/features/local-scheduling/notificationSchedulerService')
+    .then(({ scheduleAlarm, runtimeAlarmToSchedulePayload }) =>
+      scheduleAlarm(runtimeAlarmToSchedulePayload(alarm)),
+    )
     .catch((error) => {
       logNotificationError('LOCAL_ALARM_NOTIFICATION_SCHEDULE_ERROR', alarm.id, error);
     });
@@ -28,8 +30,8 @@ export function syncLocalAlarmNotificationCancel(alarmId: string) {
     return;
   }
 
-  void import('@/src/features/local-alarms/localAlarmNotificationService')
-    .then(({ cancelLocalAlarmNotification }) => cancelLocalAlarmNotification(alarmId))
+  void import('@/src/features/local-scheduling/notificationSchedulerService')
+    .then(({ cancelScheduledItem }) => cancelScheduledItem(alarmId, 'alarm'))
     .catch((error) => {
       logNotificationError('LOCAL_ALARM_NOTIFICATION_CANCEL_ERROR', alarmId, error);
     });

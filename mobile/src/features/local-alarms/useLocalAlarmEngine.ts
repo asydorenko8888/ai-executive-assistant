@@ -8,11 +8,11 @@ import {
   logLocalAlarmDueCheck,
   logLocalAlarmEngineStarted,
 } from '@/src/features/local-alarms/localAlarmMarkers';
-import { subscribeLocalAlarmNotificationEvents } from '@/src/features/local-alarms/localAlarmNotificationService';
 import {
   syncLocalAlarmNotificationCancel,
-  syncLocalAlarmNotificationSchedule,
 } from '@/src/features/local-alarms/localAlarmNotificationSync';
+import { subscribeLocalAlarmNotificationEvents } from '@/src/features/local-alarms/localAlarmNotificationService';
+import { rescheduleScheduledItem } from '@/src/features/local-scheduling/notificationSchedulerService';
 import {
   ALARM_VOICE_REPEAT_INTERVAL_MS,
   buildActiveAlarmSession,
@@ -148,7 +148,15 @@ export function useLocalAlarmEngine(languageCode: VoiceLanguageCode) {
       const snoozedAlarm = getLocalAlarmById(alarmId);
 
       if (snoozedAlarm) {
-        syncLocalAlarmNotificationSchedule(snoozedAlarm);
+        void rescheduleScheduledItem(
+          alarmId,
+          'alarm',
+          new Date(snoozedAlarm.triggerAtMs).toISOString(),
+          {
+            snoozeCount: snoozedAlarm.snoozeCount,
+            status: 'snoozed',
+          },
+        );
       }
 
       logAlarmSnoozed({

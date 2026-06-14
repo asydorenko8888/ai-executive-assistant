@@ -15,7 +15,7 @@ import {
   isAwaitingCalendarConflictResolution,
   isCalendarConversationAwaitingInput,
 } from '@/src/features/agent/calendar/calendarConversationState';
-import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
+import { isNewCalendarCommandMessage, isAwaitingEventDisambiguationSelectionReply } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
 import { getPendingCalendarConflictContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import { isCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
@@ -51,10 +51,10 @@ export type AssistantBehaviorRoute = {
 };
 
 const EXPLICIT_ACTION_VERB_AT_START =
-  /^(?:please\s+)?(?:внеси|внести|добав(?:ь|ьте|ить)|создай|создать|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|заплануй|удали|удалить|видали|видалити|перенеси|перенести|измени|зміни|add|create|schedule|book|put|insert|delete|remove|cancel|update|move|reschedule|remind|reminder|нагадай|напомни)(?:[\s,:-]|$)/iu;
+  /^(?:please\s+)?(?:внеси|внести|добав(?:ь|ьте|ить)|создай|создать|запланируй|запланировать|поставь|поставить|занеси|занести|додай|додати|створи|заплануй|удали|удалить|видали|видалити|перенеси|перенести|измени|зміни|add|create|schedule|book|put|insert|delete|remove|cancel|update|move|reschedule|remind|reminder|нагадай|напомни|напомню)(?:[\s,:-]|$)/iu;
 
 const REMINDER_ACTION =
-  /^(?:please\s+)?(?:remind(?:\s+me)?|reminder|нагадай|напомни)(?:[\s,:-]|$)/iu;
+  /^(?:please\s+)?(?:remind(?:\s+me)?|reminder|нагадай|напомни|напомню)(?:[\s,:-]|$)/iu;
 
 const ADVISORY_PATTERNS = [
   /\b(?:do i have time|still have time|am i late|should i move|should i reschedule|what do you think|what(?:'s| is) better)\b/i,
@@ -127,7 +127,7 @@ function resolveSelectedTool(transcript: string): SelectedActionTool {
     isLocalAlarmIntent(transcript) ||
     isLocalReminderIntent(transcript) ||
     REMINDER_ACTION.test(transcript.trim()) ||
-    /\b(?:remind|reminder|нагадай|напомни|разбуди|будильник|wake\s+me|alarm)\b/iu.test(transcript)
+    /\b(?:remind|reminder|нагадай|напомни|напомню|разбуди|будильник|wake\s+me|alarm)\b/iu.test(transcript)
   ) {
     return 'create_reminder';
   }
@@ -150,8 +150,10 @@ export function resolveAssistantBehavior(params: {
   const actionTranscript = contextMerge.mergedTranscript;
 
   if (
-    isCalendarExactTimeReadQuery(params.transcript) ||
-    isCalendarExactTimeReadQuery(actionTranscript)
+    !isAwaitingEventDisambiguationSelectionReply(params.transcript, params.referenceNow) &&
+    !isAwaitingEventDisambiguationSelectionReply(actionTranscript, params.referenceNow) &&
+    (isCalendarExactTimeReadQuery(params.transcript) ||
+      isCalendarExactTimeReadQuery(actionTranscript))
   ) {
     const route: AssistantBehaviorRoute = {
       requiredFields: [],

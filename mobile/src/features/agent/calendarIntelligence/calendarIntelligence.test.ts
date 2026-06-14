@@ -134,6 +134,40 @@ describe('calendarIntelligence', () => {
     assert.doesNotMatch(reply, /• Lunch/i);
   });
 
+  it('shows running events separately and only future starts under remaining today', () => {
+    const now = new Date('2026-05-28T17:38:00+03:00');
+    const kyivTimeZone = 'Europe/Kyiv';
+    const todayEvents: CalendarEvent[] = [
+      event('walk-done', 'Прогулка', '2026-05-28T16:30:00+03:00', '2026-05-28T17:30:00+03:00'),
+      event('meeting-now', 'Встреча', '2026-05-28T17:00:00+03:00', '2026-05-28T18:30:00+03:00'),
+      event('dinner-future', 'Ужин', '2026-05-28T19:00:00+03:00', '2026-05-28T20:00:00+03:00'),
+    ];
+    const answer = buildDeterministicCalendarAnswer({
+      transcript: 'Что у меня сегодня?',
+      events: todayEvents,
+      referenceNow: now,
+      timeZone: kyivTimeZone,
+    });
+
+    assert.equal(answer?.intent, 'list_day');
+
+    const reply = formatDeterministicCalendarReply({
+      intent: answer!.intent,
+      day: answer!.day,
+      locale: 'ru',
+      events: answer!.events,
+      referenceNow: now,
+      userTranscript: 'Что у меня сегодня?',
+    });
+
+    assert.match(reply, /Сейчас идет:/i);
+    assert.match(reply, /• Встреча/i);
+    assert.match(reply, /Осталось сегодня:/i);
+    assert.match(reply, /1\..*Ужин/i);
+    assert.doesNotMatch(reply, /• Прогулка/i);
+    assert.doesNotMatch(reply, /1\..*Прогулка/i);
+  });
+
   it('shows completed events only when the user asks for past history', () => {
     const eveningNow = new Date('2026-05-28T17:48:00-05:00');
     const todayEvents: CalendarEvent[] = [

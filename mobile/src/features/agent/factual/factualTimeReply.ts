@@ -4,6 +4,7 @@ import {
   logFactualGrounding,
   type FactualTimeSnapshot,
 } from '@/src/features/agent/factual/factualTimeGrounding';
+import { tryBuildReferencedEventTimeReply } from '@/src/features/agent/calendar/calendarReferencedEventTimeQuery';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguage';
 
@@ -11,6 +12,7 @@ export type FactualTimeReplyParams = {
   transcript: string;
   snapshot: FactualTimeSnapshot;
   languageCode: VoiceLanguageCode;
+  referenceNow?: Date;
 };
 
 const DAY_QUERY_PATTERN =
@@ -72,6 +74,19 @@ export function tryBuildFactualTimeReply(params: FactualTimeReplyParams): string
 
   if (!isTemporalFactualQuery(transcript)) {
     return null;
+  }
+
+  const referencedEventReply =
+    params.referenceNow != null
+      ? tryBuildReferencedEventTimeReply({
+          transcript,
+          referenceNow: params.referenceNow,
+          languageCode: params.languageCode,
+        })
+      : null;
+
+  if (referencedEventReply) {
+    return referencedEventReply;
   }
 
   if (params.snapshot.status !== 'grounded') {

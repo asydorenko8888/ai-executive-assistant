@@ -98,7 +98,7 @@ export type CalendarPendingAction = {
   updateToStartISO?: string | null;
   updateFromEndISO?: string | null;
   proceedDespiteConflict?: boolean;
-  clarificationKind?: 'move_event' | 'delete_event' | null;
+  clarificationKind?: 'move_event' | 'delete_event' | 'create_duplicate_confirmation' | null;
   selectionCandidates?: CalendarPendingConflictEvent[];
 };
 
@@ -421,7 +421,7 @@ export function buildCalendarPendingAction(params: {
   updateToStartISO?: string | null;
   updateFromEndISO?: string | null;
   proceedDespiteConflict?: boolean;
-  clarificationKind?: 'move_event' | 'delete_event' | null;
+  clarificationKind?: 'move_event' | 'delete_event' | 'create_duplicate_confirmation' | null;
   selectionCandidates?: CalendarPendingConflictEvent[];
   pendingActionId?: string;
   createdAtMs?: number;
@@ -716,7 +716,18 @@ export function commitDeletedCalendarEvent(params: {
   startISO: string;
   endISO: string;
 }) {
+  const pointer = buildPointer(params);
+
   purgeDeletedEventFromConversation(params.eventId, 'delete_committed');
+  touchCalendarConversationContext();
+  workingMemory = syncFlatIds({
+    ...workingMemory,
+    pendingTarget: null,
+    lastReferenced: pointer,
+  });
+
+  console.log('[CALENDAR CONVERSATION STORE] lastReferenced committed after delete');
+  console.log(JSON.stringify({ eventId: pointer.eventId, title: pointer.eventName }));
 }
 
 export function commitVerifiedCalendarMutation(params: {

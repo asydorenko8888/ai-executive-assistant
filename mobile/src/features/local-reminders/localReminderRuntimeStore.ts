@@ -103,3 +103,14 @@ export function resetLocalRemindersForTests() {
   reminders = [];
   notifyListeners();
 }
+
+export function hydrateRuntimeRemindersFromPersisted(incoming: LocalReminder[]) {
+  const incomingScheduled = incoming.filter((reminder) => reminder.status === 'scheduled');
+  const existingIds = new Set(reminders.map((reminder) => reminder.id));
+
+  reminders = [
+    ...reminders.filter((reminder) => reminder.status !== 'scheduled'),
+    ...incomingScheduled.filter((reminder) => !existingIds.has(reminder.id)),
+  ];
+  notifyListeners();
+}

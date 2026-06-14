@@ -23,6 +23,7 @@ import { resolveAfterEventCreateSchedule } from '@/src/features/agent/calendar/c
 import { recordVerifiedCalendarEventContext } from '@/src/features/agent/calendar/calendarMutationEventContext';
 import { appendCalendarCreateConflictCheckSkippedNotice } from '@/src/features/agent/calendar/calendarCreateConflictRefreshNotice';
 import { blockCalendarMutationOnScheduleConflict } from '@/src/features/agent/calendar/calendarScheduleConflictGuard';
+import { blockCalendarMutationOnDuplicateTitle } from '@/src/features/agent/calendar/calendarCreateDuplicateConfirmation';
 import { computeDayOffsetFromInstant } from '@/src/features/agent/calendarIntelligence/calendarNaturalDateParser';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import { refreshCalendarStateAfterCreate } from '@/src/features/agent/calendar/calendarPostCreateRefresh';
@@ -50,6 +51,7 @@ export type CalendarCreateExecutionParams = {
   /** Current user message only — never merged history. */
   titleSourceTranscript?: string;
   skipScheduleConflictCheck?: boolean;
+  skipDuplicateTitleConfirmation?: boolean;
   scheduleOverride?: {
     startMs: number;
     endMs: number;
@@ -214,6 +216,33 @@ export async function executeCalendarCreateEvent(
     end: payloadResult.payload.end,
     scheduleIso: payloadResult.scheduleIso ?? null,
   });
+
+  const duplicateGate = await blockCalendarMutationOnDuplicateTitle({
+    sourceTranscript: params.transcript,
+    titleSourceTranscript: params.titleSourceTranscript ?? params.transcript,
+    languageCode: params.languageCode,
+    proposedTitle: payloadResult.payload.summary,
+    proposedStartMs: payloadResult.startMs,
+    proposedEndMs: payloadResult.endMs,
+    referenceNow: params.referenceNow,
+    skipDuplicateTitleConfirmation: params.skipDuplicateTitleConfirmation,
+  });
+
+  if (duplicateGate.block) {
+    endCalendarCreateOperation({ dedupeKey, failed: true });
+
+    return {
+      ...buildCalendarToolReplyBundle(duplicateGate.block.tool, params.languageCode, {
+        referenceNow: params.referenceNow,
+      }),
+      result: mapToolToActionResult(duplicateGate.block.tool),
+      scheduleIso: payloadResult.scheduleIso,
+      verified: false,
+      reply: duplicateGate.block.reply,
+      spokenReply: duplicateGate.block.spokenReply,
+      executionState: 'failed',
+    };
+  }
 
   const conflictGate = await blockCalendarMutationOnScheduleConflict({
     operation: 'create',

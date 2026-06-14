@@ -1,21 +1,27 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 
 import {
-  deliverLocalReminderAnnouncement,
-  type ActiveLocalReminderNotification,
-} from '@/src/features/local-reminders/deliverLocalReminder';
+  deliverLocalReminderFromCoordinator,
+  processPendingReminderDeliveries,
+  queueReminderDeliveryForLater,
+  type ReminderDeliverySource,
+} from '@/src/features/local-reminders/localReminderDeliveryCoordinator';
+import type { ActiveLocalReminderNotification } from '@/src/features/local-reminders/deliverLocalReminder';
+import { subscribeLocalSchedulerNotificationEvents } from '@/src/features/local-scheduling/notificationSchedulerService';
 import {
   logLocalReminderDueCheck,
   logLocalReminderEngineStarted,
 } from '@/src/features/local-reminders/localReminderMarkers';
 import {
+  getLocalReminderById,
   listDueLocalReminders,
-  markLocalReminderTriggered,
   subscribeLocalReminders,
 } from '@/src/features/local-reminders/localReminderRuntimeStore';
+import type { LocalReminder } from '@/src/features/local-reminders/types';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
-const POLL_INTERVAL_MS = 1000;
+const FOREGROUND_POLL_INTERVAL_MS = 1000;
 
 function pushNotification(
   setActiveNotifications: Dispatch<SetStateAction<ActiveLocalReminderNotification[]>>,
@@ -34,7 +40,7 @@ export function useLocalReminderEngine(languageCode: VoiceLanguageCode) {
   const [activeNotifications, setActiveNotifications] = useState<ActiveLocalReminderNotification[]>([]);
   const isCheckingRef = useRef(false);
   const languageCodeRef = useRef(languageCode);
-  const announcedIdsRef = useRef(new Set<string>());
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const engineStartedRef = useRef(false);
 
   useEffect(() => {
@@ -45,21 +51,38 @@ export function useLocalReminderEngine(languageCode: VoiceLanguageCode) {
     setActiveNotifications((current) => current.filter((item) => item.id !== notificationId));
   }, []);
 
-  const announceReminder = useCallback((reminder: Parameters<typeof deliverLocalReminderAnnouncement>[0]['reminder']) => {
-    markLocalReminderTriggered(reminder.id);
-
-    const notification = deliverLocalReminderAnnouncement({
-      reminder,
-      languageCode: languageCodeRef.current,
-      source: 'engine',
-    });
-
+  const handleDeliveredNotification = useCallback((notification: ActiveLocalReminderNotification) => {
     pushNotification(setActiveNotifications, notification);
-    return notification;
   }, []);
 
+  const deliverReminder = useCallback(
+    (
+      reminder: LocalReminder,
+      source: ReminderDeliverySource,
+      playVoice: boolean,
+    ) => {
+      if (playVoice) {
+        return deliverLocalReminderFromCoordinator({
+          reminder,
+          languageCode: languageCodeRef.current,
+          source,
+          playVoice: true,
+          onDelivered: handleDeliveredNotification,
+        });
+      }
+
+      return deliverLocalReminderFromCoordinator({
+        reminder,
+        languageCode: languageCodeRef.current,
+        source,
+        playVoice: false,
+      });
+    },
+    [handleDeliveredNotification],
+  );
+
   const checkDueReminders = useCallback(() => {
-    if (isCheckingRef.current) {
+    if (isCheckingRef.current || appStateRef.current !== 'active') {
       return;
     }
 
@@ -71,12 +94,7 @@ export function useLocalReminderEngine(languageCode: VoiceLanguageCode) {
       logLocalReminderDueCheck({ count: due.length });
 
       for (const reminder of due) {
-        if (announcedIdsRef.current.has(reminder.id)) {
-          continue;
-        }
-
-        announcedIdsRef.current.add(reminder.id);
-        announceReminder(reminder);
+        void deliverReminder(reminder, 'foreground_poll', true);
       }
     } catch (error) {
       console.error('LOCAL_REMINDER_ENGINE_ERROR', {
@@ -85,7 +103,16 @@ export function useLocalReminderEngine(languageCode: VoiceLanguageCode) {
     } finally {
       isCheckingRef.current = false;
     }
-  }, [announceReminder]);
+  }, [deliverReminder]);
+
+  const runResumeCatchUp = useCallback(() => {
+    void processPendingReminderDeliveries({
+      languageCode: languageCodeRef.current,
+      playVoice: true,
+      onDelivered: handleDeliveredNotification,
+    });
+    checkDueReminders();
+  }, [checkDueReminders, handleDeliveredNotification]);
 
   useEffect(() => {
     if (!engineStartedRef.current) {
@@ -93,21 +120,64 @@ export function useLocalReminderEngine(languageCode: VoiceLanguageCode) {
       logLocalReminderEngineStarted();
     }
 
+    const unsubscribeNotifications = subscribeLocalSchedulerNotificationEvents({
+      onAlarmNotification: () => {},
+      onReminderNotification: (reminderId, title) => {
+        const reminder = getLocalReminderById(reminderId);
+
+        if (!reminder || reminder.status !== 'scheduled') {
+          return;
+        }
+
+        if (appStateRef.current === 'active') {
+          void deliverReminder(reminder, 'notification_received', true);
+          return;
+        }
+
+        void queueReminderDeliveryForLater({
+          reminderId,
+          title: title || reminder.text,
+          source: 'notification_received',
+        });
+      },
+      onReminderNotificationTapped: (reminderId) => {
+        const reminder = getLocalReminderById(reminderId);
+
+        if (!reminder || reminder.status !== 'scheduled') {
+          return;
+        }
+
+        void deliverReminder(reminder, 'notification_tap', true);
+      },
+    });
+
     const unsubscribe = subscribeLocalReminders(() => {
       checkDueReminders();
     });
 
-    checkDueReminders();
+    runResumeCatchUp();
+
+    const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+      appStateRef.current = nextState;
+
+      if (nextState === 'active') {
+        runResumeCatchUp();
+      }
+    });
 
     const intervalId = setInterval(() => {
-      checkDueReminders();
-    }, POLL_INTERVAL_MS);
+      if (appStateRef.current === 'active') {
+        checkDueReminders();
+      }
+    }, FOREGROUND_POLL_INTERVAL_MS);
 
     return () => {
       clearInterval(intervalId);
       unsubscribe();
+      unsubscribeNotifications();
+      appStateSubscription.remove();
     };
-  }, [checkDueReminders]);
+  }, [checkDueReminders, deliverReminder, runResumeCatchUp]);
 
   return {
     activeNotifications,

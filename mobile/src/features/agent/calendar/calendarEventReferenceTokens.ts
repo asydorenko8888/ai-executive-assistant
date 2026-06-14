@@ -2,10 +2,10 @@ import { isTemporalOnlyTitle } from '@/src/features/agent/calendar/calendarTempo
 
 /** Pronouns and deictic references — never valid calendar title queries. */
 export const EVENT_PRONOUN_REFERENCE =
-  /(?:^|[\s,.;:!?—-])(?:его|её|ее|их|її|їх|його|неї|нею|цю|цей|це|той|та|те|тому|тій)(?=[\s,.;:!?—-]|$)|\b(?:it|this|that|them|him|her)\b|(?:эту\s+встречу|эту\s+запись|эту\s+задачу|это\s+событие|цю\s+подію|цю\s+зустріч|this\s+event|that\s+event|the\s+event)/iu;
+  /(?:^|[\s,.;:!?—-])(?:его|её|ее|его\s+событ(?:ие|ия)?|её\s+событ(?:ие|ия)?|ее\s+событ(?:ие|ия)?|их|її|їх|його|його\s+под(?:ію|ія)?|неї|нею|цю|цей|це|той|та|те|тому|тій)(?=[\s,.;:!?—-]|$)|\b(?:it|this|that|them|him|her)\b|(?:эту\s+встречу|эту\s+запись|эту\s+задачу|это\s+событие|цю\s+подію|цю\s+зустріч|this\s+event|that\s+event|the\s+event)/iu;
 
 const PRONOUN_TOKEN =
-  /^(?:его|её|ее|их|її|їх|його|неї|нею|цю|цей|це|той|та|те|it|this|that|them|him|her)$/iu;
+  /^(?:его|её|ее|его\s+событ(?:ие|ия)?|её\s+событ(?:ие|ия)?|ее\s+событ(?:ие|ия)?|их|її|їх|його|його\s+под(?:ію|ія)?|неї|нею|цю|цей|це|той|та|те|it|this|that|them|him|her|this\s+event|that\s+event|the\s+event)$/iu;
 
 /** Prepositions left after schedule stripping — not event titles. */
 const PREPOSITION_ONLY_TITLE = /^(?:на|в|о|с|з|к|до|from|to|at|in)$/iu;

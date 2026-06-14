@@ -19,7 +19,57 @@ export type CalendarDisambiguationCandidate = {
 const DISAMBIGUATION_CLOCK_TOLERANCE_MINUTES = 90;
 
 const CYRILLIC_ORDINAL_REPLY =
-  /^(?:the\s+)?(перв(?:ое|ый|ая|а|ую)|перш(?:е|ий|а|у)|втор(?:ое|ой|ая|а|у)|друг(?:ое|ой|ая|а|у)|треть(?:е|я|ь|ю)|четверт(?:ое|ый|ая|а|ю)|третє|четверте)(?:\s+one|\s+option|\s+event)?\.?$/iu;
+  /^(?:the\s+)?(перв(?:ое|ый|ая|а|ую|ой)|перш(?:е|ий|а|у)|втор(?:ое|ой|ая|а|ую|ой)|друг(?:ое|ой|ая|а|у)|трет(?:ь|ий|ью|ья|ье|ем|ьим|ьем)|четверт(?:ое|ый|ая|а|ю|ой)|третє|четверте)(?:\s+one|\s+option|\s+event)?\.?$/iu;
+
+const EXPLICIT_DAY_HINT =
+  /(?:^|[\s,.;:!?—-]+)(?:today|tomorrow|завтра|сьогодні|сегодня|післязавтра|послезавтра|вчора|yesterday)(?:[,.!\s]|$)/iu;
+
+function replyHasExplicitDayHint(reply: string) {
+  return EXPLICIT_DAY_HINT.test(reply.trim());
+}
+
+function filterCandidatesByDayOffset(params: {
+  candidates: CalendarDisambiguationCandidate[];
+  dayOffset: number;
+  referenceNow: Date;
+  timeZone: string;
+}) {
+  return params.candidates.filter((candidate) => {
+    const offset = resolveZonedDayOffsetForInstant(
+      candidate.startsAt,
+      params.referenceNow,
+      params.timeZone,
+    );
+
+    return offset === params.dayOffset;
+  });
+}
+
+export function looksLikeDisambiguationSelectionAttempt(transcript: string) {
+  const normalized = transcript.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  if (/^(?:варіант|option|варіант|номер|number|#)?\s*\d+\s*\.?$/iu.test(normalized)) {
+    return true;
+  }
+
+  if (CYRILLIC_ORDINAL_REPLY.test(normalized)) {
+    return true;
+  }
+
+  if (/^(?:the\s+)?(first|second|third|fourth|1st|2nd|3rd|4th)(?:\s+one|\s+option|\s+event)?\.?$/iu.test(normalized)) {
+    return true;
+  }
+
+  if (replyHasExplicitDayHint(normalized)) {
+    return true;
+  }
+
+  return parseCalendarClockMinutes(normalized, resolveTargetDayContext(normalized, new Date())) !== null;
+}
 
 const CYRILLIC_ORDINAL_WITH_TITLE =
   /^(?:the\s+)?(перв(?:ое|ый|ая|а|ую)|перш(?:е|ий|а|у)|втор(?:ое|ой|ая|а|у)|друг(?:ое|ой|ая|а|у)|треть(?:е|я|ь|ю)|четверт(?:ое|ый|ая|а|ю)|третє|четверте|first|second|third|fourth|1st|2nd|3rd|4th)\s+(.+?)\.?$/iu;
@@ -130,7 +180,31 @@ function pickClosestClockMatch(
   return tied.length === 1 ? best.candidate : null;
 }
 
-export type CalendarDisambiguationLocale = 'en' | 'uk' | 'ru';
+function pickRelativeDisambiguationCandidate(
+  candidates: CalendarDisambiguationCandidate[],
+  prefer: 'earlier' | 'later',
+) {
+  if (candidates.length < 2) {
+    return null;
+  }
+
+  const sorted = [...candidates].sort(
+    (left, right) => Date.parse(left.startsAt) - Date.parse(right.startsAt),
+  );
+  const uniqueStartTimes = new Set(sorted.map((candidate) => candidate.startsAt));
+
+  if (uniqueStartTimes.size < 2) {
+    return null;
+  }
+
+  return prefer === 'earlier' ? sorted[0] ?? null : sorted[sorted.length - 1] ?? null;
+}
+
+const RELATIVE_EARLIER_REPLY =
+  /(?:^|[\s,.;:!?—-]+)(?:ранн(?:юю|яя|ее|ий|е)|раньше|раніше|earlier)(?:[,.!\s]|$)/iu;
+
+const RELATIVE_LATER_REPLY =
+  /(?:^|[\s,.;:!?—-]+)(?:поздн(?:юю|яя|ее|ий|е)|позже|пізніше|later)(?:[,.!\s]|$)/iu;
 
 export function inferCalendarDisambiguationLocale(params: {
   sourceTranscript?: string | null;
@@ -409,6 +483,21 @@ export function resolveDisambiguationSelection(params: {
   }
 
   if (clockMinutes !== null) {
+    let clockCandidates = scopedCandidates;
+
+    if (replyHasExplicitDayHint(reply)) {
+      const dayFiltered = filterCandidatesByDayOffset({
+        candidates: scopedCandidates,
+        dayOffset: day.dayOffset,
+        referenceNow: params.referenceNow,
+        timeZone,
+      });
+
+      if (dayFiltered.length > 0) {
+        clockCandidates = dayFiltered;
+      }
+    }
+
     const clockVariants = new Set<number>([clockMinutes]);
 
     if (clockMinutes < 12 * 60) {
@@ -416,7 +505,7 @@ export function resolveDisambiguationSelection(params: {
     }
 
     for (const candidateClock of clockVariants) {
-      const exactClockMatches = scopedCandidates.filter((candidate) => {
+      const exactClockMatches = clockCandidates.filter((candidate) => {
         const eventClock = getCandidateLocalClockMinutes(candidate.startsAt, timeZone);
 
         return eventClock === candidateClock;
@@ -432,28 +521,38 @@ export function resolveDisambiguationSelection(params: {
       }
     }
 
-    const exactClockMatches = scopedCandidates.filter((candidate) => {
+    const exactClockMatches = clockCandidates.filter((candidate) => {
       const candidateClock = getCandidateLocalClockMinutes(candidate.startsAt, timeZone);
 
       return candidateClock === clockMinutes;
     });
 
-    if (exactClockMatches.length === 1) {
-      return exactClockMatches[0] ?? null;
+    let dayScoped =
+      exactClockMatches.length > 0
+        ? exactClockMatches
+        : filterCandidatesByDayOffset({
+            candidates: clockCandidates,
+            dayOffset: day.dayOffset,
+            referenceNow: params.referenceNow,
+            timeZone,
+          });
+
+    if (dayScoped.length > 1 && replyHasExplicitDayHint(reply)) {
+      const dayFiltered = filterCandidatesByDayOffset({
+        candidates: dayScoped,
+        dayOffset: day.dayOffset,
+        referenceNow: params.referenceNow,
+        timeZone,
+      });
+
+      if (dayFiltered.length > 0) {
+        dayScoped = dayFiltered;
+      }
     }
 
-    const dayScoped =
-      exactClockMatches.length === 0
-        ? scopedCandidates.filter((candidate) => {
-            const offset = resolveZonedDayOffsetForInstant(
-              candidate.startsAt,
-              params.referenceNow,
-              timeZone,
-            );
-
-            return offset === day.dayOffset;
-          })
-        : exactClockMatches;
+    if (dayScoped.length === 1) {
+      return dayScoped[0] ?? null;
+    }
 
     for (const candidateClock of clockVariants) {
       const closest = pickClosestClockMatch(dayScoped, candidateClock, timeZone);
@@ -473,6 +572,14 @@ export function resolveDisambiguationSelection(params: {
 
   if (dayMatches.length === 1) {
     return dayMatches[0] ?? null;
+  }
+
+  if (RELATIVE_EARLIER_REPLY.test(reply)) {
+    return pickRelativeDisambiguationCandidate(scopedCandidates, 'earlier');
+  }
+
+  if (RELATIVE_LATER_REPLY.test(reply)) {
+    return pickRelativeDisambiguationCandidate(scopedCandidates, 'later');
   }
 
   return null;

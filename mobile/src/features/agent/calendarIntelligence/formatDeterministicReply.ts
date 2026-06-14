@@ -83,6 +83,24 @@ function formatListDayFutureHeader(day: CalendarDayContext, locale: VoiceLanguag
       : `Scheduled for ${label}:`;
 }
 
+function formatListDayCurrentHeader(day: CalendarDayContext, locale: VoiceLanguageChatLocale) {
+  if (day.dayOffset === 0) {
+    return locale === 'uk'
+      ? 'Зараз триває:'
+      : locale === 'ru'
+        ? 'Сейчас идет:'
+        : 'Happening now:';
+  }
+
+  const label = dayLabel(day, locale);
+
+  return locale === 'uk'
+    ? `Зараз триває ${label}:`
+    : locale === 'ru'
+      ? `Сейчас идет ${label}:`
+      : `Happening now ${label}:`;
+}
+
 function formatListDayCompletedHeader(day: CalendarDayContext, locale: VoiceLanguageChatLocale) {
   if (day.dayOffset === 0) {
     return locale === 'uk'
@@ -245,9 +263,13 @@ export function formatDeterministicCalendarReply(params: {
 
   if (intent === 'list_day') {
     const referenceNow = params.referenceNow ?? new Date();
-    const { pastEvents, futureEvents } = splitDayEventsByPastAndFuture(events, day, referenceNow);
+    const { pastEvents, currentEvents, futureEvents } = splitDayEventsByPastAndFuture(
+      events,
+      day,
+      referenceNow,
+    );
 
-    if (futureEvents.length === 0 && pastEvents.length === 0) {
+    if (futureEvents.length === 0 && currentEvents.length === 0 && pastEvents.length === 0) {
       const empty =
         locale === 'uk'
           ? `На ${label} більше немає запланованих подій.`
@@ -264,6 +286,16 @@ export function formatDeterministicCalendarReply(params: {
 
     const sections: string[] = [];
 
+    if (currentEvents.length > 0) {
+      const currentHeader = formatListDayCurrentHeader(day, locale);
+
+      sections.push(
+        `${currentHeader}\n${currentEvents
+          .map((event) => formatCompletedEventBullet(event, day.timezone))
+          .join('\n')}`,
+      );
+    }
+
     if (futureEvents.length > 0) {
       const remainingHeader = formatListDayFutureHeader(day, locale);
 
@@ -272,7 +304,7 @@ export function formatDeterministicCalendarReply(params: {
           .map((event, index) => formatEventLine(event, index, day.timezone))
           .join('\n')}`,
       );
-    } else {
+    } else if (currentEvents.length === 0) {
       sections.push(
         locale === 'uk'
           ? `На ${label} усі заплановані події вже завершились.`

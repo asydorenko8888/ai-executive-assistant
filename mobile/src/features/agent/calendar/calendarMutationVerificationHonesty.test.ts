@@ -156,7 +156,7 @@ describe('calendar mutation verification honesty', () => {
       eventId: actual.id,
       backendResponse: backendSuccess(actual),
       deletedEventSnapshot: actual,
-      confirmDeleted: async () => false,
+      confirmDeleted: async () => 'still_present' as const,
     });
 
     assert.equal(tool.status, 'FAILURE');
@@ -181,7 +181,7 @@ describe('calendar mutation verification honesty', () => {
         },
       },
       deletedEventSnapshot: actual,
-      confirmDeleted: async () => true,
+      confirmDeleted: async () => 'confirmed' as const,
     });
 
     assert.equal(tool.status, 'SUCCESS');
@@ -195,7 +195,7 @@ describe('calendar mutation verification honesty', () => {
       eventId: actual.id,
       backendResponse: backendSuccess(actual),
       deletedEventSnapshot: actual,
-      confirmDeleted: async () => true,
+      confirmDeleted: async () => 'confirmed' as const,
     });
 
     assert.equal(tool.status, 'SUCCESS');
@@ -227,7 +227,7 @@ describe('calendar mutation verification honesty', () => {
       deletedEventSnapshot: event,
       confirmDeleted: async (eventId) => {
         assert.equal(eventId, event.id);
-        return true;
+        return 'confirmed' as const;
       },
     });
 

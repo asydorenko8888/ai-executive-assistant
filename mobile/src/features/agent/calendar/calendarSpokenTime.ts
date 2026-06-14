@@ -36,6 +36,30 @@ const SPOKEN_NUMBER_TO_HOUR: Record<string, number> = {
   eleven: 11,
   двенадцать: 12,
   twelve: 12,
+  тринадцать: 13,
+  тринадцять: 13,
+  thirteen: 13,
+  четырнадцать: 14,
+  чотирнадцять: 14,
+  fourteen: 14,
+  пятнадцать: 15,
+  "п'ятнадцять": 15,
+  fifteen: 15,
+  шестнадцать: 16,
+  шістнадцять: 16,
+  sixteen: 16,
+  семнадцать: 17,
+  сімнадцять: 17,
+  seventeen: 17,
+  восемнадцать: 18,
+  вісімнадцять: 18,
+  eighteen: 18,
+  девятнадцать: 19,
+  "дев'ятнадцять": 19,
+  nineteen: 19,
+  двадцать: 20,
+  twenty: 20,
+  "двадцять": 20,
 };
 
 /** Word edge for spoken time — exclude ":" so ":00 вечера" is not parsed as hour 00. */
@@ -45,7 +69,12 @@ const SPOKEN_MERIDIEM =
   '(?:вечера|вечером|вечора|увечері|утра|утром|ранку|дня|днём|днем|ночи|ночью|ночі)';
 
 const SPOKEN_HOUR_TOKEN =
-  '(\\d{1,2}|один|одну|одного|два|две|три|четыре|четверо|чотири|пять|п[\\u2019\']ять|шесть|семь|сім|восемь|вісім|девять|дев[\\u2019\']ять|десять|одиннадцать|двенадцать|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
+  '(\\d{1,2}|один|одну|одного|два|две|три|четыре|четверо|чотири|пять|п[\\u2019\']ять|шесть|семь|сім|восемь|вісім|девять|дев[\\u2019\']ять|десять|одиннадцать|двенадцать|тринадцать|тринадцять|четырнадцать|чотирнадцять|пятнадцать|п[\\u2019\']ятнадцять|шестнадцать|шістнадцять|семнадцать|сімнадцять|восемнадцать|вісімнадцять|девятнадцать|дев[\\u2019\']ятнадцять|двадцать|двадцять|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)';
+
+const SPOKEN_HOUR_COUNT_PATTERN = new RegExp(
+  `${SPOKEN_TIME_EDGE}(?:в|на|о|at)?\\s*${SPOKEN_HOUR_TOKEN}\\s+(?:час(?:а|ов|у)?|годин(?:у|и|ы)?|hours?)(?:[,.!\\s]|$)`,
+  'iu',
+);
 
 const SPOKEN_COLON_MERIDIEM_PATTERN = new RegExp(
   `${SPOKEN_TIME_EDGE}(?:в|на|о|at)?\\s*(\\d{1,2}):(\\d{2})\\s+${SPOKEN_MERIDIEM}(?:[,.!\\s]|$)`,
@@ -139,8 +168,41 @@ function formatSpokenClockFragment(hour24: number, minute = 0) {
   return `${pad(hour24)}:${pad(minute)}`;
 }
 
+export function parseSpokenHourCountFragment(transcript: string) {
+  const normalized = transcript.trim();
+  const match = normalized.match(SPOKEN_HOUR_COUNT_PATTERN);
+
+  if (!match?.[1]) {
+    return null;
+  }
+
+  const hourBase = resolveSpokenHourToken(match[1]);
+
+  if (hourBase === null || hourBase < 0 || hourBase > 23) {
+    return null;
+  }
+
+  const fragment = formatSpokenClockFragment(hourBase, 0);
+
+  logParsedSpokenTime({
+    transcript: normalized,
+    token: match[1],
+    meridiem: 'hour_count',
+    hour24: hourBase,
+    fragment,
+  });
+
+  return fragment;
+}
+
 export function parseSpokenTimeFragment(transcript: string) {
   const normalized = transcript.trim();
+  const hourCountFragment = parseSpokenHourCountFragment(normalized);
+
+  if (hourCountFragment) {
+    return hourCountFragment;
+  }
+
   const colonMatch = normalized.match(SPOKEN_COLON_MERIDIEM_PATTERN);
 
   if (colonMatch?.[1] && colonMatch[2]) {
@@ -213,6 +275,7 @@ export function hasSpokenTimeHint(transcript: string) {
 
   return (
     SPOKEN_COLON_MERIDIEM_PATTERN.test(normalized) ||
+    SPOKEN_HOUR_COUNT_PATTERN.test(normalized) ||
     SPOKEN_TIME_PATTERN.test(normalized) ||
     ENGLISH_EVENING_PATTERN.test(normalized) ||
     parseSpokenTimeFragment(normalized) !== null

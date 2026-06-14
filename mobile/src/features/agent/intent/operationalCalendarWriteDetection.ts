@@ -14,6 +14,7 @@ import { isBareRelativeRescheduleRequest } from '@/src/features/agent/calendar/c
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import { isLocalReminderIntent } from '@/src/features/local-reminders/localReminderClassification';
 import { isLocalAlarmIntent } from '@/src/features/local-alarms/localAlarmClassification';
+import { parseCalendarDayPeriodMinutes } from '@/src/features/agent/calendar/calendarReschedulePeriods';
 
 function isExactTimeReadQuery(transcript: string) {
   return isCalendarExactTimeReadQuery(transcript);
@@ -55,11 +56,20 @@ const IMPLICIT_SCHEDULE_AT_START =
 const DELETE_VERB_AT_START =
   /^(?:please\s+)?(?:удали|удалить|убери|отмени|отменить|прибери|скасуй|скасувати|видали|видалити|delete|remove|cancel)(?:[\s,:-]|$)/iu;
 
-const SCHEDULE_TIME_HINT =
-  /\b(?:today|tomorrow|завтра|сегодня|сьогодні|післязавтра|послезавтра|утра|утром|вечера|вечером|вечора|увечері|дня|днём|днем|ночи|ночью|am|pm|a\.m\.|p\.m\.|\d{1,2}(?::\d{2})?)\b/iu;
+const SCHEDULE_TIME_EDGE = '(?:^|[\\s,.;:!?—-]+)';
+const SCHEDULE_TIME_END = '(?:[,.!\\s]|$)';
+
+const SCHEDULE_TIME_HINT = new RegExp(
+  `${SCHEDULE_TIME_EDGE}(?:today|tomorrow|завтра|сегодня|сьогодні|післязавтра|послезавтра|утра|утром|вечера|вечером|вечора|увечері|дня|днём|днем|ночи|ночью|am|pm|a\\.m\\.|p\\.m\\.)${SCHEDULE_TIME_END}|\\b\\d{1,2}(?::\\d{2})?\\b`,
+  'iu',
+);
 
 function hasScheduleTimeHint(transcript: string) {
-  return SCHEDULE_TIME_HINT.test(transcript) || hasSpokenTimeHint(transcript);
+  return (
+    SCHEDULE_TIME_HINT.test(transcript) ||
+    hasSpokenTimeHint(transcript) ||
+    parseCalendarDayPeriodMinutes(transcript) !== null
+  );
 }
 
 const WEEKDAY_HINT =

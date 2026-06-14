@@ -38,6 +38,12 @@ describe('Russian/Ukrainian evening time parsing', () => {
     { phrase: 'на 9 вечера', hour: 21 },
     { phrase: '9 утра', hour: 9 },
     { phrase: 'о 4 PM', hour: 16 },
+    { phrase: 'девятнадцать часов', hour: 19 },
+    { phrase: '19 часов', hour: 19 },
+    { phrase: 'Сегодня девятнадцать часов', hour: 19 },
+    { phrase: 'одиннадцать вечера', hour: 23 },
+    { phrase: 'десять утра', hour: 10 },
+    { phrase: 'семь вечера', hour: 19 },
   ];
 
   for (const { phrase, hour, minute = 0 } of cases) {
@@ -49,6 +55,21 @@ describe('Russian/Ukrainian evening time parsing', () => {
   it('never maps colon-evening false positive to midnight', () => {
     assert.notEqual(parseSpokenTimeFragment('на 4:00 вечера'), '00:00');
     assert.notEqual(parseSpokenTimeFragment('Добавь переговоры на 4:00 вечера'), '00:00');
+  });
+
+  it('parseCalendarCreateSchedule resolves час дня to 13:00', () => {
+    const schedule = parseCalendarCreateSchedule(
+      'Добавь медитацию завтра час дня',
+      referenceNow,
+    );
+
+    assert.equal(schedule.ok, true);
+
+    if (schedule.ok) {
+      const start = new Date(schedule.startMs);
+      assert.equal(start.getUTCHours(), 18);
+      assert.equal(start.getUTCMinutes(), 0);
+    }
   });
 
   it('parseCalendarCreateSchedule resolves 4:00 вечера to 16:00', () => {

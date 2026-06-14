@@ -145,6 +145,26 @@ describe('calendarRelativeReschedule', () => {
     assert.equal(resolution.candidates.length, 2);
   });
 
+  it('requires clarification when walk events match with different title tiers', () => {
+    const walk430 = chicagoEvent('walk-430', 'Прогулка', 16, 30);
+    const walk700 = chicagoEvent('walk-700', 'У меня отлично прогулку', 19);
+    const resolution = resolveCalendarUpdateIntent({
+      transcript: 'Перенеси прогулку на час позже.',
+      referenceNow,
+      events: [walk430, walk700],
+      timeZone,
+    });
+
+    assert.equal(resolution.ok, false);
+
+    if (resolution.ok) {
+      return;
+    }
+
+    assert.equal(resolution.reason, 'ambiguous');
+    assert.equal(resolution.candidates.length, 2);
+  });
+
   it('blocks moved confirmation unless Google Calendar verifies the update', () => {
     const verifiedEvent = {
       id: 'dentist',

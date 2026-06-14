@@ -79,6 +79,7 @@ import {
 } from '@/src/features/chat/store/executiveConversationStore';
 import { useConversationMessageDebugStore } from '@/src/features/chat/store/conversationMessageDebugStore';
 import { startVoiceCapture, stopRecording, DEFAULT_VOICE_CAPTURE_MAX_MS, type VoiceCaptureSession } from '@/src/features/voice/voiceCapture';
+import { logAssistantRequestStart } from '@/src/features/voice/speechPipelineLog';
 import {
   logMicButtonPressed,
   logMicStateBefore,
@@ -913,6 +914,10 @@ export function useExecutiveChat() {
         }
 
         clearVoiceStatus();
+        logAssistantRequestStart({
+          transcriptPreview: transcript.slice(0, 120),
+          source: 'chat_voice',
+        });
         submitUserMessage(transcript);
       },
     });

@@ -117,8 +117,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         {
           icon: './assets/images/icon.png',
           color: '#ffffff',
+          sounds: ['./assets/sounds/reminder_important_info_uk.wav'],
         },
       ],
+      'expo-task-manager',
     ],
     experiments: {
       typedRoutes: true,

@@ -10,8 +10,15 @@ import {
 import type { ParsedLocalReminderIntent } from '@/src/features/local-reminders/types';
 
 function normalizeTranscript(transcript: string) {
-  return transcript.trim().replace(/\s+/g, ' ');
+  return transcript
+    .trim()
+    .replace(/[,;]/g, ' ')
+    .replace(/[.!?]+$/g, '')
+    .replace(/\s+/g, ' ');
 }
+
+const REMINDER_VERB = String.raw`(?:напомни(?:ть)?|напомню|нагадай(?:ти)?|нагадаю|remind(?:\s+me)?)`;
+const REMINDER_INDIRECT_OBJECT = String.raw`(?:\s+(?:мне|мені|me))?`;
 
 function extractCancelTitleQuery(transcript: string) {
   const match = transcript.match(
@@ -26,7 +33,7 @@ function parseRelativeCreateIntent(
   referenceNow: Date,
 ): ParsedLocalReminderIntent | null {
   const match = transcript.match(
-    /(?:напомни(?:ть)?|нагадай(?:ти)?|remind(?:\s+me)?)(?:\s+(?:мне|мені|me))?\s+через\s+(.+)/iu,
+    new RegExp(`${REMINDER_VERB}${REMINDER_INDIRECT_OBJECT}\\s+через\\s+(.+)`, 'iu'),
   );
 
   if (!match?.[1]) {
@@ -42,6 +49,44 @@ function parseRelativeCreateIntent(
   return {
     kind: 'create',
     text: parsed.title,
+    triggerAt: new Date(referenceNow.getTime() + parsed.totalMs),
+    sourceTranscript: transcript,
+    reminderKind: 'reminder',
+    requestedDelayMs: parsed.totalMs,
+  };
+}
+
+function parseTrailingRelativeCreateIntent(
+  transcript: string,
+  referenceNow: Date,
+): ParsedLocalReminderIntent | null {
+  const match = transcript.match(
+    new RegExp(`${REMINDER_VERB}${REMINDER_INDIRECT_OBJECT}\\s+(.+?)\\s+через\\s+(.+)`, 'iu'),
+  );
+
+  if (!match?.[1] || !match?.[2]) {
+    return null;
+  }
+
+  const title = match[1]
+    .trim()
+    .replace(/[.!?]+$/g, '')
+    .replace(/^что\s+/iu, '')
+    .trim();
+
+  if (!title) {
+    return null;
+  }
+
+  const parsed = parseRelativeDurationPhrase(match[2], 'reminder');
+
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    kind: 'create',
+    text: title,
     triggerAt: new Date(referenceNow.getTime() + parsed.totalMs),
     sourceTranscript: transcript,
     reminderKind: 'reminder',
@@ -107,6 +152,7 @@ export function parseLocalReminderIntent(
 
   return (
     parseRelativeCreateIntent(normalized, referenceNow) ??
+    parseTrailingRelativeCreateIntent(normalized, referenceNow) ??
     parseAbsoluteCreateIntent(normalized, referenceNow)
   );
 }

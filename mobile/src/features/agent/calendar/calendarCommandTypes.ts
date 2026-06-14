@@ -67,10 +67,6 @@ function isConversationMemoryFollowUp(transcript: string) {
 export function requiresCalendarCommandExecution(transcript: string) {
   const normalized = transcript.trim();
 
-  if (isCalendarReadOnlyQuery(normalized)) {
-    return false;
-  }
-
   if (
     isCalendarConversationAwaitingInput() ||
     isAwaitingCalendarConflictResolution() ||
@@ -81,6 +77,10 @@ export function requiresCalendarCommandExecution(transcript: string) {
     getPendingCalendarConflictContext()
   ) {
     return true;
+  }
+
+  if (isCalendarReadOnlyQuery(normalized)) {
+    return false;
   }
 
   if (isConversationMemoryFollowUp(normalized)) {

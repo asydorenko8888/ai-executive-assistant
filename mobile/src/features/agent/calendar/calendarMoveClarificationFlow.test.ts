@@ -12,6 +12,7 @@ import {
   isAwaitingEventDisambiguationSelectionReply,
   isNewCalendarCommandMessage,
 } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
+import { isCalendarReadOnlyQuery } from '@/src/features/agent/calendar/calendarReadOnlyQuery';
 import {
   pendingContextFromExtraction,
   tryMergePendingCalendarUpdateReply,
@@ -155,6 +156,72 @@ describe('calendar move clarification flow', () => {
 
     assert.equal(isAwaitingEventDisambiguationSelectionReply('8 вечера'), true);
     assert.equal(isNewCalendarCommandMessage('Сегодня в 8 вечера'), false);
+  });
+
+  it('resolves English day+time clarification replies for relative moves', () => {
+    clearPendingCalendarUpdateIntent();
+    resetCalendarConversationState('test_reset');
+
+    const sourceTranscript = 'Move meditation one hour earlier';
+    const moveCandidates = [
+      {
+        eventId: 'med-today',
+        title: 'Meditation',
+        startsAt: '2026-05-28T23:00:00-05:00',
+        endsAt: '2026-05-29T00:00:00-05:00',
+      },
+      {
+        eventId: 'med-tomorrow',
+        title: 'Meditation',
+        startsAt: '2026-05-29T22:00:00-05:00',
+        endsAt: '2026-05-29T23:00:00-05:00',
+      },
+    ];
+    const extracted = extractCalendarUpdateParameters(sourceTranscript, referenceNow);
+    const clarificationFields = buildMoveClarificationPendingActionFields(moveCandidates);
+    const pendingAction = buildCalendarPendingAction({
+      actionType: 'update',
+      originalIntent: sourceTranscript,
+      eventTitle: 'Meditation',
+      sourceTranscript,
+      languageCode: 'en-US',
+      proposedStartMs: Date.parse('2026-05-29T21:00:00-05:00'),
+      proposedEndMs: Date.parse('2026-05-29T22:00:00-05:00'),
+      updateFromStartISO: extracted.fromStartISO,
+      updateToStartISO: extracted.toStartISO,
+      ...clarificationFields,
+    });
+
+    transitionCalendarConversationState({
+      toState: 'WAITING_EVENT_SELECTION',
+      pendingAction,
+      reason: 'test_en_relative_move_clarification',
+    });
+
+    for (const reply of ['Tomorrow 22:00', 'tomorrow', 'second', '2']) {
+      assert.equal(
+        isAwaitingEventDisambiguationSelectionReply(reply, referenceNow),
+        true,
+        `selection reply=${reply}`,
+      );
+      assert.equal(
+        isCalendarReadOnlyQuery(reply, referenceNow),
+        false,
+        `read-only bypass reply=${reply}`,
+      );
+    }
+
+    const merged = resolveStoredMoveClarificationReply({
+      reply: 'Tomorrow 22:00',
+      referenceNow,
+    });
+
+    assert.equal(merged?.selectedEventId, 'med-tomorrow');
+    assert.equal(merged?.readyToExecute, true);
+    assert.equal(
+      Date.parse(merged!.context.toStartISO!),
+      Date.parse('2026-05-29T21:00:00-05:00'),
+    );
   });
 
   it('merges pending move target after candidate pick from stored pendingAction', () => {

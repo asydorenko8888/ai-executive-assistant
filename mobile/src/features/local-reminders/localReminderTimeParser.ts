@@ -14,7 +14,7 @@ const HOUR_WORD = /(?:час(?:ов|а)?|годин(?:и)?|hours?|hrs?)/iu;
 function cleanReminderTitle(raw: string) {
   return raw
     .trim()
-    .replace(/^(?:to|about|про|о)\s+/iu, '')
+    .replace(/^(?:to|about|про|о|что)\s+/iu, '')
     .replace(/[.!?]+$/g, '')
     .trim();
 }
@@ -27,7 +27,7 @@ export function parseRelativeDurationPhrase(
   phrase: string,
   kind: 'reminder' | 'alarm' = 'reminder',
 ): ParsedRelativeDuration | null {
-  const normalized = phrase.trim().replace(/\s+/g, ' ');
+  const normalized = phrase.trim().replace(/[,;]/g, ' ').replace(/[.!?]+$/g, '').replace(/\s+/g, ' ');
 
   if (!normalized) {
     return null;

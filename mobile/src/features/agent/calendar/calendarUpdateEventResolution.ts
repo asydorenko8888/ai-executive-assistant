@@ -11,7 +11,6 @@ import {
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import {
   classifyTitleMatchTier,
-  selectBestEventByTitlePriority,
   type TitleMatchTier,
 } from '@/src/features/agent/calendar/calendarTitleMatchPriority';
 import { extractUpdateEventTitle } from '@/src/features/agent/calendar/calendarUpdateIntentExtractor';
@@ -114,11 +113,22 @@ export function resolveCalendarUpdateIntent(params: {
     const titleMatches = activeEvents.filter(
       (event) => classifyTitleMatchTier(requestedEventName, event.title) !== 'none',
     );
-    const selection = selectBestEventByTitlePriority(activeEvents, requestedEventName);
 
-    if (selection.ambiguous) {
+    if (titleMatches.length === 0) {
+      return {
+        ok: false,
+        reason: 'not_found',
+        requestedEventName,
+        candidates: [],
+        detail: `No calendar event named "${requestedEventName}"`,
+      };
+    }
+
+    const collapsedMatches = collapseCalendarEventCandidates(titleMatches);
+
+    if (collapsedMatches.length > 1) {
       const fromTimePick = disambiguateTitleMatchesByFromTime({
-        titleMatches: selection.candidates,
+        titleMatches: collapsedMatches,
         schedule: parseCalendarUpdateSchedule(params.transcript, params.referenceNow, timeZone),
         transcript: params.transcript,
         referenceNow: params.referenceNow,
@@ -130,41 +140,25 @@ export function resolveCalendarUpdateIntent(params: {
         resolutionTier = classifyTitleMatchTier(requestedEventName, fromTimePick.title);
         candidates = [fromTimePick];
       } else {
-        const collapsed = collapseCalendarEventCandidates(selection.candidates);
-
         logCalendarEventDeduplication({
           stage: 'update_resolution_ambiguous',
           rawCount: activeEvents.length,
-          matchedBeforeDedupe: selection.candidates.length,
-          matchedAfterDedupe: collapsed.length,
+          matchedBeforeDedupe: titleMatches.length,
+          matchedAfterDedupe: collapsedMatches.length,
         });
 
-        if (collapsed.length === 1) {
-          target = collapsed[0];
-          resolutionTier = classifyTitleMatchTier(requestedEventName, collapsed[0].title);
-          candidates = [collapsed[0]];
-        } else {
-          return {
-            ok: false,
-            reason: 'ambiguous',
-            requestedEventName,
-            candidates: collapsed,
-            detail: `Multiple events match "${requestedEventName}"`,
-          };
-        }
+        return {
+          ok: false,
+          reason: 'ambiguous',
+          requestedEventName,
+          candidates: collapsedMatches,
+          detail: `Multiple events match "${requestedEventName}"`,
+        };
       }
-    } else if (selection.match) {
-      target = selection.match;
-      resolutionTier = selection.tier;
-      candidates = [selection.match];
-    } else if (titleMatches.length === 0) {
-      return {
-        ok: false,
-        reason: 'not_found',
-        requestedEventName,
-        candidates: [],
-        detail: `No calendar event named "${requestedEventName}"`,
-      };
+    } else {
+      target = collapsedMatches[0];
+      resolutionTier = classifyTitleMatchTier(requestedEventName, collapsedMatches[0].title);
+      candidates = [collapsedMatches[0]];
     }
   } else if (transcriptUsesEventPronoun(params.transcript) || isEventPronounReference(requestedEventName)) {
     target = findMoveConversationEventInList({

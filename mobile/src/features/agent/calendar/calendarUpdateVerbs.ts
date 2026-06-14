@@ -1,6 +1,6 @@
 /** Shared update/reschedule verb patterns (RU + UA + EN). */
 export const UPDATE_MUTATION_VERB =
-  '(?:update|move|reschedule|shift|перенеси|перенести|перенес(?:ь|ьте)|перенос(?:ы|i)?|перемест(?:и|ь|ить)|здвинь|зсунь|посун(?:ь|уть)|посунь|змісти|измени|зміни)';
+  '(?:update|move|reschedule|shift|rename|переимен(?:уй|ить|и)|переймен(?:уй|и)|перенеси|перенести|перенес(?:ь|ьте)|перенос(?:ы|i)?|перемест(?:и|ь|ить)|здвинь|зсунь|посун(?:ь|уть)|посунь|змісти|измени|зміни)';
 
 export const UPDATE_COMMAND_PREFIX = new RegExp(
   `^(?:please\\s+)?${UPDATE_MUTATION_VERB}(?:[\\s,:-]+|$)`,

@@ -79,13 +79,29 @@ export type PendingCalendarCreateAction = {
   createdAt: string;
 };
 
-export async function fetchGoogleCalendarBackendStatus() {
-  return calendarBackendRequest<GoogleCalendarBackendStatus>({
-    operation: 'status',
-    action: 'GET /google-calendar/status',
-    method: 'GET',
-    path: '/google-calendar/status',
-  });
+export function buildDisconnectedGoogleCalendarBackendStatus(): GoogleCalendarBackendStatus {
+  return {
+    connected: false,
+    hasWriteAccess: false,
+    writeEnabled: false,
+    hasCalendarEventsScope: false,
+    scopes: [],
+  };
+}
+
+export async function fetchGoogleCalendarBackendStatus(options?: {
+  localSession?: GoogleCalendarSession | null;
+}) {
+  const { loadGoogleCalendarSession } = await import(
+    '@/src/features/agent/calendar/googleCalendarStorage'
+  );
+  const localSession = options?.localSession ?? (await loadGoogleCalendarSession());
+
+  if (!localSession?.accessToken) {
+    return buildDisconnectedGoogleCalendarBackendStatus();
+  }
+
+  return syncGoogleCalendarSessionToBackend(localSession);
 }
 
 export async function fetchGoogleCalendarDebugSnapshot() {

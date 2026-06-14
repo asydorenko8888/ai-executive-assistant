@@ -5,6 +5,7 @@ import {
   isCalendarAgendaQuery,
 } from '@/src/features/agent/calendar/calendarAgendaSync';
 import { isCalendarReadOnlyQuery } from '@/src/features/agent/calendar/calendarReadOnlyQuery';
+import { isAwaitingEventDisambiguationSelectionReply } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { tryBuildCalendarReadReply } from '@/src/features/agent/calendar/calendarReadReplyBuilder';
 import {
   isDeterministicCalendarReadQuery,
@@ -596,7 +597,11 @@ async function tryResolveCalendarReadTurn(params: {
   factualGroundingStatus: FactualGroundingStatus;
   behaviorMode: AssistantBehaviorMode;
 }): Promise<AssistantTurnResolution | null> {
-  if (!params.calendarConnected || !isCalendarReadOnlyQuery(params.userTranscript)) {
+  if (
+    !params.calendarConnected ||
+    isAwaitingEventDisambiguationSelectionReply(params.userTranscript, params.referenceNow) ||
+    !isCalendarReadOnlyQuery(params.userTranscript, params.referenceNow)
+  ) {
     return null;
   }
 
@@ -1275,6 +1280,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
         transcript: userTranscript,
         snapshot: factualGrounding.snapshot,
         languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
       });
 
       if (factualReply) {
