@@ -12,6 +12,7 @@ import {
   type CalendarDisambiguationCandidate,
 } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import type { PendingCalendarDeleteContext } from '@/src/features/agent/execution/calendarExecutionSession';
+import { tryMergePendingCalendarDeleteReply } from '@/src/features/agent/calendar/calendarDeletePendingContext';
 
 export function createPendingCalendarDeleteContext(params: {
   sourceTranscript: string;
@@ -61,7 +62,32 @@ export async function resolvePendingCalendarDeleteFromReply(params: {
 } | null> {
   const reply = params.reply.trim();
 
-  if (!reply || !params.pending.candidates?.length) {
+  if (!reply) {
+    return null;
+  }
+
+  const merged = tryMergePendingCalendarDeleteReply({
+    pending: params.pending,
+    reply,
+    referenceNow: params.referenceNow,
+    timeZone: params.timeZone,
+  });
+
+  if (merged?.selectedEventId) {
+    const selected = params.pending.candidates?.find((candidate) => candidate.eventId === merged.selectedEventId) ?? {
+      eventId: merged.selectedEventId,
+      title: merged.context.title ?? 'event',
+      startsAt: merged.context.selectedEventId === merged.selectedEventId ? '' : '',
+      endsAt: '',
+    };
+
+    return {
+      context: merged.context,
+      selected,
+    };
+  }
+
+  if (!params.pending.candidates?.length) {
     return null;
   }
 

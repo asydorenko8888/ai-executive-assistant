@@ -1,10 +1,16 @@
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
+import { getChatLocaleFromVoiceLanguage } from '@/src/features/chat/services/voiceLanguageLocale';
 import { resolveCalendarDeleteTarget } from '@/src/features/agent/calendar/calendarDeleteEventResolver';
 import {
   calendarEventsToDisambiguationCandidates,
 } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import { createPendingCalendarDeleteContext } from '@/src/features/agent/calendar/pendingCalendarDeleteSelection';
 import { syncConversationStateForDeleteSelection } from '@/src/features/agent/calendar/calendarConversationSync';
+import {
+  buildCalendarDeleteRecurringChoiceReply,
+  parseRecurringDeleteScopeReply,
+  resolveDeleteEventIdForRecurringScope,
+} from '@/src/features/agent/calendar/calendarDeleteRecurringChoice';
 import {
   logCalendarMutationStart,
   logCalendarMutationVerification,
@@ -149,7 +155,14 @@ export async function executeCalendarDeleteEvent(
 
   try {
     const pendingDelete = getPendingCalendarDeleteContext();
-    const resolvedEventId = params.selectedEventId ?? pendingDelete?.selectedEventId ?? null;
+    const resolvedEventId =
+      params.selectedEventId ??
+      (pendingDelete?.deleteScope && pendingDelete.selectedEventId
+        ? resolveDeleteEventIdForRecurringScope({
+            eventId: pendingDelete.selectedEventId,
+            deleteScope: pendingDelete.deleteScope,
+          })
+        : pendingDelete?.selectedEventId ?? null);
 
     logDeleteExecutionEventId({
       phase: 'executeCalendarDeleteEvent',
@@ -320,16 +333,36 @@ export async function executeCalendarDeleteEvent(
       });
     }
 
-    if (resolution.status === 'recurring_not_supported') {
-      endCalendarOperation({ failed: true });
+    if (resolution.status === 'recurring_choice_required') {
+      endCalendarOperation({ failed: false });
+      const pendingDelete = {
+        operation: 'delete' as const,
+        type: 'delete' as const,
+        title: resolution.event.title,
+        dayHint: null,
+        sourceTranscript: params.transcript,
+        originalUserText: params.transcript,
+        createdAtMs: Date.now(),
+        selectedEventId: resolution.event.id,
+        recurring: true,
+        recurringEventId: resolution.recurringEventId,
+        awaitingRecurringChoice: true,
+      };
+      setPendingCalendarDeleteContext(pendingDelete);
+      syncConversationStateForDeleteSelection(pendingDelete, params.languageCode);
+      const locale = getChatLocaleFromVoiceLanguage(params.languageCode);
       const tool = createCalendarToolFailure(
-        'CALENDAR_RECURRING_NOT_SUPPORTED',
-        'Recurring calendar event deletion is not supported yet.',
+        'CALENDAR_RECURRING_DELETE_SCOPE_REQUIRED',
+        'Recurring delete scope required.',
       );
+      const reply = buildCalendarDeleteRecurringChoiceReply(locale, resolution.event.title);
+
       return {
-        ...buildCalendarDeleteToolReplyBundle(tool, params.languageCode, {
-          referenceNow: params.referenceNow,
-        }),
+        tool,
+        reply,
+        spokenReply: reply,
+        executionState: 'failed',
+        requiresCalendarAuth: false,
         verified: false,
       };
     }

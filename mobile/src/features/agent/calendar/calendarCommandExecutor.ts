@@ -54,6 +54,7 @@ import { shouldClearStalePendingForNewCommand } from '@/src/features/agent/calen
 import { enrichCalendarCommandTranscript } from '@/src/features/agent/calendar/calendarTranscriptEnrichment';
 import { resolveDisambiguationSelection, inferCalendarDisambiguationLocale } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
+import { tryMergePendingCalendarDeleteReply } from '@/src/features/agent/calendar/calendarDeletePendingContext';
 import { resolvePendingCalendarDeleteFromReply } from '@/src/features/agent/calendar/pendingCalendarDeleteSelection';
 import { executeCalendarCreateEvent } from '@/src/features/agent/execution/calendarCreateEventExecutor';
 import { executeCalendarDeleteEvent } from '@/src/features/agent/execution/calendarDeleteEventExecutor';
@@ -255,7 +256,7 @@ async function tryRunPendingCalendarDeleteSelection(params: {
 }): Promise<CalendarCommandResult | null> {
   const pending = getPendingCalendarDeleteContext();
 
-  if (!pending?.candidates?.length) {
+  if (!pending?.candidates?.length && !pending?.awaitingRecurringChoice) {
     return null;
   }
 
@@ -267,7 +268,20 @@ async function tryRunPendingCalendarDeleteSelection(params: {
 
   let selectedEventId = pending.selectedEventId ?? null;
 
-  if (!selectedEventId) {
+  if (pending.awaitingRecurringChoice) {
+    const merged = tryMergePendingCalendarDeleteReply({
+      pending,
+      reply: selectionTranscript,
+      referenceNow: params.referenceNow,
+    });
+
+    if (!merged?.selectedEventId) {
+      return null;
+    }
+
+    setPendingCalendarDeleteContext(merged.context);
+    selectedEventId = merged.selectedEventId;
+  } else if (!selectedEventId) {
     const resolved = await resolvePendingCalendarDeleteFromReply({
       pending,
       reply: selectionTranscript,

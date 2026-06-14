@@ -10,6 +10,13 @@ import {
   type CalendarDeleteResolution,
 } from '@/src/features/agent/calendar/calendarDeleteResolution';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
+import {
+  calendarEventFromMemoryRecord,
+  getLastReferencedCalendarEvent,
+  resolveDeleteEventReference,
+  shouldDeleteFromLastReferencedMemory,
+  type ConversationEventRecord,
+} from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { augmentEventsWithConversationContext } from '@/src/features/agent/calendar/calendarConversationStore';
 import {
   deduplicateCalendarEvents,
@@ -40,8 +47,45 @@ export async function resolveCalendarDeleteTarget(params: {
   transcript: string;
   referenceNow: Date;
 }): Promise<CalendarDeleteResolution> {
+  if (shouldDeleteFromLastReferencedMemory(params)) {
+    const lastReferenced = getLastReferencedCalendarEvent(params.referenceNow);
+
+    if (lastReferenced) {
+      const memoryRecord: ConversationEventRecord = {
+        eventId: lastReferenced.eventId,
+        title: lastReferenced.title,
+        startISO: lastReferenced.startTime,
+        endISO: lastReferenced.endTime,
+        dateKey: '',
+        savedAtMs: Date.now(),
+        source: 'update',
+        activeSource: 'last_updated',
+        recurring: lastReferenced.recurring,
+        recurringEventId: lastReferenced.recurringEventId,
+      };
+      const memoryEvent = calendarEventFromMemoryRecord(memoryRecord);
+
+      console.log('[DELETE LastReferenced Memory]');
+      console.log(
+        JSON.stringify({
+          eventId: lastReferenced.eventId,
+          title: lastReferenced.title,
+          startTime: lastReferenced.startTime,
+          recurring: lastReferenced.recurring,
+        }),
+      );
+
+      return resolveCalendarDeleteTargetFromEvents({
+        events: [memoryEvent],
+        titleQuery: lastReferenced.title,
+        transcript: params.transcript,
+        referenceNow: params.referenceNow,
+      });
+    }
+  }
+
   const extractedTitle = extractDeleteEventTitle(params.transcript);
-  const memoryRef = getActiveCalendarEvent(params.referenceNow);
+  const memoryRef = resolveDeleteEventReference(params.referenceNow) ?? getActiveCalendarEvent(params.referenceNow);
   const titleQuery = resolveEventTitleQueryForMemory({
     extractedTitle,
     memoryTitle: memoryRef?.title ?? null,

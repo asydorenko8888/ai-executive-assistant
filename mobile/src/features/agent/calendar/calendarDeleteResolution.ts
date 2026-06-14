@@ -11,7 +11,10 @@ export type CalendarDeleteRankedCandidate = {
   timeScore: number;
 };
 
-const RECURRING_INSTANCE_ID_PATTERN = /_[0-9]{8}T[0-9]{6}Z?$/i;
+import {
+  isRecurringCalendarEventForDelete,
+} from '@/src/features/agent/calendar/calendarDeleteRecurringChoice';
+import { parseGoogleCalendarRecurringEventId } from '@/src/features/agent/calendar/calendarRecurringEventIds';
 
 export type CalendarDeleteNotFoundReason = NonNullable<CalendarDeleteEventMatchResult['notFoundReason']>;
 
@@ -39,12 +42,13 @@ export type CalendarDeleteResolution =
       notFoundReason: 'ambiguous_title_at_time' | 'ambiguous_title_on_day';
     }
   | {
-      status: 'recurring_not_supported';
+      status: 'recurring_choice_required';
       event: CalendarEvent;
       titleQuery: string;
       targetMs: number | null;
       candidates: CalendarDeleteRankedCandidate[];
       notFoundReason: null;
+      recurringEventId: string;
     }
   | {
       status: 'all_day_not_supported';
@@ -80,7 +84,7 @@ function mapCandidates(events: CalendarEvent[]): CalendarDeleteRankedCandidate[]
 }
 
 export function isRecurringGoogleCalendarEventId(eventId: string) {
-  return RECURRING_INSTANCE_ID_PATTERN.test(eventId.trim());
+  return parseGoogleCalendarRecurringEventId(eventId).isRecurringInstance;
 }
 
 function finalizeUniqueMatch(params: {
@@ -100,8 +104,15 @@ function finalizeUniqueMatch(params: {
     return { status: 'all_day_not_supported', event: params.match, ...base };
   }
 
-  if (isRecurringGoogleCalendarEventId(params.match.id)) {
-    return { status: 'recurring_not_supported', event: params.match, ...base };
+  if (isRecurringCalendarEventForDelete(params.match)) {
+    const recurringEventId = parseGoogleCalendarRecurringEventId(params.match.id).seriesMasterId;
+
+    return {
+      status: 'recurring_choice_required',
+      event: params.match,
+      recurringEventId,
+      ...base,
+    };
   }
 
   return { status: 'unique', event: params.match, ...base };

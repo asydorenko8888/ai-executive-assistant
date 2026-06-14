@@ -54,6 +54,10 @@ export type PendingCalendarDeleteContext = {
   candidates?: CalendarDisambiguationCandidate[];
   selectedEventId?: string | null;
   deleteAll?: boolean;
+  recurring?: boolean;
+  recurringEventId?: string | null;
+  deleteScope?: 'occurrence' | 'series' | null;
+  awaitingRecurringChoice?: boolean;
 };
 
 export type PendingCalendarConflictContext = {

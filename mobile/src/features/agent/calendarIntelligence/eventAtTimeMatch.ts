@@ -14,8 +14,10 @@ import {
 } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import type { NormalizedCalendarEvent } from '@/src/features/agent/calendarIntelligence/types';
 import {
+  findConversationEventInList,
   findMoveConversationEventInList,
   getConversationEventMemory,
+  resolveDeleteEventReference,
   resolveMoveEventReference,
   type ConversationEventRecord,
 } from '@/src/features/agent/calendar/calendarConversationEventMemory';
@@ -121,6 +123,39 @@ function tryResolvePinnedLastReadForMutation(params: {
     calendarEventFromMemoryRecord(memory);
 
   return { match, source: 'pinned_read' };
+}
+
+function tryPinnedDeleteConversationMemory(params: {
+  events: CalendarEvent[];
+  titleQuery: string;
+  referenceNow: Date;
+}) {
+  const effectiveTitleQuery = isIgnorableTitleQueryForMemory(params.titleQuery)
+    ? ''
+    : params.titleQuery;
+
+  const pinned =
+    findConversationEventInList({
+      events: params.events,
+      referenceNow: params.referenceNow,
+      titleQuery: effectiveTitleQuery,
+      reference: resolveDeleteEventReference(params.referenceNow),
+    }) ??
+    (() => {
+      const memoryRef = resolveDeleteEventReference(params.referenceNow);
+
+      if (!memoryRef) {
+        return null;
+      }
+
+      return calendarEventFromMemoryRecord(memoryRef);
+    })();
+
+  if (!pinned) {
+    return null;
+  }
+
+  return { match: pinned, source: 'conversation_memory' as const };
 }
 
 function tryPinnedConversationMemory(params: {
@@ -637,7 +672,7 @@ export function findCalendarEventForDeleteFromEvents(params: {
 }): CalendarDeleteEventMatchResult {
   const timeZone = params.timeZone ?? resolveTargetDayContext(params.transcript, params.referenceNow).timezone;
   const titleQuery = params.titleQuery.trim();
-  const memoryRef = resolveMoveEventReference(params.referenceNow);
+  const memoryRef = resolveDeleteEventReference(params.referenceNow);
   const effectiveTitleQuery = resolveEventTitleQueryForMemory({
     extractedTitle: titleQuery,
     memoryTitle: memoryRef?.title ?? null,
@@ -685,7 +720,7 @@ export function findCalendarEventForDeleteFromEvents(params: {
       };
     }
 
-    const memoryPinned = tryPinnedConversationMemory({
+    const memoryPinned = tryPinnedDeleteConversationMemory({
       events: activeEvents,
       titleQuery: effectiveTitleQuery,
       referenceNow: params.referenceNow,

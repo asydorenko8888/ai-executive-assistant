@@ -16,7 +16,8 @@ import {
   isCalendarConversationContextFresh,
   touchCalendarConversationContext,
 } from '@/src/features/agent/calendar/calendarConversationContext';
-import { isIgnorableTitleQueryForMemory } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import { isIgnorableTitleQueryForMemory, transcriptHasEventPronounReference } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import { parseGoogleCalendarRecurringEventId } from '@/src/features/agent/calendar/calendarRecurringEventIds';
 import { calendarConversationTitlesMatch } from '@/src/features/agent/calendar/calendarConversationTitleMatch';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import { clearPendingIntent, getPendingIntent } from '@/src/features/agent/calendar/calendarPendingIntent';
@@ -40,6 +41,17 @@ export type ConversationEventRecord = {
   savedAtMs: number;
   source: ConversationEventSource;
   activeSource: ActiveCalendarEventSource;
+  recurring?: boolean;
+  recurringEventId?: string | null;
+};
+
+export type LastReferencedCalendarEvent = {
+  eventId: string;
+  title: string;
+  startTime: string;
+  endTime: string;
+  recurring: boolean;
+  recurringEventId: string | null;
 };
 
 export type ConversationRecurringSeriesRecord = {
@@ -72,10 +84,14 @@ function pointerToRecord(
     endISO: string;
     dateKey: string;
     savedAtMs: number;
+    recurring?: boolean;
+    recurringEventId?: string | null;
   },
   source: ConversationEventSource,
   activeSource: ActiveCalendarEventSource,
 ): ConversationEventRecord {
+  const recurringInfo = parseGoogleCalendarRecurringEventId(pointer.eventId);
+
   return {
     eventId: pointer.eventId,
     title: pointer.eventName,
@@ -85,6 +101,8 @@ function pointerToRecord(
     savedAtMs: pointer.savedAtMs,
     source,
     activeSource,
+    recurring: pointer.recurring ?? recurringInfo.isRecurringInstance,
+    recurringEventId: pointer.recurringEventId ?? (recurringInfo.isRecurringInstance ? recurringInfo.seriesMasterId : null),
   };
 }
 
@@ -162,6 +180,58 @@ export function resolveMoveEventReference(_referenceNow: Date): ConversationEven
   }
 
   return resolveConversationEventReference(_referenceNow);
+}
+
+export function resolveDeleteEventReference(_referenceNow: Date): ConversationEventRecord | null {
+  const intent = getPendingIntent();
+
+  if (intent?.intent === 'DELETE_EVENT') {
+    return resolveConversationEventReference(_referenceNow);
+  }
+
+  if (intent?.intent === 'MOVE_EVENT') {
+    return resolveConversationEventReference(_referenceNow);
+  }
+
+  return resolveConversationEventReference(_referenceNow);
+}
+
+export function getLastReferencedCalendarEvent(_referenceNow: Date): LastReferencedCalendarEvent | null {
+  const ref = resolveConversationEventReference(_referenceNow);
+
+  if (!ref) {
+    return null;
+  }
+
+  const series = resolveRecurringSeriesReference(_referenceNow);
+  const recurringInfo = parseGoogleCalendarRecurringEventId(ref.eventId);
+
+  return {
+    eventId: ref.eventId,
+    title: ref.title,
+    startTime: ref.startISO,
+    endTime: ref.endISO,
+    recurring:
+      Boolean(ref.recurring) ||
+      recurringInfo.isRecurringInstance ||
+      Boolean(series && (series.eventId === ref.eventId || series.eventId === recurringInfo.seriesMasterId)),
+    recurringEventId:
+      ref.recurringEventId ??
+      (recurringInfo.isRecurringInstance ? recurringInfo.seriesMasterId : series?.eventId ?? null),
+  };
+}
+
+export function shouldDeleteFromLastReferencedMemory(params: {
+  transcript: string;
+  referenceNow: Date;
+}) {
+  if (!transcriptHasEventPronounReference(params.transcript)) {
+    return false;
+  }
+
+  const ref = getLastReferencedCalendarEvent(params.referenceNow);
+
+  return Boolean(ref?.eventId && !ref.eventId.startsWith('pending'));
 }
 
 export function resolveRecurringSeriesReference(_referenceNow: Date): ConversationRecurringSeriesRecord | null {
@@ -245,6 +315,8 @@ export function recordModifiedConversationEvent(params: {
   title: string;
   startISO: string;
   endISO: string;
+  recurring?: boolean;
+  recurringEventId?: string | null;
 }) {
   commitModifiedCalendarEvent(params);
 }

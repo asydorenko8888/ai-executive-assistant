@@ -12,6 +12,7 @@ import {
 } from '@/src/features/agent/calendar/calendarConversationState';
 import { extractCalendarClockFragment } from '@/src/features/agent/calendarIntelligence/calendarClockParser';
 import { resolveDisambiguationSelection, inferCalendarDisambiguationLocale, looksLikeDisambiguationSelectionAttempt } from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import { parseRecurringDeleteScopeReply } from '@/src/features/agent/calendar/calendarDeleteRecurringChoice';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import { titlesReferToSameEvent } from '@/src/features/agent/calendar/calendarPendingConflictEnrichment';
 import { classifyCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
@@ -177,6 +178,7 @@ export function isPendingEventDisambiguationActive() {
   return Boolean(
     updatePending?.candidates?.length ||
       deletePending?.candidates?.length ||
+      deletePending?.awaitingRecurringChoice ||
       storedMoveCandidates.length > 0,
   );
 }
@@ -190,6 +192,12 @@ export function isAwaitingEventDisambiguationSelectionReply(
   }
 
   const normalized = transcript.trim();
+
+  const deletePendingForRecurring = getPendingCalendarDeleteContext();
+
+  if (deletePendingForRecurring?.awaitingRecurringChoice && parseRecurringDeleteScopeReply(normalized)) {
+    return true;
+  }
 
   if (looksLikeDisambiguationSelectionAttempt(normalized)) {
     return true;

@@ -11,6 +11,7 @@ import {
   buildCalendarDeleteRecurringNotSupportedReply,
   buildCalendarDeleteVerificationFailedReply,
 } from '@/src/features/agent/calendar/calendarDeleteNaturalReplies';
+import { buildCalendarDeleteRecurringChoiceReply } from '@/src/features/agent/calendar/calendarDeleteRecurringChoice';
 import {
   buildCalendarApiUnavailableReply,
   buildCalendarToolUserReply,
@@ -74,6 +75,13 @@ function buildNaturalDeleteFailureReply(
     }
 
     return buildCalendarDeleteAmbiguousReply(locale);
+  }
+
+  if (tool.errorCode === 'CALENDAR_RECURRING_DELETE_SCOPE_REQUIRED') {
+    return buildCalendarDeleteRecurringChoiceReply(
+      locale,
+      options?.eventTitle ?? 'event',
+    );
   }
 
   if (tool.errorCode === 'CALENDAR_RECURRING_NOT_SUPPORTED') {

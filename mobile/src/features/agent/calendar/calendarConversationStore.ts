@@ -109,6 +109,8 @@ export type ConversationEventPointer = {
   endISO: string;
   dateKey: string;
   savedAtMs: number;
+  recurring?: boolean;
+  recurringEventId?: string | null;
 };
 
 export type CalendarConversationSnapshot = {
@@ -231,6 +233,8 @@ function buildPointer(params: {
   title: string;
   startISO: string;
   endISO: string;
+  recurring?: boolean;
+  recurringEventId?: string | null;
 }): ConversationEventPointer {
   const timeZone = getExecutiveCalendarTimezone();
   const ymd = getZonedYmd(new Date(params.startISO), timeZone);
@@ -242,6 +246,8 @@ function buildPointer(params: {
     endISO: params.endISO,
     dateKey: formatDateKey(ymd),
     savedAtMs: Date.now(),
+    recurring: params.recurring,
+    recurringEventId: params.recurringEventId ?? null,
   };
 }
 
@@ -675,6 +681,8 @@ export function commitModifiedCalendarEvent(params: {
   title: string;
   startISO: string;
   endISO: string;
+  recurring?: boolean;
+  recurringEventId?: string | null;
 }) {
   const pointer = buildPointer(params);
   const event = pointerToCalendarEvent(pointer);

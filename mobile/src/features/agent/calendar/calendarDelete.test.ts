@@ -7,8 +7,8 @@ import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calen
 import {
   buildCalendarDeleteAmbiguousReply,
   buildCalendarDeleteNotFoundReply,
-  buildCalendarDeleteRecurringNotSupportedReply,
 } from '@/src/features/agent/calendar/calendarDeleteNaturalReplies';
+import { buildCalendarDeleteRecurringChoiceReply } from '@/src/features/agent/calendar/calendarDeleteRecurringChoice';
 import { extractDeleteEventTitle } from '@/src/features/agent/calendar/calendarDeleteIntentExtractor';
 import {
   isRecurringGoogleCalendarEventId,
@@ -186,17 +186,20 @@ describe('calendar delete integration', () => {
     assert.equal(resolution.status, 'ambiguous');
   });
 
-  it('blocks recurring instance deletion', () => {
+  it('asks recurring delete scope for recurring instance deletion', () => {
     const recurring = chicagoEvent('series', 'Weekly standup', 9);
     recurring.id = 'abc123_20260528T190000Z';
 
     const resolution = resolveDelete('удали Weekly standup в 09:00', [recurring]);
 
-    assert.equal(resolution.status, 'recurring_not_supported');
+    assert.equal(resolution.status, 'recurring_choice_required');
     assert.equal(isRecurringGoogleCalendarEventId(recurring.id), true);
+    if (resolution.status === 'recurring_choice_required') {
+      assert.equal(resolution.recurringEventId, 'abc123');
+    }
   });
 
-  it('uses natural not-found, ambiguous, and recurring replies', () => {
+  it('uses natural not-found, ambiguous, and recurring choice replies', () => {
     assert.equal(
       buildCalendarDeleteNotFoundReply('ru'),
       'Я не нашёл такое событие в календаре.',
@@ -206,8 +209,8 @@ describe('calendar delete integration', () => {
       'Я нашёл несколько похожих событий. Какое именно удалить?',
     );
     assert.equal(
-      buildCalendarDeleteRecurringNotSupportedReply('ru'),
-      'Повторяющиеся события пока не поддерживаются для удаления.',
+      buildCalendarDeleteRecurringChoiceReply('ru', 'Weekly standup'),
+      'Событие «Weekly standup» повторяется. Удалить только это событие или всю серию?',
     );
     assert.ok(isTerminalCalendarToolReply(buildCalendarDeleteNotFoundReply('ru')));
   });

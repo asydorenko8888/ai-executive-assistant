@@ -7,6 +7,10 @@ import {
 } from '@/src/features/agent/calendar/calendarDeleteDiagnostics';
 import { resolveDisambiguationSelection } from '@/src/features/agent/calendar/calendarEventDisambiguation';
 import type { CalendarDisambiguationCandidate } from '@/src/features/agent/calendar/calendarEventDisambiguation';
+import {
+  parseRecurringDeleteScopeReply,
+  resolveDeleteEventIdForRecurringScope,
+} from '@/src/features/agent/calendar/calendarDeleteRecurringChoice';
 import { bindPendingCalendarDeleteSelection } from '@/src/features/agent/calendar/calendarPendingActionBinding';
 import type { PendingCalendarDeleteContext } from '@/src/features/agent/execution/calendarExecutionSession';
 
@@ -71,6 +75,29 @@ export function tryMergePendingCalendarDeleteReply(params: {
 
   if (!reply) {
     return null;
+  }
+
+  if (params.pending.awaitingRecurringChoice && params.pending.selectedEventId) {
+    const deleteScope = parseRecurringDeleteScopeReply(reply);
+
+    if (!deleteScope) {
+      return null;
+    }
+
+    const next: PendingCalendarDeleteContext = {
+      ...params.pending,
+      deleteScope,
+      awaitingRecurringChoice: false,
+    };
+
+    return {
+      context: next,
+      transcript: params.pending.sourceTranscript.trim(),
+      selectedEventId: resolveDeleteEventIdForRecurringScope({
+        eventId: params.pending.selectedEventId,
+        deleteScope,
+      }),
+    };
   }
 
   if (params.pending.candidates && params.pending.candidates.length > 0) {
