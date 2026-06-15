@@ -541,7 +541,15 @@ export async function executeCalendarCommand(params: {
       });
     }
 
-    throw error;
+    return {
+      matched: false,
+      intent: detectCalendarCommandIntent(params.transcript),
+      reply: '',
+      spokenReply: '',
+      toolStatus: 'FAILURE',
+      executionState: 'conversational',
+      verified: false,
+    };
   }
 }
 

@@ -23,6 +23,12 @@ import {
   shouldFormatReplyForVoice,
 } from '@/src/features/agent/conversation/assistantTurnPipeline';
 import { resolveVoiceTurnGate } from '@/src/features/agent/conversation/assistantVoiceTurnGate';
+import {
+  buildUnrecognizedCommandFallbackReply,
+  logRouteHandlerFailed,
+  logTranscriptReceived,
+  logVoiceTurnStart,
+} from '@/src/features/agent/conversation/voiceTurnSafety';
 import { useHydrateExecutiveConversation } from '@/src/features/chat/hooks/useHydrateExecutiveConversation';
 import { prepareMemoryPromptContext } from '@/src/features/chat/memory';
 import { buildShortTermMemory } from '@/src/features/chat/memory/shortTermMemory';
@@ -40,12 +46,10 @@ import {
   getConversationPayloadMessages,
   useExecutiveConversationStore,
 } from '@/src/features/chat/store/executiveConversationStore';
-import { detectCalendarCommandIntent } from '@/src/features/agent/calendar/calendarCommandTypes';
 import {
   blockLlmForCalendarMutation,
   requiresCalendarToolExecution,
 } from '@/src/features/agent/calendar/calendarToolExecutionGate';
-import { buildCalendarMoveExceptionReply } from '@/src/features/agent/calendar/calendarMoveExceptionReply';
 import { buildFailureTerminalReply } from '@/src/features/agent/calendar/calendarExecutionContract';
 import {
   classifyCalendarAgendaQueryIntent,
@@ -294,6 +298,8 @@ export function useHomeVoiceAssistant() {
       const trimmedTranscript = transcript.trim();
       setHeardTranscript('');
       setLiveTranscript('');
+      logVoiceTurnStart({ source: 'home_voice', languageCode: languageCodeRef.current });
+      logTranscriptReceived({ source: 'home_voice', transcript: trimmedTranscript });
       console.log('[Voice Test] transcript', trimmedTranscript);
       console.log('[Voice] Sending to assistant');
 
@@ -473,19 +479,21 @@ export function useHomeVoiceAssistant() {
           return;
         }
 
+        logRouteHandlerFailed({
+          handler: 'home_voice_send',
+          transcript: trimmedTranscript,
+          error,
+        });
+
         const apiError = toApiError(error);
         console.log('[Voice] Error', apiError.message);
 
-        const recovery =
-          requiresCalendarToolExecution(trimmedTranscript) &&
-          detectCalendarCommandIntent(trimmedTranscript) === 'update_calendar_event'
-            ? buildCalendarMoveExceptionReply(languageCodeRef.current, apiError.message)
-            : buildAssistantRecoveryMessage(apiError, 'failed');
+        const recovery = buildUnrecognizedCommandFallbackReply(languageCodeRef.current);
 
         const assistantMessage = finishAssistantTurn(recovery);
         playAssistantResponse(recovery, assistantMessage.id);
-        setVoiceStatus('error');
-        setStatusText(apiError.message);
+        setVoiceStatus('answered');
+        setStatusText('Answer ready');
       } finally {
         isSendingRef.current = false;
       }

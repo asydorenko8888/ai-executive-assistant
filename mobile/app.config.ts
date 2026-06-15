@@ -18,6 +18,7 @@ type AppEnv = {
   EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID: string;
   EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID: string;
   EXPO_PUBLIC_APP_API_KEY: string;
+  EXPO_PUBLIC_WEATHER_ENABLED: boolean;
 };
 
 function readAppEnv(source: Record<string, string | undefined>): AppEnv {
@@ -40,6 +41,7 @@ function readAppEnv(source: Record<string, string | undefined>): AppEnv {
       source.EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID || '',
     EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID: source.EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID || '',
     EXPO_PUBLIC_APP_API_KEY: source.EXPO_PUBLIC_APP_API_KEY || '',
+    EXPO_PUBLIC_WEATHER_ENABLED: source.EXPO_PUBLIC_WEATHER_ENABLED !== 'false',
   };
 }
 
@@ -66,6 +68,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       infoPlist: {
         NSMicrophoneUsageDescription:
           'Microphone access is used for voice commands and executive assistant conversations.',
+        NSLocationWhenInUseUsageDescription:
+          'Location access is used to show weather for your current area when you ask about the weather.',
       },
     },
     android: {
@@ -80,6 +84,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         appEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_ANDROID_CLIENT_ID,
       ),
       permissions: [
+        'android.permission.ACCESS_COARSE_LOCATION',
+        'android.permission.ACCESS_FINE_LOCATION',
         'android.permission.POST_NOTIFICATIONS',
         'android.permission.SCHEDULE_EXACT_ALARM',
         'android.permission.USE_EXACT_ALARM',
@@ -121,6 +127,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         },
       ],
       'expo-task-manager',
+      [
+        'expo-location',
+        {
+          locationWhenInUsePermission:
+            'Location access is used to show weather for your current area when you ask about the weather.',
+        },
+      ],
     ],
     experiments: {
       typedRoutes: true,

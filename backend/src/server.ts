@@ -3,12 +3,13 @@ import cors from 'cors';
 import type { CorsOptions } from 'cors';
 import helmet from 'helmet';
 
-import { backendEnv } from './config/env.js';
+import { backendEnv, isWeatherApiConfigured } from './config/env.js';
 import { requireAppApiKey } from './middleware/appApiKey.js';
 import { apiRateLimiter } from './middleware/rateLimit.js';
 import { chatRouter } from './routes/chat.js';
 import { googleCalendarRouter } from './routes/googleCalendar.js';
 import { speechRouter } from './routes/speech.js';
+import { weatherRouter } from './routes/weather.js';
 
 const app = express();
 const configuredOrigins = backendEnv.CORS_ORIGIN.split(',')
@@ -46,6 +47,10 @@ app.use(express.json({ limit: '1mb' }));
 app.get('/health', (_request, response) => {
   response.status(200).json({
     ok: true,
+    weather: {
+      configured: isWeatherApiConfigured(),
+      provider: 'openweathermap',
+    },
   });
 });
 
@@ -55,6 +60,7 @@ protectedApiRouter.use(apiRateLimiter);
 protectedApiRouter.use(chatRouter);
 protectedApiRouter.use(googleCalendarRouter);
 protectedApiRouter.use(speechRouter);
+protectedApiRouter.use(weatherRouter);
 
 app.use('/api', protectedApiRouter);
 
@@ -64,6 +70,15 @@ app.listen(backendEnv.PORT, () => {
     port: backendEnv.PORT,
     timestamp: new Date().toISOString(),
     cwd: process.cwd(),
+    weatherConfigured: isWeatherApiConfigured(),
   });
   console.log(`Executive AI backend listening on http://localhost:${backendEnv.PORT}`);
+
+  if (!isWeatherApiConfigured()) {
+    console.warn(
+      '[weather] WEATHER_API_KEY is not set in backend/.env — GET /api/weather returns 503 until configured.',
+    );
+  } else {
+    console.log('[weather] OpenWeatherMap proxy enabled at GET /api/weather');
+  }
 });

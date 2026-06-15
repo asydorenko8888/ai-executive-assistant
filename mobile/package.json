@@ -45,7 +45,9 @@
     "test:calendar-reminder-engine": "npx tsx --test src/features/calendar-reminder-engine/calendarReminderEngine.test.ts",
     "test:local-reminders": "npx tsx --test src/features/local-reminders/localReminder.test.ts src/features/local-reminders/localReminderVoicePlayback.test.ts",
     "test:local-alarms": "npx tsx --test src/features/local-alarms/localAlarm.test.ts src/features/local-alarms/localAlarmSession.test.ts src/features/local-alarms/localAlarmVoiceText.test.ts",
-    "test:local-scheduling": "npx tsx --test src/features/local-scheduling/localScheduling.test.ts"
+    "test:local-scheduling": "npx tsx --test src/features/local-scheduling/localScheduling.test.ts",
+    "test:weather": "npx tsx --test src/features/weather/weather.test.ts src/features/weather/weatherRainForecast.test.ts src/features/weather/weatherAnalysis.test.ts",
+    "test:voice-safety": "npx tsx --test src/features/agent/conversation/voiceTurnSafety.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -67,6 +69,7 @@
     "expo-image": "~3.0.11",
     "expo-intent-launcher": "~13.0.8",
     "expo-linking": "~8.0.12",
+    "expo-location": "~19.0.8",
     "expo-notifications": "~0.32.17",
     "expo-router": "~6.0.24",
     "expo-secure-store": "~15.0.8",

@@ -10,25 +10,34 @@ type HomeWeatherWidgetProps = {
 };
 
 export function HomeWeatherWidget({ weather }: HomeWeatherWidgetProps) {
+  const iconColor = weather.needsLocation ? colors.textSubtle : colors.accentGold;
+  const iconBackgroundColor = weather.needsLocation ? colors.surfaceElevated : colors.overlayGold;
+
   return (
     <GlassCard>
       <SectionTitle
         title="Weather"
         subtitle={weather.location}
         icon={weather.conditionIcon}
-        iconColor={colors.accentGold}
-        iconBackgroundColor={colors.overlayGold}
-        rightAccessory={<Text style={styles.temperature}>{weather.temperature}</Text>}
+        iconColor={iconColor}
+        iconBackgroundColor={iconBackgroundColor}
+        rightAccessory={
+          weather.needsLocation || weather.isLoading ? null : (
+            <Text style={styles.temperature}>{weather.temperature}</Text>
+          )
+        }
       />
 
-      <View style={styles.weatherRow}>
-        {weather.metrics.map((metric) => (
-          <View key={metric.id} style={styles.metricPill}>
-            <Text style={styles.metricLabel}>{metric.label}</Text>
-            <Text style={styles.metricValue}>{metric.value}</Text>
-          </View>
-        ))}
-      </View>
+      {weather.metrics.length > 0 ? (
+        <View style={styles.weatherRow}>
+          {weather.metrics.map((metric) => (
+            <View key={metric.id} style={styles.metricPill}>
+              <Text style={styles.metricLabel}>{metric.label}</Text>
+              <Text style={styles.metricValue}>{metric.value}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
     </GlassCard>
   );
 }

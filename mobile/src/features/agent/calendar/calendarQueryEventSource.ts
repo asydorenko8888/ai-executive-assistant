@@ -1,5 +1,9 @@
 import type { CalendarEvent } from '@/src/entities/calendar/types';
-import { fetchCalendarEventsForZonedDay } from '@/src/features/agent/calendar/calendarAgendaQuery';
+import {
+  fetchCalendarEventsForHorizon,
+  fetchCalendarEventsForZonedDay,
+  filterEventsByZonedStartRange,
+} from '@/src/features/agent/calendar/calendarAgendaQuery';
 import { augmentEventsWithConversationContext } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import {
   getCalendarWorkingMemory,
@@ -13,9 +17,32 @@ import {
   isTimedCalendarEvent,
   sortEventsChronologically,
 } from '@/src/features/agent/calendar/calendarSchedule';
+import { getCalendarAgendaWindow, parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import { filterRawEventsForDay } from '@/src/features/agent/calendarIntelligence/dayEventFilter';
 import type { CalendarDayContext } from '@/src/features/agent/calendarIntelligence/types';
+
+function buildAgendaHorizonRange(referenceNow: Date) {
+  const window = getCalendarAgendaWindow(referenceNow);
+  const rangeStartMs = parseGoogleCalendarInstant(window.timeMin);
+  const rangeEndMs = parseGoogleCalendarInstant(window.timeMax);
+
+  if (rangeStartMs === null || rangeEndMs === null) {
+    return null;
+  }
+
+  return { rangeStartMs, rangeEndMs };
+}
+
+function filterEventsForAgendaHorizon(events: CalendarEvent[], referenceNow: Date) {
+  const range = buildAgendaHorizonRange(referenceNow);
+
+  if (!range) {
+    return sortEventsChronologically(events.filter(isSchedulableEvent));
+  }
+
+  return filterEventsByZonedStartRange(events.filter(isSchedulableEvent), range);
+}
 
 function isSchedulableEvent(event: CalendarEvent) {
   return (
@@ -116,6 +143,72 @@ export async function loadCalendarQueryEvents(params: {
     parsed_time_minutes: null,
     parsed_time_label: null,
     timezone_used: params.day.timezone ?? getExecutiveCalendarTimezone(),
+    events_found: merged.map((event) => ({
+      id: event.id,
+      title: event.title,
+      startsAt: event.startsAt,
+    })),
+    calendar_refresh_status: refreshStatus,
+    calendarStore_count: memory.lastCalendarSnapshot.length,
+    live_store_count: getLiveCalendarEvents().length,
+    remote_fetch_count: remoteEvents.length,
+  });
+
+  return { events: merged, refreshStatus, calendarTrustworthy };
+}
+
+/** Time-until countdown must search the full agenda horizon, not a single day. */
+export async function loadCalendarEventsForTimeUntilQuery(params: {
+  referenceNow: Date;
+  supplementalEvents?: CalendarEvent[];
+  preferLocalStore?: boolean;
+}): Promise<{
+  events: CalendarEvent[];
+  refreshStatus: 'skipped' | 'ok' | 'failed';
+  calendarTrustworthy: boolean;
+}> {
+  const supplemental = params.supplementalEvents ?? [];
+  const localStore = buildLocalCalendarStoreEvents(true);
+  const mergedLocal = sortEventsChronologically(
+    mergeCalendarEventLists(localStore, supplemental).filter(isSchedulableEvent),
+  );
+
+  let remoteEvents: CalendarEvent[] = [];
+  let refreshStatus: 'skipped' | 'ok' | 'failed' = 'skipped';
+
+  if (!params.preferLocalStore) {
+    try {
+      const { events, fetchOk } = await fetchCalendarEventsForHorizon(params.referenceNow);
+
+      if (fetchOk) {
+        remoteEvents = events.filter(isSchedulableEvent);
+        refreshStatus = 'ok';
+      } else {
+        refreshStatus = 'failed';
+      }
+    } catch (error) {
+      console.log('[CALENDAR QUERY] time-until horizon fetch failed', error);
+      refreshStatus = 'failed';
+    }
+  }
+
+  const calendarTrustworthy =
+    refreshStatus === 'ok' || (refreshStatus === 'failed' && isLocalCalendarStoreFresh());
+
+  const merged = sortEventsChronologically(
+    filterEventsForAgendaHorizon(
+      augmentEventsWithConversationContext(mergeCalendarEventLists(mergedLocal, remoteEvents)),
+      params.referenceNow,
+    ),
+  );
+
+  const memory = getCalendarWorkingMemory();
+
+  logCalendarQueryResolution({
+    original_user_query: 'time_until_horizon',
+    parsed_time_minutes: null,
+    parsed_time_label: null,
+    timezone_used: getExecutiveCalendarTimezone(),
     events_found: merged.map((event) => ({
       id: event.id,
       title: event.title,

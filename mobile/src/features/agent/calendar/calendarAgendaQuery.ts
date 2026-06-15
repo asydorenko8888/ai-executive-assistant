@@ -7,7 +7,11 @@ import {
   getEventStartTimestamp,
   sortEventsChronologically,
 } from '@/src/features/agent/calendar/calendarSchedule';
-import { formatTimeInExecutiveTimezone } from '@/src/features/agent/calendar/calendarTime';
+import {
+  formatTimeInExecutiveTimezone,
+  getCalendarAgendaWindow,
+  parseGoogleCalendarInstant,
+} from '@/src/features/agent/calendar/calendarTime';
 import {
   getExecutiveCalendarTimezone,
   getZonedDayRange,
@@ -187,6 +191,43 @@ export async function fetchCalendarEventsForZonedDay(
   logCalendarQueryReturned(events, timezone);
 
   return { events, range, fetchOk: true };
+}
+
+export async function fetchCalendarEventsForHorizon(
+  referenceNow: Date,
+): Promise<{ events: CalendarEvent[]; fetchOk: boolean }> {
+  const timezone = getExecutiveCalendarTimezone();
+  const window = getCalendarAgendaWindow(referenceNow);
+  const rangeStartMs = parseGoogleCalendarInstant(window.timeMin);
+  const rangeEndMs = parseGoogleCalendarInstant(window.timeMax);
+
+  if (rangeStartMs === null || rangeEndMs === null) {
+    return { events: [], fetchOk: false };
+  }
+
+  const listed = await fetchGoogleCalendarEventsFromBackend({
+    timeMin: window.timeMin,
+    timeMax: window.timeMax,
+  }).catch((error) => {
+    console.log('[Calendar Query] horizon fetch failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
+
+  if (!listed) {
+    return { events: [], fetchOk: false };
+  }
+
+  const mapped = (listed.events ?? []).map(mapBackendEvent);
+  const events = filterEventsByZonedStartRange(mapped, {
+    rangeStartMs,
+    rangeEndMs,
+  });
+
+  logCalendarQueryReturned(events, timezone);
+
+  return { events, fetchOk: true };
 }
 
 export async function fetchCalendarEventsForAgendaQuery(params: {

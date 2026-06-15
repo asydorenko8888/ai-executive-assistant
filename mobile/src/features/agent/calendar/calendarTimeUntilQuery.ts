@@ -10,6 +10,7 @@ import {
 } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { sortEventsChronologically } from '@/src/features/agent/calendar/calendarSchedule';
 import { parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import { normalizeCalendarEventTitle } from '@/src/features/agent/calendar/calendarEventTitleNormalization';
 import { scoreTitleMatchForMutation } from '@/src/features/agent/calendar/calendarTitleMatchPriority';
 import {
@@ -18,6 +19,11 @@ import {
 } from '@/src/features/agent/calendar/calendarSchedule';
 
 const TIME_UNTIL_PATTERNS: Array<{ pattern: RegExp; group: number }> = [
+  {
+    pattern:
+      /(?:сколько|скільки)\s+(?:времени|время|часу|час)\s+(?:осталось|залишилось)\s+до\s+(.+)/iu,
+    group: 1,
+  },
   {
     pattern:
       /(?:сколько|скільки)\s+(?:времени|время|часу|час)\s+(?:у\s+меня\s+|у\s+мене\s+)?до\s+(.+)/iu,
@@ -137,13 +143,21 @@ export function logTimeUntilEventSelection(params: {
       ? null
       : Math.floor((selectedStartMs - nowTimestamp) / 60000);
 
+  const timeZone = getExecutiveCalendarTimezone();
+  const locale = 'sv-SE';
+  const selectedStartParsedLocal =
+    selectedStartMs === null
+      ? null
+      : new Date(selectedStartMs).toLocaleString(locale, { timeZone });
+
   console.log('[calendar_time_until_select]', {
     titleQuery: params.titleQuery,
     currentTime: params.referenceNow.toISOString(),
     futureMatchCount: params.futureMatches.length,
     selectedEventId: params.selectedEvent?.id ?? null,
     selectedEventTitle: params.selectedEvent?.title ?? null,
-    selectedEventStart: params.selectedEvent?.startsAt ?? null,
+    matchedEventStartRaw: params.selectedEvent?.startsAt ?? null,
+    parsedLocalStart: selectedStartParsedLocal,
     diffMinutes,
     futureMatches: params.futureMatches.map((event) => ({
       id: event.id,

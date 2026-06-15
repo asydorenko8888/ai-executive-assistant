@@ -27,7 +27,6 @@ import {
 } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import {
   buildIntentPrioritySystemPrompt,
-  classifyAssistantIntent,
   logAssistantIntentRouting,
   type AssistantIntentAnalysis,
 } from '@/src/features/agent/intent/assistantIntentRouter';
@@ -70,6 +69,9 @@ import {
 import { syncConversationStateForMoveClarification } from '@/src/features/agent/calendar/calendarConversationSync';
 import { pendingContextFromExtraction } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import {
+  isWeatherContextFollowUp,
+  shouldForceWeatherRouting,
+  shouldSuppressCalendarRoutingForDomainContext,
   syncAssistantContextFromCalendarMemory,
 } from '@/src/features/agent/conversation/activeConversationalReference';
 import {
@@ -97,6 +99,9 @@ import {
   isLocalReminderIntent,
 } from '@/src/features/local-reminders/localReminderClassification';
 import { resolveLocalReminderTurn } from '@/src/features/local-reminders/resolveLocalReminderTurn';
+import { isWeatherIntent } from '@/src/features/weather/weatherClassification';
+import { resolveWeatherTurn } from '@/src/features/weather/resolveWeatherTurn';
+import { env } from '@/src/shared/config';
 import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import { guardAgainstRepeatedAssistantResponse, getLatestUserMessage } from '@/src/features/agent/conversation/assistantResponseGuard';
 import {
@@ -112,47 +117,26 @@ import {
 import { buildVoiceSessionContext } from '@/src/features/voice/memory';
 import { buildVoiceSessionMemoryFromMessages } from '@/src/features/voice/memory/voiceSessionFromMessages';
 import {
+  buildFallbackAssistantTurnResolution,
+  isUnrecognizedVoiceCommand,
+  logRouteHandlerFailed,
+  safeClassifyAssistantIntent,
+  safeRouteHandler,
+} from '@/src/features/agent/conversation/voiceTurnSafety';
+import {
   tryBuildGymLunchPivotReply,
   tryBuildVoiceSessionFollowUpReply,
 } from '@/src/features/voice/memory/voiceSessionFollowUp';
+import type {
+  AssistantTurnResolution,
+  ResolveAssistantTurnParams,
+} from '@/src/features/agent/conversation/assistantTurnTypes';
 
-export type AssistantTurnRoute =
-  | 'operational_local'
-  | 'factual_local'
-  | 'advisory_local'
-  | 'clarification_local'
-  | 'humanized_calendar'
-  | 'voice_gym_pivot'
-  | 'voice_session_followup'
-  | 'llm';
-
-export type AssistantTurnResolution = {
-  route: AssistantTurnRoute;
-  intent: AssistantIntentAnalysis;
-  reply: string | null;
-  intentPrompt: string | null;
-  userTranscript: string;
-  latestUserMessageId: string | null;
-  executionState: AssistantExecutionState;
-  operationalStarted: boolean;
-  responseMode: AssistantResponseMode;
-  factualGroundingStatus: FactualGroundingStatus;
-  requiresCalendarAuth?: boolean;
-  operationalUxPhase?: CalendarOperationalUxPhase;
-  pendingActionId?: string;
-  spokenReply?: string;
-  calendarVerified?: boolean;
-  behaviorMode?: AssistantBehaviorMode;
-  selectedTool?: string;
-};
-
-export type ResolveAssistantTurnParams = {
-  messages: ChatMessage[];
-  orchestrator: ExecutiveAgentOrchestrator;
-  languageCode: VoiceLanguageCode;
-  referenceNow: Date;
-  enableVoiceShortcuts?: boolean;
-};
+export type {
+  AssistantTurnResolution,
+  AssistantTurnRoute,
+  ResolveAssistantTurnParams,
+} from '@/src/features/agent/conversation/assistantTurnTypes';
 
 function logTurnPipeline(stage: string, details: Record<string, unknown>) {
   console.log('[Conversation]', stage, details);
@@ -609,6 +593,60 @@ function tryResolveLocalReminderTurn(params: {
   };
 }
 
+async function tryResolveWeatherTurn(params: {
+  userTranscript: string;
+  languageCode: VoiceLanguageCode;
+  referenceNow: Date;
+  intent: AssistantIntentAnalysis;
+  behaviorPrompt: string | null;
+  userMessage: ChatMessage | null;
+  factualGrounding: ReturnType<typeof buildFactualGroundingContext>;
+  behaviorMode: AssistantBehaviorMode;
+}): Promise<AssistantTurnResolution | null> {
+  if (
+    !env.weatherEnabled ||
+    (!isWeatherIntent(params.userTranscript) &&
+      !isWeatherContextFollowUp(params.userTranscript, params.referenceNow) &&
+      !shouldForceWeatherRouting(params.userTranscript, params.referenceNow))
+  ) {
+    return null;
+  }
+
+  const weatherResult = await resolveWeatherTurn({
+    transcript: params.userTranscript,
+    languageCode: params.languageCode,
+    referenceNow: params.referenceNow,
+  });
+
+  if (!weatherResult) {
+    return null;
+  }
+
+  logTurnPipeline('route selected', {
+    route: 'advisory_local',
+    behaviorMode: params.behaviorMode,
+    selectedTool: 'none',
+    weather: true,
+    blockLlm: true,
+  });
+
+  return {
+    route: 'advisory_local',
+    intent: params.intent,
+    reply: weatherResult.reply,
+    intentPrompt: params.behaviorPrompt,
+    userTranscript: params.userTranscript,
+    latestUserMessageId: params.userMessage?.id ?? null,
+    executionState: 'idle',
+    operationalStarted: false,
+    spokenReply: weatherResult.spokenReply,
+    calendarVerified: false,
+    ...resolutionDefaults(params.factualGrounding),
+    behaviorMode: params.behaviorMode,
+    selectedTool: 'none',
+  };
+}
+
 async function tryResolveCalendarReadTurn(params: {
   userTranscript: string;
   messages: ChatMessage[];
@@ -747,13 +785,28 @@ async function tryExecuteReadyCalendarMutation(params: {
     route: 'ready_mutation_early',
   });
 
-  const commandResult = await executeCalendarCommand({
+  const commandResult = await safeRouteHandler({
+    handler: 'calendar_command_early',
     transcript: params.actionTranscript,
-    titleSourceTranscript: params.userTranscript,
-    languageCode: params.languageCode,
-    calendarConnected: params.calendarConnected,
-    referenceNow: params.referenceNow,
+    run: () =>
+      executeCalendarCommand({
+        transcript: params.actionTranscript,
+        titleSourceTranscript: params.userTranscript,
+        languageCode: params.languageCode,
+        calendarConnected: params.calendarConnected,
+        referenceNow: params.referenceNow,
+      }),
   });
+
+  if (!commandResult) {
+    return buildFallbackAssistantTurnResolution({
+      languageCode: params.languageCode,
+      userTranscript: params.userTranscript,
+      userMessageId: params.userMessage?.id ?? null,
+      reason: 'calendar_command_early_failed',
+      intent: params.intent,
+    });
+  }
 
   const lastOutcome = getLastCalendarCommandOutcome();
   const guardEmptyReply = (reply: string, reason: string) => {
@@ -824,9 +877,41 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const userMessage = getLatestUserMessage(params.messages);
   const userTranscript = userMessage?.content.trim() ?? '';
 
+  if (!userTranscript) {
+    return buildFallbackAssistantTurnResolution({
+      languageCode: params.languageCode,
+      userTranscript,
+      userMessageId: userMessage?.id ?? null,
+      reason: 'empty_transcript',
+    });
+  }
+
+  try {
+    return await resolveAssistantTurnInternal(params, userMessage, userTranscript);
+  } catch (error) {
+    logRouteHandlerFailed({
+      handler: 'resolveAssistantTurn',
+      transcript: userTranscript,
+      error,
+    });
+
+    return buildFallbackAssistantTurnResolution({
+      languageCode: params.languageCode,
+      userTranscript,
+      userMessageId: userMessage?.id ?? null,
+      reason: 'pipeline_exception',
+    });
+  }
+}
+
+async function resolveAssistantTurnInternal(
+  params: ResolveAssistantTurnParams,
+  userMessage: ChatMessage | null,
+  userTranscript: string,
+): Promise<AssistantTurnResolution> {
   logAlarmRoutingDiagnostic({ userText: userTranscript });
 
-  const intent = classifyAssistantIntent(userTranscript);
+  const intent = safeClassifyAssistantIntent(userTranscript);
   const factualGrounding = buildFactualGroundingContext({
     orchestrator: params.orchestrator,
     languageCode: params.languageCode,
@@ -983,6 +1068,32 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     return localReminderTurn;
   }
 
+  const weatherTurn = await safeRouteHandler({
+    handler: 'weather',
+    transcript: userTranscript,
+    run: () =>
+      tryResolveWeatherTurn({
+        userTranscript,
+        languageCode: params.languageCode,
+        referenceNow: params.referenceNow,
+        intent,
+        behaviorPrompt,
+        userMessage,
+        factualGrounding,
+        behaviorMode: behavior.mode,
+      }),
+  });
+
+  if (weatherTurn) {
+    logAssistantReplyGenerated({
+      source: 'weather',
+      transcriptPreview: userTranscript,
+      replyPreview: weatherTurn.reply ?? '',
+      route: weatherTurn.route,
+    });
+    return weatherTurn;
+  }
+
   const { refreshCalendarAuthCapabilities } = await import(
     '@/src/features/agent/calendar/calendarAuthCapabilities'
   );
@@ -1018,8 +1129,14 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     hasPendingLocalAlarmAction() ||
     hasPendingAlarmSelection();
 
+  const deferCalendarForDomainContext = shouldSuppressCalendarRoutingForDomainContext(
+    userTranscript,
+    params.referenceNow,
+  );
+
   if (
     !deferCalendarForAlarm &&
+    !deferCalendarForDomainContext &&
     (isCalendarReadOnlyQuery(userTranscript) ||
       requiresCalendarCommandExecution(actionTranscript) ||
       calendarCommandIntent !== 'none')
@@ -1031,7 +1148,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     });
   }
 
-  const calendarReadTurn = deferCalendarForAlarm
+  const calendarReadTurn = deferCalendarForAlarm || deferCalendarForDomainContext
     ? null
     : await tryResolveCalendarReadTurn({
         userTranscript,
@@ -1057,7 +1174,7 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     return calendarReadTurn;
   }
 
-  const readyCalendarMutation = deferCalendarForAlarm
+  const readyCalendarMutation = deferCalendarForAlarm || deferCalendarForDomainContext
     ? null
     : await tryExecuteReadyCalendarMutation({
         actionTranscript,
@@ -1274,9 +1391,14 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       };
     }
 
-    const reminderResult = await processVoiceReminderTranscript({
+    const reminderResult = await safeRouteHandler({
+      handler: 'voice_reminder',
       transcript: actionTranscript,
-      languageCode: params.languageCode,
+      run: () =>
+        processVoiceReminderTranscript({
+          transcript: actionTranscript,
+          languageCode: params.languageCode,
+        }),
     });
 
     if (reminderResult) {
@@ -1323,13 +1445,28 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       transcriptPreview: actionTranscript.slice(0, 120),
     });
 
-    const commandResult = await executeCalendarCommand({
+    const commandResult = await safeRouteHandler({
+      handler: 'calendar_command_action_mode',
       transcript: actionTranscript,
-      titleSourceTranscript: userTranscript,
-      languageCode: params.languageCode,
-      calendarConnected,
-      referenceNow: params.referenceNow,
+      run: () =>
+        executeCalendarCommand({
+          transcript: actionTranscript,
+          titleSourceTranscript: userTranscript,
+          languageCode: params.languageCode,
+          calendarConnected,
+          referenceNow: params.referenceNow,
+        }),
     });
+
+    if (!commandResult) {
+      return buildFallbackAssistantTurnResolution({
+        languageCode: params.languageCode,
+        userTranscript,
+        userMessageId: userMessage?.id ?? null,
+        reason: 'calendar_command_action_mode_failed',
+        intent,
+      });
+    }
 
     const lastOutcome = getLastCalendarCommandOutcome();
     const guardEmptyReply = (reply: string, reason: string) => {
@@ -1663,6 +1800,16 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
       behaviorMode: behavior.mode,
       intentPrompt: [behaviorPrompt, emotionalRoute.intentPrompt].filter(Boolean).join(' '),
     };
+  }
+
+  if (isUnrecognizedVoiceCommand(userTranscript, intent)) {
+    return buildFallbackAssistantTurnResolution({
+      languageCode: params.languageCode,
+      userTranscript,
+      userMessageId: userMessage?.id ?? null,
+      reason: 'unrecognized_command',
+      intent,
+    });
   }
 
   logTurnPipeline('route selected', {

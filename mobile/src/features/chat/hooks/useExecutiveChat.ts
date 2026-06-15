@@ -22,6 +22,12 @@ import {
   shouldFormatReplyForVoice,
   type AssistantTurnRoute,
 } from '@/src/features/agent/conversation/assistantTurnPipeline';
+import {
+  buildFallbackAssistantTurnResolution,
+  logRouteHandlerFailed,
+  logTranscriptReceived,
+  logVoiceTurnStart,
+} from '@/src/features/agent/conversation/voiceTurnSafety';
 import { blockConversationalCalendarRetryLoop } from '@/src/features/agent/execution/calendarRetryPhraseGuard';
 import type { AssistantExecutionState } from '@/src/features/agent/conversation/assistantExecutionObservability';
 import type { AssistantResponseMode } from '@/src/features/agent/factual/factualTimeGrounding';
@@ -335,13 +341,35 @@ export function useExecutiveChat() {
       coordinator.touch(requestId);
 
       const referenceNow = new Date(orchestrator.context.now);
-      const turn = await resolveAssistantTurn({
-        messages: nextMessages,
-        orchestrator,
-        languageCode: voiceLanguage,
-        referenceNow,
-        enableVoiceShortcuts: false,
+      logVoiceTurnStart({ source: 'chat', languageCode: voiceLanguage });
+      logTranscriptReceived({
+        source: 'chat',
+        transcript: nextMessages[nextMessages.length - 1]?.content.trim() ?? '',
       });
+
+      let turn;
+
+      try {
+        turn = await resolveAssistantTurn({
+          messages: nextMessages,
+          orchestrator,
+          languageCode: voiceLanguage,
+          referenceNow,
+          enableVoiceShortcuts: false,
+        });
+      } catch (error) {
+        logRouteHandlerFailed({
+          handler: 'chat_mutation_resolve_turn',
+          transcript: nextMessages[nextMessages.length - 1]?.content.trim() ?? '',
+          error,
+        });
+        turn = buildFallbackAssistantTurnResolution({
+          languageCode: voiceLanguage,
+          userTranscript: nextMessages[nextMessages.length - 1]?.content.trim() ?? '',
+          userMessageId: nextMessages[nextMessages.length - 1]?.id ?? null,
+          reason: 'chat_turn_exception',
+        });
+      }
 
       if (
         turn.operationalStarted ||

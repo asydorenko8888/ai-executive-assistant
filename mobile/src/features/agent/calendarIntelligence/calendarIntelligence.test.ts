@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { CalendarEvent } from '@/src/entities/calendar/types';
+import { resetConversationEventMemory } from '@/src/features/agent/calendar/calendarConversationEventMemory';
 import { buildDeterministicCalendarAnswer } from '@/src/features/agent/calendarIntelligence/calendarAnswerEngine';
+import {
+  getLatestActiveReference,
+  resetActiveConversationalReferenceForTests,
+} from '@/src/features/agent/conversation/activeConversationalReference';
 import { isOperationalCalendarCreateRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import { classifyCalendarQueryIntent } from '@/src/features/agent/calendarIntelligence/classifyQuery';
 import { formatDeterministicCalendarReply } from '@/src/features/agent/calendarIntelligence/formatDeterministicReply';
@@ -62,6 +67,27 @@ describe('calendarIntelligence', () => {
     assert.equal(answer?.intent, 'list_day');
     assert.equal(answer?.events.length, 3);
     assert.ok(answer?.events.every((item) => item.dateKey === '2026-05-28'));
+  });
+
+  it('list_day commits last mentioned event for pronoun follow-up', () => {
+    resetActiveConversationalReferenceForTests();
+    resetConversationEventMemory('test');
+
+    const todayEvents: CalendarEvent[] = [
+      event('lunch', 'Обед', '2026-05-28T12:00:00-05:00', '2026-05-28T13:00:00-05:00'),
+      event('dinner', 'Ужин', '2026-05-28T20:00:00-05:00', '2026-05-28T21:00:00-05:00'),
+    ];
+
+    buildDeterministicCalendarAnswer({
+      transcript: 'Что у меня сегодня?',
+      events: todayEvents,
+      referenceNow,
+      timeZone,
+    });
+
+    assert.equal(getLatestActiveReference()?.domain, 'calendar_event');
+    assert.equal(getLatestActiveReference()?.title, 'Ужин');
+    assert.equal(getLatestActiveReference()?.id, 'dinner');
   });
 
   it('classifies natural-language today agenda queries', () => {

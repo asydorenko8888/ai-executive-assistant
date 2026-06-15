@@ -16,9 +16,10 @@ import { resolveTargetDayContext } from '@/src/features/agent/calendarIntelligen
 
 export { isCalendarAgendaQuery, resolveAgendaQueryDayOffset } from '@/src/features/agent/calendar/calendarAgendaQuery';
 import { invalidateCalendarVisibilityCaches } from '@/src/features/agent/calendar/calendarAgendaRefresh';
-import { loadCalendarQueryEvents } from '@/src/features/agent/calendar/calendarQueryEventSource';
+import { loadCalendarEventsForTimeUntilQuery, loadCalendarQueryEvents } from '@/src/features/agent/calendar/calendarQueryEventSource';
 import { getLiveCalendarEvents, replaceLiveCalendarEvents } from '@/src/features/agent/calendar/calendarLiveState';
 import { buildCalendarSummary } from '@/src/features/agent/calendar/googleCalendarService';
+import { isCalendarTimeUntilEventQuery } from '@/src/features/agent/calendar/calendarTimeUntilQuery';
 import {
   filterUpcomingTimedEvents,
   sortEventsChronologically,
@@ -182,6 +183,21 @@ export async function ensureFreshCalendarForAgendaTurn(params: {
   userTranscript: string;
   calendarConnected: boolean;
 }): Promise<CalendarEvent[]> {
+  if (isCalendarTimeUntilEventQuery(params.userTranscript)) {
+    if (!params.calendarConnected) {
+      return [];
+    }
+
+    const { events } = await loadCalendarEventsForTimeUntilQuery({
+      referenceNow: params.referenceNow,
+      supplementalEvents: getLiveCalendarEvents(),
+    });
+
+    patchExecutiveSnapshotCalendar(params.orchestrator.snapshot, getLiveCalendarEvents(), params.referenceNow);
+
+    return events;
+  }
+
   const needsFreshFetch =
     isCalendarAgendaQuery(params.userTranscript) ||
     isDeterministicCalendarReadQuery(params.userTranscript);

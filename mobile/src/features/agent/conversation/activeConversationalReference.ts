@@ -4,14 +4,18 @@ import {
 import { transcriptHasEventPronounReference } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
 import { containsLocalAlarmKeyword } from '@/src/features/local-alarms/localAlarmClassification';
 import { containsLocalReminderKeyword } from '@/src/features/local-reminders/localReminderReference';
+import { containsWeatherDomainKeywords, containsWeatherFollowUpKeywords } from '@/src/features/weather/weatherDomainKeywords';
+import { parseWeatherTimeTarget } from '@/src/features/weather/weatherDateScope';
+import type { WeatherTimeScope } from '@/src/features/weather/types';
 
 export type ActiveReferenceDomain =
   | 'local_alarm'
   | 'calendar_event'
   | 'local_reminder'
-  | 'task';
+  | 'task'
+  | 'weather_context';
 
-export type LastAssistantDomain = 'calendar' | 'alarm' | 'reminder' | 'task' | 'none';
+export type LastAssistantDomain = 'calendar' | 'alarm' | 'reminder' | 'task' | 'weather' | 'none';
 
 export type ActiveReferenceAction = 'create' | 'move' | 'delete' | 'query' | 'update';
 
@@ -21,7 +25,8 @@ export type ActiveReferenceSource =
   | 'alarm_query_answer'
   | 'alarm_write'
   | 'reminder_query_answer'
-  | 'reminder_write';
+  | 'reminder_write'
+  | 'weather_query_answer';
 
 export type ActiveConversationalReference = {
   domain: ActiveReferenceDomain;
@@ -40,11 +45,23 @@ export type ActiveConversationalReference = {
 /** Single source of truth: last entity the assistant explicitly mentioned. */
 let latestActiveReference: ActiveConversationalReference | null = null;
 
+/** Last assistant response domain for follow-up routing. */
+let lastDomain: LastAssistantDomain = 'none';
+
+const CALENDAR_FOLLOW_UP_KEYWORDS =
+  /(?:^|[\s,.;:!?—-])(?:а\s+)?(?:завтра|tomorrow|сегодня|today|сьогодні|что\s+у\s+меня|що\s+у\s+мене|what\s+do\s+i\s+have|какие\s+встреч|які\s+зустріч)(?:[\s,.;:!?—-]|$)/iu;
+
+const ALARM_FOLLOW_UP_KEYWORDS =
+  /(?:^|[\s,.;:!?—-])(?:перенес(?:и|і)|сдвинь|move|reschedule|удали(?:ть)?|отмени(?:ть)?|delete|remove|cancel)(?:[\s,.;:!?—-]|$)/iu;
+
 const EXTENDED_PRONOUN_REFERENCE =
   /(?:^|[\s,.;:!?—-])(?:последн(?:ий|ю|его|яя|ее|і)?|тот\s+сам(?:ый|а|у|ое|і)?|этот\s+будильник|цей\s+будильник|this\s+alarm|that\s+alarm|the\s+alarm)(?=[\s,.;:!?—-]|$)/iu;
 
 const CALENDAR_DOMAIN_EXPLICIT =
   /(?:google\s*)?(?:календар[ьяьюеёим]*|calendar|событ(?:ие|ия|ие)?|встреч(?:а|у|и)?|зустріч|meeting|event)/iu;
+
+const CALENDAR_READ_EXPLICIT =
+  /(?:что|що).{0,24}(?:у\s+меня|у\s+мене|do\s+i\s+have).{0,20}(?:сегодня|сьогодні|today|завтра|tomorrow)|(?:какие|какая|які|яка).{0,24}(?:встреч|зустріч|событ|events?|meetings?|задач)|(?:перенес(?:и|і)|создай(?:ть)?\s+событ|створи\s+подію)/iu;
 
 const TASK_DOMAIN_EXPLICIT =
   /(?:^|[\s,.;:!?—-])(?:задач(?:а|у|и|у)?|task|tasks)(?:[\s,.;:!?—-]|$)/iu;
@@ -61,8 +78,26 @@ const UPDATE_ACTION_VERB =
 const RELATIVE_SCHEDULE_HINT =
   /\b(?:на|to|до|for)\s+(?:завтра|tomorrow|послезавтра|сегодня|today|час|hour|hours|полчаса|half\s+an?\s+hour|\d)/iu;
 
+function domainToLastAssistant(domain: ActiveReferenceDomain): LastAssistantDomain {
+  switch (domain) {
+    case 'calendar_event':
+      return 'calendar';
+    case 'local_alarm':
+      return 'alarm';
+    case 'local_reminder':
+      return 'reminder';
+    case 'task':
+      return 'task';
+    case 'weather_context':
+      return 'weather';
+    default:
+      return 'none';
+  }
+}
+
 function commitActiveReference(reference: ActiveConversationalReference) {
   latestActiveReference = reference;
+  lastDomain = domainToLastAssistant(reference.domain);
 }
 
 export function commitLocalAlarmActiveReference(params: {
@@ -137,6 +172,25 @@ export function commitLocalReminderActiveReference(params: {
   });
 }
 
+export function commitWeatherActiveReference(params: {
+  action?: ActiveReferenceAction;
+  timeScope: WeatherTimeScope;
+  targetLabel?: string;
+  source?: ActiveReferenceSource;
+  responseAtMs?: number;
+}) {
+  const responseAtMs = params.responseAtMs ?? Date.now();
+
+  commitActiveReference({
+    domain: 'weather_context',
+    action: params.action ?? 'query',
+    source: params.source ?? 'weather_query_answer',
+    id: params.timeScope,
+    title: params.targetLabel,
+    responseAtMs,
+  });
+}
+
 export function getLatestActiveReference() {
   return latestActiveReference;
 }
@@ -146,18 +200,16 @@ export function getLastMentionedEntity() {
 }
 
 export function getLastAssistantDomain(): LastAssistantDomain {
-  switch (latestActiveReference?.domain) {
-    case 'calendar_event':
-      return 'calendar';
-    case 'local_alarm':
-      return 'alarm';
-    case 'local_reminder':
-      return 'reminder';
-    case 'task':
-      return 'task';
-    default:
-      return 'none';
-  }
+  return lastDomain;
+}
+
+/** Alias for conversation routing — last assistant response domain. */
+export function getLastDomain(): LastAssistantDomain {
+  return lastDomain;
+}
+
+export function commitLastDomain(domain: LastAssistantDomain) {
+  lastDomain = domain;
 }
 
 export function getLastReferencedCalendarEventRef(): Pick<
@@ -197,6 +249,133 @@ export function getLastReferencedAlarmRef(): Pick<
 
 export function resetActiveConversationalReferenceForTests() {
   latestActiveReference = null;
+  lastDomain = 'none';
+}
+
+
+export function isCalendarContextFollowUp(transcript: string) {
+  const normalized = transcript.trim();
+
+  if (!normalized || lastDomain !== 'calendar') {
+    return false;
+  }
+
+  if (
+    containsWeatherDomainKeywords(normalized) ||
+    explicitlyNamesAlarmDomain(normalized) ||
+    explicitlyNamesReminderDomain(normalized)
+  ) {
+    return false;
+  }
+
+  return CALENDAR_FOLLOW_UP_KEYWORDS.test(normalized) || explicitlyNamesCalendarDomain(normalized);
+}
+
+export function isAlarmContextFollowUp(transcript: string) {
+  const normalized = transcript.trim();
+
+  if (!normalized || lastDomain !== 'alarm') {
+    return false;
+  }
+
+  if (explicitlyNamesCalendarDomain(normalized) || explicitlyNamesReminderDomain(normalized)) {
+    return false;
+  }
+
+  return (
+    ALARM_FOLLOW_UP_KEYWORDS.test(normalized) ||
+    explicitlyNamesAlarmDomain(normalized) ||
+    needsContextualDomainResolution(normalized)
+  );
+}
+
+export type ConversationRoutingDomain = 'weather' | 'calendar' | 'alarm' | 'reminder' | 'none';
+
+export type ConversationRoutingResolution = {
+  domain: ConversationRoutingDomain;
+  reason: string;
+};
+
+export function resolveConversationRoutingDomain(
+  transcript: string,
+  referenceNow = new Date(),
+): ConversationRoutingResolution {
+  const normalized = transcript.trim();
+
+  if (!normalized) {
+    return { domain: 'none', reason: 'empty_transcript' };
+  }
+
+  const explicitDomain = resolveExplicitReferenceDomain(normalized);
+
+  if (explicitDomain === 'local_alarm') {
+    return { domain: 'alarm', reason: 'explicit_domain_in_utterance' };
+  }
+
+  if (explicitDomain === 'local_reminder') {
+    return { domain: 'reminder', reason: 'explicit_domain_in_utterance' };
+  }
+
+  if (explicitDomain === 'calendar_event' || explicitDomain === 'task') {
+    return { domain: 'calendar', reason: 'explicit_domain_in_utterance' };
+  }
+
+  if (needsContextualDomainResolution(normalized)) {
+    const pronounRouting = resolvePronounTargetDomain(normalized);
+
+    if (pronounRouting.selectedDomain === 'weather_context') {
+      return { domain: 'weather', reason: pronounRouting.reason };
+    }
+
+    if (pronounRouting.selectedDomain === 'calendar_event' || pronounRouting.selectedDomain === 'task') {
+      return { domain: 'calendar', reason: pronounRouting.reason };
+    }
+
+    if (pronounRouting.selectedDomain === 'local_alarm') {
+      return { domain: 'alarm', reason: pronounRouting.reason };
+    }
+
+    if (pronounRouting.selectedDomain === 'local_reminder') {
+      return { domain: 'reminder', reason: pronounRouting.reason };
+    }
+  }
+
+  if (containsWeatherDomainKeywords(normalized) && !explicitlyNamesCalendarDomain(normalized)) {
+    return { domain: 'weather', reason: 'explicit_weather_keywords' };
+  }
+
+  if (explicitlyNamesCalendarReadIntent(normalized)) {
+    return { domain: 'calendar', reason: 'explicit_calendar_read_keywords' };
+  }
+
+  if (isWeatherContextFollowUp(normalized, referenceNow)) {
+    return { domain: 'weather', reason: 'last_domain_weather_follow_up' };
+  }
+
+  if (isCalendarContextFollowUp(normalized)) {
+    return { domain: 'calendar', reason: 'last_domain_calendar_follow_up' };
+  }
+
+  if (isAlarmContextFollowUp(normalized)) {
+    return { domain: 'alarm', reason: 'last_domain_alarm_follow_up' };
+  }
+
+  return { domain: 'none', reason: 'fallback_classification' };
+}
+
+export function shouldForceWeatherRouting(transcript: string, referenceNow = new Date()) {
+  const routing = resolveConversationRoutingDomain(transcript, referenceNow);
+
+  return routing.domain === 'weather';
+}
+
+export function shouldSuppressCalendarRoutingForDomainContext(
+  transcript: string,
+  referenceNow = new Date(),
+) {
+  const routing = resolveConversationRoutingDomain(transcript, referenceNow);
+
+  return routing.domain === 'weather' || routing.domain === 'alarm' || routing.domain === 'reminder';
 }
 
 export function syncAssistantContextFromCalendarMemory(referenceNow = new Date()) {
@@ -216,6 +395,30 @@ export function syncAssistantContextFromCalendarMemory(referenceNow = new Date()
   });
 
   return true;
+}
+
+export function isWeatherContextFollowUp(transcript: string, referenceNow = new Date()) {
+  const normalized = transcript.trim();
+
+  if (!normalized || lastDomain !== 'weather') {
+    return false;
+  }
+
+  if (
+    explicitlyNamesAlarmDomain(normalized) ||
+    explicitlyNamesReminderDomain(normalized) ||
+    explicitlyNamesCalendarDomain(normalized)
+  ) {
+    return false;
+  }
+
+  if (containsWeatherFollowUpKeywords(normalized)) {
+    return true;
+  }
+
+  const target = parseWeatherTimeTarget(normalized, { referenceNow });
+
+  return target.timeScope !== 'unspecified';
 }
 
 export function transcriptHasConversationalPronounReference(transcript: string) {
@@ -248,6 +451,20 @@ export function explicitlyNamesCalendarDomain(transcript: string) {
   }
 
   return CALENDAR_DOMAIN_EXPLICIT.test(normalized) || TASK_DOMAIN_EXPLICIT.test(normalized);
+}
+
+export function explicitlyNamesCalendarReadIntent(transcript: string) {
+  const normalized = transcript.trim();
+
+  if (!normalized || explicitlyNamesAlarmDomain(normalized) || explicitlyNamesReminderDomain(normalized)) {
+    return false;
+  }
+
+  if (containsWeatherDomainKeywords(normalized) && !explicitlyNamesCalendarDomain(normalized)) {
+    return false;
+  }
+
+  return CALENDAR_READ_EXPLICIT.test(normalized) || explicitlyNamesCalendarDomain(normalized);
 }
 
 export function isRelativeContextFollowUpCommand(transcript: string) {

@@ -1,3 +1,4 @@
+import { containsWeatherDomainKeywords } from '@/src/features/weather/weatherDomainKeywords';
 import { isCalendarFreeTimeTodayQuery } from '@/src/features/agent/calendar/calendarFreeTimeQuery';
 import { isCalendarQueryOrFindIntent } from '@/src/features/agent/calendar/calendarQueryIntent';
 import { isTemporalOnlyTitle } from '@/src/features/agent/calendar/calendarTemporalWords';
@@ -18,6 +19,9 @@ export type CalendarCreateByTitleTimeMatch = {
   timePart: string;
   patternId: string;
 };
+
+const DAY_COUNT_DURATION =
+  /(?:ближайш(?:ие|их|ие)?|найближч(?:і|их)?|next)\s*(?:\d+|5)\s*(?:дн(?:ей|я|ів|ні)|days?)/iu;
 
 const QUESTION_START = new RegExp(
   `${CALENDAR_WORD_EDGE}(?:какая|какой|какую|какое|какие|что|що|яка|який|які|which|what|when|когда|коли)${CALENDAR_WORD_END}`,
@@ -86,6 +90,7 @@ export function detectCalendarCreateByTitleTimePattern(
 
   if (
     !normalized ||
+    containsWeatherDomainKeywords(normalized) ||
     isCalendarFreeTimeTodayQuery(normalized) ||
     isCalendarQueryOrFindIntent(normalized) ||
     QUESTION_START.test(normalized) ||
@@ -104,6 +109,10 @@ export function detectCalendarCreateByTitleTimePattern(
 
     const titlePart = match.groups.title.trim();
     const timePart = match.groups.time.trim();
+
+    if (DAY_COUNT_DURATION.test(timePart) || DAY_COUNT_DURATION.test(normalized)) {
+      continue;
+    }
 
     if (titlePart.length < 2 || isTemporalOnlyTitle(titlePart) || QUESTION_START.test(titlePart)) {
       continue;

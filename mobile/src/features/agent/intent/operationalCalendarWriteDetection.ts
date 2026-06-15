@@ -25,6 +25,7 @@ import {
   resolvePronounTargetDomain,
 } from '@/src/features/agent/conversation/activeConversationalReference';
 import { parseCalendarDayPeriodMinutes } from '@/src/features/agent/calendar/calendarReschedulePeriods';
+import { containsWeatherDomainKeywords } from '@/src/features/weather/weatherDomainKeywords';
 
 function isExactTimeReadQuery(transcript: string) {
   return isCalendarExactTimeReadQuery(transcript);
@@ -169,6 +170,10 @@ export function isOperationalCalendarUpdateRequest(transcript: string) {
 
 export function isOperationalCalendarCreateRequest(transcript: string) {
   const normalized = transcript.trim();
+
+  if (containsWeatherDomainKeywords(normalized)) {
+    return false;
+  }
 
   if (isLocalAlarmIntent(normalized) || containsLocalAlarmDomain(normalized)) {
     return false;

@@ -22,6 +22,7 @@ import {
   getFreeWindows,
   getLastEvent,
   getNextEvent,
+  resolveLastMentionedDayListEvent,
 } from '@/src/features/agent/calendarIntelligence/scheduleHelpers';
 import type { DeterministicCalendarAnswer } from '@/src/features/agent/calendarIntelligence/types';
 import { recordSearchedConversationEvent } from '@/src/features/agent/calendar/calendarConversationEventMemory';
@@ -78,6 +79,17 @@ export function buildDeterministicCalendarAnswer(params: {
   const dayEvents = getEventsForDay(normalized, day);
 
   if (intent === 'list_day') {
+    const lastMentioned = resolveLastMentionedDayListEvent(normalized, day, params.referenceNow);
+
+    if (lastMentioned) {
+      recordSearchedConversationEvent({
+        eventId: lastMentioned.id,
+        title: lastMentioned.title,
+        startISO: lastMentioned.startISO,
+        endISO: lastMentioned.endISO,
+      });
+    }
+
     return { intent, day, events: dayEvents, payload: { count: dayEvents.length } };
   }
 

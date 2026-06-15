@@ -1,3 +1,4 @@
+import { buildLocationNeededWeatherSummary } from '@/src/features/weather/weatherHomeSummary';
 import { colors } from '@/src/theme';
 import type { ExecutiveProfile, HomeDashboardData } from '@/src/entities/home/types';
 
@@ -27,28 +28,7 @@ export function getHomeDashboardContent(): {
           color: colors.accentPurpleSoft,
         },
       ],
-      weather: {
-        location: 'Kyiv, Ukraine',
-        temperature: '21°',
-        conditionIcon: 'partly-sunny-outline',
-        metrics: [
-          {
-            id: 'condition',
-            label: 'Condition',
-            value: 'Partly cloudy',
-          },
-          {
-            id: 'feels-like',
-            label: 'Feels like',
-            value: '24°',
-          },
-          {
-            id: 'rain',
-            label: 'Rain',
-            value: '12%',
-          },
-        ],
-      },
+      weather: buildLocationNeededWeatherSummary(),
       agenda: [],
     },
   };

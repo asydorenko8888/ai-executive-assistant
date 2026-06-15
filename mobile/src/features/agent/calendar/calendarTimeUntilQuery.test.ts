@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { CalendarEvent } from '@/src/entities/calendar/types';
+import { tryBuildCalendarTimeUntilReplyFromEvents } from '@/src/features/agent/calendar/calendarTimeUntilReply';
 import { wantsDetailedLunchTimeBreakdown } from '@/src/features/agent/calendar/calendarLunchTimeBudget';
 import {
   buildSituationContextForLlm,
   type CalendarSituationAnalysis,
 } from '@/src/features/agent/calendar/calendarSituationalReasoning';
 import {
+  extractTimeUntilEventTitleQuery,
   findFutureMatchingTimeUntilEvents,
   getTimeUntilNoFutureMatchMessage,
   isCalendarTimeUntilEventQuery,
@@ -40,6 +42,14 @@ describe('isCalendarTimeUntilEventQuery', () => {
   it('matches Russian «сколько времени у меня до …» word order', () => {
     assert.equal(isCalendarTimeUntilEventQuery('Сколько времени у меня до ужина'), true);
     assert.equal(isCalendarTimeUntilEventQuery('Сколько времени у меня до бассейна'), true);
+  });
+
+  it('matches Russian «сколько времени осталось до …» word order', () => {
+    assert.equal(isCalendarTimeUntilEventQuery('Сколько времени осталось до поездки в Чикаго?'), true);
+    assert.equal(
+      extractTimeUntilEventTitleQuery('Сколько времени осталось до поездки в Чикаго?'),
+      'Поездки в чикаго',
+    );
   });
 
   it('blocks travel and lunch-breakdown advice for time-until queries', () => {
@@ -144,5 +154,173 @@ describe('resolveTimeUntilTargetEvent — nearest future match', () => {
       getTimeUntilNoFutureMatchMessage('ru'),
       'Нет будущих событий с таким названием.',
     );
+  });
+});
+
+describe('calendar time-until countdown by full start datetime', () => {
+  const referenceNow = new Date('2026-05-28T17:15:00-05:00');
+
+  function chicagoTrip(id: string, startsAt: string, endsAt: string): CalendarEvent {
+    return {
+      id,
+      title: 'Поездка в Чикаго',
+      startsAt,
+      endsAt,
+      isAllDay: false,
+    };
+  }
+
+  it('tomorrow 11:00 uses full event start datetime', () => {
+    const selected = resolveTimeUntilTargetEvent({
+      transcript: 'Сколько времени у меня до поездки в Чикаго?',
+      referenceNow,
+      events: [
+        chicagoTrip(
+          'trip-tomorrow',
+          '2026-05-29T11:00:00-05:00',
+          '2026-05-29T12:00:00-05:00',
+        ),
+      ],
+    });
+
+    assert.equal(selected?.id, 'trip-tomorrow');
+    assert.equal(selected?.startsAt, '2026-05-29T11:00:00-05:00');
+
+    const reply = tryBuildCalendarTimeUntilReplyFromEvents({
+      transcript: 'Сколько времени у меня до поездки в Чикаго?',
+      languageCode: 'ru-RU',
+      referenceNow,
+      events: [selected!],
+    });
+
+    assert.match(reply ?? '', /17 часов 45 минут/);
+    assert.doesNotMatch(reply ?? '', /5 часов 45 минут/);
+  });
+
+  it('today 20:00 uses the same-day future start', () => {
+    const selected = resolveTimeUntilTargetEvent({
+      transcript: 'Сколько времени у меня до поездки в Чикаго?',
+      referenceNow,
+      events: [
+        chicagoTrip(
+          'trip-tonight',
+          '2026-05-28T20:00:00-05:00',
+          '2026-05-28T21:00:00-05:00',
+        ),
+      ],
+    });
+
+    assert.equal(selected?.startsAt, '2026-05-28T20:00:00-05:00');
+
+    const reply = tryBuildCalendarTimeUntilReplyFromEvents({
+      transcript: 'Сколько времени у меня до поездки в Чикаго?',
+      languageCode: 'ru-RU',
+      referenceNow,
+      events: [selected!],
+    });
+
+    assert.match(reply ?? '', /2 часа 45 минут/);
+  });
+
+  it('ignores past same-day event when only past match exists', () => {
+    const future = findFutureMatchingTimeUntilEvents({
+      titleQuery: 'поездки в Чикаго',
+      referenceNow,
+      events: [
+        chicagoTrip(
+          'trip-past',
+          '2026-05-28T12:00:00-05:00',
+          '2026-05-28T13:00:00-05:00',
+        ),
+      ],
+    });
+
+    assert.equal(future.length, 0);
+
+    const reply = tryBuildCalendarTimeUntilReplyFromEvents({
+      transcript: 'Сколько времени у меня до поездки в Чикаго?',
+      languageCode: 'ru-RU',
+      referenceNow,
+      events: [
+        chicagoTrip(
+          'trip-past',
+          '2026-05-28T12:00:00-05:00',
+          '2026-05-28T13:00:00-05:00',
+        ),
+      ],
+    });
+
+    assert.match(reply ?? '', /Нет будущих событий/);
+  });
+
+  it('picks nearest future duplicate titles on different days', () => {
+    const selected = resolveTimeUntilTargetEvent({
+      transcript: 'Сколько времени у меня до поездки в Чикаго?',
+      referenceNow,
+      events: [
+        chicagoTrip(
+          'trip-tonight',
+          '2026-05-28T23:00:00-05:00',
+          '2026-05-29T00:00:00-05:00',
+        ),
+        chicagoTrip(
+          'trip-tomorrow',
+          '2026-05-29T11:00:00-05:00',
+          '2026-05-29T12:00:00-05:00',
+        ),
+      ],
+    });
+
+    assert.equal(selected?.id, 'trip-tonight');
+
+    const reply = tryBuildCalendarTimeUntilReplyFromEvents({
+      transcript: 'Сколько времени у меня до поездки в Чикаго?',
+      languageCode: 'ru-RU',
+      referenceNow,
+      events: [
+        chicagoTrip(
+          'trip-tonight',
+          '2026-05-28T23:00:00-05:00',
+          '2026-05-29T00:00:00-05:00',
+        ),
+        chicagoTrip(
+          'trip-tomorrow',
+          '2026-05-29T11:00:00-05:00',
+          '2026-05-29T12:00:00-05:00',
+        ),
+      ],
+    });
+
+    assert.match(reply ?? '', /5 часов 45 минут/);
+  });
+
+  it('«осталось до» phrasing counts down to tomorrow 11:00 by full datetime', () => {
+    const transcript = 'Сколько времени осталось до поездки в Чикаго?';
+
+    const selected = resolveTimeUntilTargetEvent({
+      transcript,
+      referenceNow,
+      events: [
+        chicagoTrip(
+          'trip-tomorrow',
+          '2026-05-29T11:00:00-05:00',
+          '2026-05-29T12:00:00-05:00',
+        ),
+      ],
+    });
+
+    assert.equal(selected?.id, 'trip-tomorrow');
+    assert.equal(selected?.startsAt, '2026-05-29T11:00:00-05:00');
+
+    const reply = tryBuildCalendarTimeUntilReplyFromEvents({
+      transcript,
+      languageCode: 'ru-RU',
+      referenceNow,
+      events: [selected!],
+    });
+
+    assert.match(reply ?? '', /17 часов 45 минут/);
+    assert.doesNotMatch(reply ?? '', /5 часов 24 минут/);
+    assert.doesNotMatch(reply ?? '', /5 часов 45 минут/);
   });
 });

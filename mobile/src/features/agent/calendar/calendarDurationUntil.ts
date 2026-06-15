@@ -1,4 +1,5 @@
 import { parseGoogleCalendarInstant } from '@/src/features/agent/calendar/calendarTime';
+import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 
 export type CalendarDurationLocale = 'ru' | 'uk' | 'en';
 
@@ -179,11 +180,25 @@ export function formatDurationUntilFromEventStartIso(params: {
 
 export function logCalendarTimeUntilDebug(params: {
   query: string;
-  referenceNowIso: string;
+  referenceNow: Date;
   selectedEventTitle: string;
   selectedEventStartIso: string;
   diffMinutes: number;
   formattedDuration: string;
+  timeZone?: string;
 }) {
-  console.log('[calendar_time_until]', params);
+  const timeZone = params.timeZone ?? getExecutiveCalendarTimezone();
+  const parsedStart = parseGoogleCalendarInstant(params.selectedEventStartIso);
+  const locale = 'sv-SE';
+
+  console.log('[calendar_time_until]', {
+    query: params.query,
+    nowLocal: params.referenceNow.toLocaleString(locale, { timeZone }),
+    matchedEventTitle: params.selectedEventTitle,
+    eventStartRaw: params.selectedEventStartIso,
+    eventStartParsedLocal:
+      parsedStart === null ? null : new Date(parsedStart).toLocaleString(locale, { timeZone }),
+    diffMinutes: params.diffMinutes,
+    formattedDuration: params.formattedDuration,
+  });
 }

@@ -18,6 +18,8 @@ export type WeatherSummary = {
   temperature: string;
   conditionIcon: IconName;
   metrics: WeatherMetric[];
+  needsLocation?: boolean;
+  isLoading?: boolean;
 };
 
 export type AgendaItem = {

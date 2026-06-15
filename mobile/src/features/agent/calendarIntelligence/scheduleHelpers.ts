@@ -96,6 +96,29 @@ export function splitDayEventsByPastAndFuture(
   return { pastEvents, currentEvents, futureEvents };
 }
 
+export function resolveLastMentionedDayListEvent(
+  events: NormalizedCalendarEvent[],
+  day: CalendarDayContext,
+  referenceNow: Date,
+) {
+  const { pastEvents, currentEvents, futureEvents } = splitDayEventsByPastAndFuture(
+    events,
+    day,
+    referenceNow,
+  );
+  const displayed = [...currentEvents, ...futureEvents];
+
+  if (displayed.length > 0) {
+    return displayed[displayed.length - 1] ?? null;
+  }
+
+  if (pastEvents.length > 0) {
+    return pastEvents[pastEvents.length - 1] ?? null;
+  }
+
+  return null;
+}
+
 function getBusyEventsForFreeTime(
   events: NormalizedCalendarEvent[],
   day: CalendarDayContext,

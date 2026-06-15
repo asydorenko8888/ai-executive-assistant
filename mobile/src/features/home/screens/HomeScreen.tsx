@@ -5,6 +5,7 @@ import { StyleSheet } from 'react-native';
 import { VoiceAssistantButton } from '@/src/components/ui/VoiceAssistantButton';
 import { useExecutiveCompanion } from '@/src/features/agent';
 import { useHomeVoiceAssistant } from '@/src/features/home/hooks/useHomeVoiceAssistant';
+import { useHomeWeather } from '@/src/features/home/hooks/useHomeWeather';
 import {
   countUpcomingEventsToday,
   formatEventsTodayLabel,
@@ -42,6 +43,7 @@ export default function HomeScreen() {
     handleClearConversation,
     toggleSpeechMute,
   } = useHomeVoiceAssistant();
+  useHomeWeather(voiceLanguage);
   const { activeAlerts, dismissAlert } = useReminderMonitor({
     isSpeechMuted,
     languageCode: voiceLanguage,

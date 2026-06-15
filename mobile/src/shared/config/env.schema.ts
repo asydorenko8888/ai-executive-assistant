@@ -12,6 +12,7 @@ const defaultAppEnv = {
   EXPO_PUBLIC_GOOGLE_CALENDAR_IOS_CLIENT_ID: '',
   EXPO_PUBLIC_APP_API_KEY: '',
   EXPO_PUBLIC_CALENDAR_TIMEZONE: 'America/Chicago',
+  EXPO_PUBLIC_WEATHER_ENABLED: true,
 } as const;
 
 function normalizeString(value: unknown) {
@@ -117,6 +118,26 @@ const googleCalendarEnabledFromEnv = z.preprocess((value) => {
   return undefined;
 }, z.boolean().default(defaultAppEnv.EXPO_PUBLIC_GOOGLE_CALENDAR_ENABLED));
 
+const weatherEnabledFromEnv = z.preprocess((value) => {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const normalizedValue = value.trim().toLowerCase();
+
+    if (normalizedValue === 'true') {
+      return true;
+    }
+
+    if (normalizedValue === 'false') {
+      return false;
+    }
+  }
+
+  return undefined;
+}, z.boolean().default(defaultAppEnv.EXPO_PUBLIC_WEATHER_ENABLED));
+
 export const appEnvSchema = z.object({
   APP_ENV: appEnvironmentFromEnv,
   EXPO_PUBLIC_APP_NAME: stringFromEnv(defaultAppEnv.EXPO_PUBLIC_APP_NAME),
@@ -135,6 +156,7 @@ export const appEnvSchema = z.object({
   ),
   EXPO_PUBLIC_APP_API_KEY: optionalStringFromEnv(defaultAppEnv.EXPO_PUBLIC_APP_API_KEY),
   EXPO_PUBLIC_CALENDAR_TIMEZONE: optionalStringFromEnv(defaultAppEnv.EXPO_PUBLIC_CALENDAR_TIMEZONE),
+  EXPO_PUBLIC_WEATHER_ENABLED: weatherEnabledFromEnv,
 });
 
 export type AppEnvSchema = z.infer<typeof appEnvSchema>;

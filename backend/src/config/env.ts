@@ -19,4 +19,9 @@ export const backendEnv = {
   GOOGLE_CALENDAR_WEB_CLIENT_ID: process.env.GOOGLE_CALENDAR_WEB_CLIENT_ID?.trim() ?? '',
   GOOGLE_CALENDAR_WEB_CLIENT_SECRET: process.env.GOOGLE_CALENDAR_WEB_CLIENT_SECRET?.trim() ?? '',
   BACKEND_SECRETS_KEY: process.env.BACKEND_SECRETS_KEY?.trim() ?? '',
+  WEATHER_API_KEY: process.env.WEATHER_API_KEY?.trim() ?? '',
 } as const;
+
+export function isWeatherApiConfigured() {
+  return backendEnv.WEATHER_API_KEY.length > 0;
+}

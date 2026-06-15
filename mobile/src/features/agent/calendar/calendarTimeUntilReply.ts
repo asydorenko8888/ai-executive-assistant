@@ -19,7 +19,7 @@ import {
   getTimeUntilNoFutureMatchMessage,
   getTimeUntilNoTitleMatchMessage,
   isCalendarTimeUntilEventQuery,
-  logTimeUntilEventSelection,
+  resolveTimeUntilTargetEvent,
 } from '@/src/features/agent/calendar/calendarTimeUntilQuery';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
 import {
@@ -56,6 +56,12 @@ export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
     referenceNow: params.referenceNow,
   });
 
+  const targetEvent = resolveTimeUntilTargetEvent({
+    transcript: params.transcript,
+    events: params.events,
+    referenceNow: params.referenceNow,
+  });
+
   if (futureMatching.length === 0) {
     if (allMatching.length > 0) {
       const noFutureReply = getTimeUntilNoFutureMatchMessage(locale);
@@ -80,8 +86,6 @@ export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
     return noTitleReply;
   }
 
-  const targetEvent = futureMatching[0] ?? null;
-
   if (!targetEvent) {
     return null;
   }
@@ -95,6 +99,16 @@ export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
   if (!duration) {
     return null;
   }
+
+  logCalendarTimeUntilDebug({
+    query: params.transcript,
+    referenceNow: params.referenceNow,
+    selectedEventTitle: targetEvent.title,
+    selectedEventStartIso: targetEvent.startsAt,
+    diffMinutes: duration.diffMinutes,
+    formattedDuration: duration.formattedDuration,
+    timeZone: getExecutiveCalendarTimezone(),
+  });
 
   const layers = assessEventDepartureLayers({
     event: targetEvent,
@@ -129,26 +143,10 @@ export function tryBuildCalendarTimeUntilReplyFromEvents(params: {
     return fallbackReply;
   }
 
-  logTimeUntilEventSelection({
-    titleQuery,
-    referenceNow: params.referenceNow,
-    selectedEvent: targetEvent,
-    futureMatches: futureMatching,
-  });
-
   logEventDepartureLayers({
     transcript: params.transcript,
     eventTitle: targetEvent.title,
     layers,
-  });
-
-  logCalendarTimeUntilDebug({
-    query: params.transcript,
-    referenceNowIso: params.referenceNow.toISOString(),
-    selectedEventTitle: targetEvent.title,
-    selectedEventStartIso: targetEvent.startsAt,
-    diffMinutes: duration.diffMinutes,
-    formattedDuration: duration.formattedDuration,
   });
 
   const factsReply = buildFactsOnlyTimeUntilReply({

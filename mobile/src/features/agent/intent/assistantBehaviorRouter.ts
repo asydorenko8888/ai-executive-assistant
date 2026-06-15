@@ -32,6 +32,7 @@ import {
   shouldBlockLocalAlarmRoutingForContextFollowUp,
 } from '@/src/features/agent/conversation/activeConversationalReference';
 import { isLocalReminderIntent } from '@/src/features/local-reminders/localReminderClassification';
+import { isWeatherAdviceIntent, isWeatherIntent } from '@/src/features/weather/weatherClassification';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
 export type AssistantBehaviorMode =
@@ -237,6 +238,42 @@ export function resolveAssistantBehavior(params: {
       mode: 'ADVISORY_MODE',
       intent: 'calendar_read_at_time',
       reason: 'exact_time_read_query',
+    };
+
+    logBehaviorRoute(route);
+    return route;
+  }
+
+  if (isWeatherAdviceIntent(params.transcript) || isWeatherAdviceIntent(actionTranscript)) {
+    const route: AssistantBehaviorRoute = {
+      requiredFields: [],
+      missingFields: [],
+      selectedTool: 'none',
+      actionTranscript,
+      clarificationReply: null,
+      blockEmotionalRouting: true,
+      blockCalendarMutation: true,
+      mode: 'ADVISORY_MODE',
+      intent: 'weather_advice',
+      reason: 'weather_advice_query',
+    };
+
+    logBehaviorRoute(route);
+    return route;
+  }
+
+  if (isWeatherIntent(params.transcript) || isWeatherIntent(actionTranscript)) {
+    const route: AssistantBehaviorRoute = {
+      requiredFields: [],
+      missingFields: [],
+      selectedTool: 'none',
+      actionTranscript,
+      clarificationReply: null,
+      blockEmotionalRouting: true,
+      blockCalendarMutation: true,
+      mode: 'ADVISORY_MODE',
+      intent: 'weather_query',
+      reason: 'weather_advisory_query',
     };
 
     logBehaviorRoute(route);
