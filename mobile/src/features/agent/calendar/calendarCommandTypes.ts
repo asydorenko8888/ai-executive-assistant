@@ -19,6 +19,7 @@ import {
   isOperationalCalendarUpdateRequest,
   isOperationalCalendarWriteRequest,
 } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
+import { isPostActionAcknowledgmentTurn } from '@/src/features/agent/conversation/postActionAcknowledgmentReply';
 import {
   containsLocalAlarmDomain,
   containsLocalAlarmKeyword,
@@ -71,6 +72,10 @@ function isConversationMemoryFollowUp(transcript: string) {
 
 export function requiresCalendarCommandExecution(transcript: string) {
   const normalized = transcript.trim();
+
+  if (isPostActionAcknowledgmentTurn({ transcript: normalized })) {
+    return false;
+  }
 
   if (
     isCalendarConversationAwaitingInput() ||

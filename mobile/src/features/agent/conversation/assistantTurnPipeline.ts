@@ -70,6 +70,9 @@ import {
 import { syncConversationStateForMoveClarification } from '@/src/features/agent/calendar/calendarConversationSync';
 import { pendingContextFromExtraction } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import {
+  syncAssistantContextFromCalendarMemory,
+} from '@/src/features/agent/conversation/activeConversationalReference';
+import {
   buildBehaviorModeSystemPrompt,
   resolveAssistantBehavior,
 } from '@/src/features/agent/intent/assistantBehaviorRouter';
@@ -82,10 +85,13 @@ import {
   shouldRouteToLocalAlarmWorkflow,
 } from '@/src/features/local-alarms/localAlarmClassification';
 import {
+  shouldBlockLocalAlarmRoutingForContextFollowUp,
+} from '@/src/features/agent/conversation/activeConversationalReference';
+import {
   detectAlarmPipelineIntent,
   logAlarmRoutingDiagnostic,
 } from '@/src/features/local-alarms/localAlarmRouting';
-import { hasPendingLocalAlarmAction, resolveLocalAlarmTurn } from '@/src/features/local-alarms/resolveLocalAlarmTurn';
+import { hasPendingLocalAlarmAction, hasPendingAlarmSelection, resolveLocalAlarmTurn } from '@/src/features/local-alarms/resolveLocalAlarmTurn';
 import {
   isLocalReminderCreateQuery,
   isLocalReminderIntent,
@@ -93,6 +99,11 @@ import {
 import { resolveLocalReminderTurn } from '@/src/features/local-reminders/resolveLocalReminderTurn';
 import { processVoiceReminderTranscript } from '@/src/features/reminders/processVoiceReminder';
 import { guardAgainstRepeatedAssistantResponse, getLatestUserMessage } from '@/src/features/agent/conversation/assistantResponseGuard';
+import {
+  buildPostActionAcknowledgmentReply,
+  isPostActionAcknowledgmentTurn,
+  logPostActionAcknowledgment,
+} from '@/src/features/agent/conversation/postActionAcknowledgmentReply';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 import {
   getConversationPayloadMessages,
@@ -429,6 +440,10 @@ function tryResolveLocalAlarmTurn(params: {
   behaviorMode: AssistantBehaviorMode;
   selectedTool: string;
 }): AssistantTurnResolution | null {
+  if (shouldBlockLocalAlarmRoutingForContextFollowUp(params.userTranscript)) {
+    return null;
+  }
+
   if (!shouldRouteToLocalAlarmWorkflow(params.userTranscript) && !hasPendingLocalAlarmAction()) {
     return null;
   }
@@ -440,6 +455,10 @@ function tryResolveLocalAlarmTurn(params: {
   });
 
   if (!localResult) {
+    if (hasPendingAlarmSelection()) {
+      return null;
+    }
+
     if (!shouldRouteToLocalAlarmWorkflow(params.userTranscript) && !hasPendingLocalAlarmAction()) {
       return null;
     }
@@ -622,6 +641,8 @@ async function tryResolveCalendarReadTurn(params: {
   if (!readReply?.trim()) {
     return null;
   }
+
+  syncAssistantContextFromCalendarMemory(params.referenceNow);
 
   logTurnPipeline('route selected', {
     route: 'advisory_local',
@@ -813,6 +834,40 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   });
   const modeDefaults = resolutionDefaults(factualGrounding);
 
+  if (isPostActionAcknowledgmentTurn({ transcript: userTranscript, referenceNow: params.referenceNow })) {
+    const reply = buildPostActionAcknowledgmentReply(params.languageCode, userTranscript);
+
+    logPostActionAcknowledgment({ transcript: userTranscript, reply });
+    logTurnPipeline('route selected', {
+      route: 'advisory_local',
+      behaviorMode: 'COMPANION_MODE',
+      postActionAcknowledgment: true,
+      blockLlm: true,
+    });
+    logAssistantReplyGenerated({
+      source: 'post_action_acknowledgment',
+      transcriptPreview: userTranscript,
+      replyPreview: reply,
+      route: 'advisory_local',
+    });
+
+    return {
+      route: 'advisory_local',
+      intent,
+      reply,
+      intentPrompt: null,
+      userTranscript,
+      latestUserMessageId: userMessage?.id ?? null,
+      executionState: 'conversational',
+      operationalStarted: false,
+      spokenReply: reply,
+      calendarVerified: false,
+      ...modeDefaults,
+      behaviorMode: 'COMPANION_MODE',
+      selectedTool: 'none',
+    };
+  }
+
   const preBehaviorAlarmTurn = tryResolveLocalAlarmTurn({
     userTranscript,
     languageCode: params.languageCode,
@@ -960,7 +1015,8 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
   const deferCalendarForAlarm =
     shouldRouteToLocalAlarmWorkflow(userTranscript) ||
     shouldRouteToLocalAlarmWorkflow(actionTranscript) ||
-    hasPendingLocalAlarmAction();
+    hasPendingLocalAlarmAction() ||
+    hasPendingAlarmSelection();
 
   if (
     !deferCalendarForAlarm &&
@@ -1066,7 +1122,8 @@ export async function resolveAssistantTurn(params: ResolveAssistantTurnParams): 
     !deferCalendarForAlarm &&
     behavior.mode === 'CLARIFICATION_MODE' &&
     behavior.clarificationReply &&
-    !isDeterministicCalendarReadQuery(userTranscript)
+    !isDeterministicCalendarReadQuery(userTranscript) &&
+    !hasPendingAlarmSelection()
   ) {
     if (behavior.intent === 'update_calendar_event') {
       const extracted = extractCalendarUpdateParameters(actionTranscript, params.referenceNow);

@@ -1,5 +1,9 @@
 import { parseAlarmConflictDecision } from '@/src/features/local-alarms/localAlarmConflictDecision';
 import {
+  commitLocalAlarmActiveReference,
+  type ActiveReferenceAction,
+} from '@/src/features/agent/conversation/activeConversationalReference';
+import {
   classifyLocalAlarmIntentKind,
   classifyLocalAlarmQueryVariant,
 } from '@/src/features/local-alarms/localAlarmClassification';
@@ -17,9 +21,14 @@ import {
 } from '@/src/features/local-alarms/localAlarmDebugLogger';
 import { parseLocalAlarmIntent } from '@/src/features/local-alarms/localAlarmIntentParser';
 import {
+  buildOrderedAlarmSelectionOptions,
   clearPendingLocalAlarmAction,
   getPendingLocalAlarmAction,
+  getPendingAlarmSelection,
+  hasPendingAlarmSelection,
   hasPendingLocalAlarmAction,
+  hydratePendingAlarmSelectionOptions,
+  setPendingAlarmSelection,
   setPendingLocalAlarmAction,
 } from '@/src/features/local-alarms/localAlarmPendingAction';
 import {
@@ -118,6 +127,24 @@ function deleteAlarms(alarms: LocalAlarm[]) {
   }
 }
 
+function recordLocalAlarmReference(params: {
+  action: ActiveReferenceAction;
+  alarm: LocalAlarm;
+  originalTimeMs?: number;
+  updatedTimeMs?: number;
+  source?: 'alarm_query_answer' | 'alarm_write';
+}) {
+  commitLocalAlarmActiveReference({
+    action: params.action,
+    alarmId: params.alarm.id,
+    scheduledTimeMs: params.alarm.triggerAtMs,
+    originalTimeMs: params.originalTimeMs,
+    updatedTimeMs: params.updatedTimeMs,
+    title: params.alarm.title,
+    source: params.source ?? (params.action === 'query' ? 'alarm_query_answer' : 'alarm_write'),
+  });
+}
+
 function applyReschedule(params: {
   alarm: LocalAlarm;
   targetTime: Date;
@@ -156,6 +183,13 @@ function applyReschedule(params: {
     previousTriggerAtMs,
     languageCode: params.languageCode,
     referenceNowMs: params.referenceNowMs,
+  });
+
+  recordLocalAlarmReference({
+    action: 'move',
+    alarm: rescheduled,
+    originalTimeMs: previousTriggerAtMs,
+    updatedTimeMs: rescheduled.triggerAtMs,
   });
 
   return { reply, spokenReply: reply };
@@ -217,11 +251,14 @@ function tryResolveConflictDecision(params: {
       referenceNowMs: params.referenceNow.getTime(),
     });
 
+    recordLocalAlarmReference({ action: 'create', alarm });
+
     return { reply, spokenReply: reply };
   }
 
   const alarm = createAlarmFromIntent(pending.pendingCreate);
   logLocalAlarmActionPerformed({ action: 'create_keep_both', alarmId: alarm.id });
+  recordLocalAlarmReference({ action: 'create', alarm });
   const active = listScheduledLocalAlarms(params.referenceNow.getTime());
   const reply = buildLocalAlarmDoneWithActiveListReply({
     alarms: active,
@@ -237,13 +274,13 @@ function tryResolvePendingSelection(params: {
   languageCode: VoiceLanguageCode;
   referenceNow: Date;
 }) {
-  const pending = getPendingLocalAlarmAction();
+  const pending = getPendingAlarmSelection();
 
-  if (!pending || pending.state !== 'WAITING_ALARM_SELECTION') {
+  if (!pending) {
     return null;
   }
 
-  const candidates = hydrateCandidates(pending.candidates);
+  const candidates = hydratePendingAlarmSelectionOptions(pending.orderedOptions, getLocalAlarmById);
 
   if (candidates.length === 0) {
     clearPendingLocalAlarmAction();
@@ -259,11 +296,13 @@ function tryResolvePendingSelection(params: {
     pendingAction: pending.action,
     selectionReply: params.transcript,
     candidateIds: candidates.map((alarm) => alarm.id),
+    orderedOptionIds: pending.orderedOptions.map((option) => option.id),
   });
 
   const selected = resolveAlarmSelectionFromReply({
     reply: params.transcript,
     candidates,
+    orderedOptions: pending.orderedOptions,
     referenceNow: params.referenceNow,
     languageCode: params.languageCode,
   });
@@ -310,6 +349,10 @@ function tryResolvePendingSelection(params: {
       languageCode: params.languageCode,
       referenceNowMs: params.referenceNow.getTime(),
     });
+
+    if (cancelled) {
+      recordLocalAlarmReference({ action: 'delete', alarm: cancelled });
+    }
 
     return { reply, spokenReply: reply };
   }
@@ -364,8 +407,15 @@ function tryResolvePendingLocalAlarmTurn(params: {
 function resolveAlarmCandidates(params: {
   alarms: LocalAlarm[];
   timeSelector?: string;
+  referencedAlarmId?: string;
   referenceNow: Date;
 }) {
+  if (params.referencedAlarmId) {
+    const referenced = params.alarms.find((alarm) => alarm.id === params.referencedAlarmId);
+
+    return referenced ? [referenced] : [];
+  }
+
   if (!params.timeSelector?.trim()) {
     return params.alarms;
   }
@@ -377,7 +427,12 @@ function requiresAlarmSelection(
   alarms: LocalAlarm[],
   timeSelector: string | undefined,
   referenceNow: Date,
+  referencedAlarmId?: string,
 ) {
+  if (referencedAlarmId && alarms.some((alarm) => alarm.id === referencedAlarmId)) {
+    return false;
+  }
+
   if (alarms.length <= 1) {
     return false;
   }
@@ -400,11 +455,14 @@ function buildSelectionTurn(params: {
   relativeDeltaMs?: number;
 }) {
   const sorted = sortAlarmsByTrigger(params.alarms);
+  const orderedOptions = buildOrderedAlarmSelectionOptions(
+    snapshotAlarms(sorted),
+    params.languageCode,
+  );
 
-  setPendingLocalAlarmAction({
-    state: 'WAITING_ALARM_SELECTION',
+  setPendingAlarmSelection({
     action: params.action,
-    candidates: snapshotAlarms(sorted),
+    orderedOptions,
     targetTime: params.targetTime,
     relativeDeltaMs: params.relativeDeltaMs,
     createdAtMs: Date.now(),
@@ -412,7 +470,7 @@ function buildSelectionTurn(params: {
 
   logLocalAlarmPendingSelection({
     action: params.action,
-    candidateIds: sorted.map((alarm) => alarm.id),
+    candidateIds: orderedOptions.map((option) => option.id),
   });
 
   const reply = buildLocalAlarmClarificationReply({
@@ -552,6 +610,7 @@ export function resolveLocalAlarmTurn(params: {
 
     const alarm = createAlarmFromIntent(intent);
     logLocalAlarmActionPerformed({ action: 'create', alarmId: alarm.id });
+    recordLocalAlarmReference({ action: 'create', alarm });
     const reply = buildLocalAlarmCreatedReply({
       alarm,
       languageCode: params.languageCode,
@@ -572,16 +631,23 @@ export function resolveLocalAlarmTurn(params: {
       queryVariant: intent.queryVariant ?? (intent.kind === 'list' ? 'list' : 'time'),
     });
 
+    const queryAlarm = alarms[0];
+
+    if (queryAlarm) {
+      recordLocalAlarmReference({ action: 'query', alarm: queryAlarm, source: 'alarm_query_answer' });
+    }
+
     return finishTurn({ reply, spokenReply: reply }, 'query');
   }
 
   if (intent.kind === 'cancel') {
     const scheduled = logCurrentAlarms(referenceNowMs);
 
-    if (requiresAlarmSelection(scheduled, intent.timeSelector, referenceNow)) {
+    if (requiresAlarmSelection(scheduled, intent.timeSelector, referenceNow, intent.referencedAlarmId)) {
       const matches = resolveAlarmCandidates({
         alarms: scheduled,
         timeSelector: intent.timeSelector,
+        referencedAlarmId: intent.referencedAlarmId,
         referenceNow,
       });
 
@@ -611,6 +677,7 @@ export function resolveLocalAlarmTurn(params: {
     const matches = resolveAlarmCandidates({
       alarms: scheduled,
       timeSelector: intent.timeSelector,
+      referencedAlarmId: intent.referencedAlarmId,
       referenceNow,
     });
 
@@ -634,16 +701,21 @@ export function resolveLocalAlarmTurn(params: {
       referenceNowMs,
     });
 
+    if (cancelled) {
+      recordLocalAlarmReference({ action: 'delete', alarm: cancelled });
+    }
+
     return finishTurn({ reply, spokenReply: reply }, 'cancel');
   }
 
   if (intent.kind === 'reschedule') {
     const scheduled = logCurrentAlarms(referenceNowMs);
 
-    if (requiresAlarmSelection(scheduled, intent.sourceTimeSelector, referenceNow)) {
+    if (requiresAlarmSelection(scheduled, intent.sourceTimeSelector, referenceNow, intent.referencedAlarmId)) {
       const sourceMatches = resolveAlarmCandidates({
         alarms: scheduled,
         timeSelector: intent.sourceTimeSelector,
+        referencedAlarmId: intent.referencedAlarmId,
         referenceNow,
       });
 
@@ -675,6 +747,7 @@ export function resolveLocalAlarmTurn(params: {
     const sourceMatches = resolveAlarmCandidates({
       alarms: scheduled,
       timeSelector: intent.sourceTimeSelector,
+      referencedAlarmId: intent.referencedAlarmId,
       referenceNow,
     });
 
@@ -713,4 +786,4 @@ export function resolveLocalAlarmTurn(params: {
   return null;
 }
 
-export { hasPendingLocalAlarmAction };
+export { hasPendingAlarmSelection, hasPendingLocalAlarmAction };

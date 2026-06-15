@@ -1,4 +1,5 @@
 import { parseLocalReminderIntent } from '@/src/features/local-reminders/localReminderIntentParser';
+import { commitLocalReminderActiveReference } from '@/src/features/agent/conversation/activeConversationalReference';
 import {
   syncLocalReminderNotificationCancel,
   syncLocalReminderNotificationSchedule,
@@ -63,6 +64,13 @@ export function resolveLocalReminderTurn(params: {
 
     syncLocalReminderNotificationSchedule(reminder);
 
+    commitLocalReminderActiveReference({
+      action: 'create',
+      reminderId: reminder.id,
+      title: reminder.text,
+      scheduledTimeMs: reminder.triggerAtMs,
+    });
+
     const reply = buildLocalReminderCreatedReply({
       reminder,
       languageCode: params.languageCode,
@@ -78,6 +86,17 @@ export function resolveLocalReminderTurn(params: {
 
   if (intent.kind === 'list') {
     const reminders = listScheduledLocalReminders(referenceNow.getTime());
+
+    if (reminders.length === 1) {
+      const only = reminders[0]!;
+      commitLocalReminderActiveReference({
+        action: 'query',
+        reminderId: only.id,
+        title: only.text,
+        scheduledTimeMs: only.triggerAtMs,
+      });
+    }
+
     const reply = buildLocalReminderListReply({
       reminders,
       languageCode: params.languageCode,
@@ -117,6 +136,15 @@ export function resolveLocalReminderTurn(params: {
       if (reminder) {
         syncLocalReminderNotificationCancel(reminder.id);
       }
+    }
+
+    if (cancelled.length === 1 && cancelled[0]) {
+      commitLocalReminderActiveReference({
+        action: 'delete',
+        reminderId: cancelled[0].id,
+        title: cancelled[0].text,
+        scheduledTimeMs: cancelled[0].triggerAtMs,
+      });
     }
 
     return {

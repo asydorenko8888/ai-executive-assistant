@@ -1,4 +1,12 @@
 import {
+  isPronounDeleteOrCancelRequest,
+  isPronounMoveRequest,
+  resolvePronounTargetDomain,
+  shouldBlockLocalAlarmRoutingForContextFollowUp,
+  shouldRoutePronounToLocalAlarm,
+} from '@/src/features/agent/conversation/activeConversationalReference';
+import { isPostActionAcknowledgmentTurn } from '@/src/features/agent/conversation/postActionAcknowledgmentReply';
+import {
   CALENDAR_WORD_EDGE,
   CALENDAR_WORD_END,
 } from '@/src/features/agent/calendarIntelligence/calendarTextBoundaries';
@@ -65,10 +73,7 @@ const LOCAL_ALARM_MOVE = new RegExp(
     `перенес(?:и|і)\\s+будильник|` +
     `сдвинь\\s+будильник|` +
     `move\\s+(?:the\\s+)?alarm|` +
-    `reschedule\\s+(?:the\\s+)?alarm|` +
-    `move\\s+it|` +
-    `перенеси\\s+(?:его|её)|` +
-    `reschedule\\s+it` +
+    `reschedule\\s+(?:the\\s+)?alarm` +
     `)${CALENDAR_WORD_END}`,
   'iu',
 );
@@ -100,7 +105,20 @@ export function shouldRouteToLocalAlarmWorkflow(transcript: string) {
     return false;
   }
 
-  return containsLocalAlarmDomain(normalized) || isLocalAlarmIntent(normalized) || isLocalAlarmQueryTranscript(normalized);
+  if (isPostActionAcknowledgmentTurn({ transcript: normalized })) {
+    return false;
+  }
+
+  if (shouldBlockLocalAlarmRoutingForContextFollowUp(normalized)) {
+    return false;
+  }
+
+  return (
+    containsLocalAlarmDomain(normalized) ||
+    isLocalAlarmIntent(normalized) ||
+    isLocalAlarmQueryTranscript(normalized) ||
+    shouldRoutePronounToLocalAlarm(normalized)
+  );
 }
 
 function isLocalAlarmCreatePattern(transcript: string) {
@@ -142,7 +160,17 @@ export function isLocalAlarmCancelQuery(transcript: string) {
 }
 
 export function isLocalAlarmDeleteQuery(transcript: string) {
-  return LOCAL_ALARM_DELETE.test(transcript.trim());
+  const normalized = transcript.trim();
+
+  if (LOCAL_ALARM_DELETE.test(normalized)) {
+    return true;
+  }
+
+  if (!isPronounDeleteOrCancelRequest(normalized)) {
+    return false;
+  }
+
+  return resolvePronounTargetDomain(normalized).selectedDomain === 'local_alarm';
 }
 
 export function isLocalAlarmRescheduleQuery(transcript: string) {
@@ -150,7 +178,21 @@ export function isLocalAlarmRescheduleQuery(transcript: string) {
 }
 
 export function isLocalAlarmMoveQuery(transcript: string) {
-  return LOCAL_ALARM_MOVE.test(transcript.trim());
+  const normalized = transcript.trim();
+
+  if (LOCAL_ALARM_MOVE.test(normalized)) {
+    return true;
+  }
+
+  if (/^(?:move\s+it|reschedule\s+it)$/iu.test(normalized)) {
+    return true;
+  }
+
+  if (!isPronounMoveRequest(normalized)) {
+    return false;
+  }
+
+  return resolvePronounTargetDomain(normalized).selectedDomain === 'local_alarm';
 }
 
 export function isLocalAlarmCreateQuery(transcript: string) {

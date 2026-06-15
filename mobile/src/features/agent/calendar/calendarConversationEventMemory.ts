@@ -17,6 +17,10 @@ import {
   touchCalendarConversationContext,
 } from '@/src/features/agent/calendar/calendarConversationContext';
 import { isIgnorableTitleQueryForMemory, transcriptHasEventPronounReference } from '@/src/features/agent/calendar/calendarEventReferenceTokens';
+import {
+  commitCalendarActiveReference,
+  getLatestActiveReference,
+} from '@/src/features/agent/conversation/activeConversationalReference';
 import { parseGoogleCalendarRecurringEventId } from '@/src/features/agent/calendar/calendarRecurringEventIds';
 import { calendarConversationTitlesMatch } from '@/src/features/agent/calendar/calendarConversationTitleMatch';
 import { getExecutiveCalendarTimezone } from '@/src/features/agent/calendar/calendarTimezone';
@@ -229,6 +233,12 @@ export function shouldDeleteFromLastReferencedMemory(params: {
     return false;
   }
 
+  const latest = getLatestActiveReference();
+
+  if (latest?.domain === 'local_alarm') {
+    return false;
+  }
+
   const ref = getLastReferencedCalendarEvent(params.referenceNow);
 
   return Boolean(ref?.eventId && !ref.eventId.startsWith('pending'));
@@ -297,6 +307,14 @@ export function recordCreatedConversationEvent(params: {
   recurrenceRrule?: string | null;
 }) {
   commitCreatedCalendarEvent(params);
+  commitCalendarActiveReference({
+    action: 'create',
+    eventId: params.eventId,
+    title: params.title,
+    startISO: params.startISO,
+    endISO: params.endISO,
+    source: 'calendar_write',
+  });
 
   if (params.recurrenceRrule?.trim()) {
     lastReferencedRecurringSeries = {
@@ -319,6 +337,14 @@ export function recordModifiedConversationEvent(params: {
   recurringEventId?: string | null;
 }) {
   commitModifiedCalendarEvent(params);
+  commitCalendarActiveReference({
+    action: 'move',
+    eventId: params.eventId,
+    title: params.title,
+    startISO: params.startISO,
+    endISO: params.endISO,
+    source: 'calendar_write',
+  });
 }
 
 export function recordSearchedConversationEvent(params: {
@@ -328,6 +354,14 @@ export function recordSearchedConversationEvent(params: {
   endISO: string;
 }) {
   commitReferencedCalendarEvent(params);
+  commitCalendarActiveReference({
+    action: 'query',
+    eventId: params.eventId,
+    title: params.title,
+    startISO: params.startISO,
+    endISO: params.endISO,
+    source: 'calendar_query_answer',
+  });
 }
 
 export function recordDeletedConversationEvent(params: {
@@ -337,6 +371,14 @@ export function recordDeletedConversationEvent(params: {
   endISO: string;
 }) {
   commitDeletedCalendarEvent(params);
+  commitCalendarActiveReference({
+    action: 'delete',
+    eventId: params.eventId,
+    title: params.title,
+    startISO: params.startISO,
+    endISO: params.endISO,
+    source: 'calendar_write',
+  });
 }
 
 export function resolveConversationEventReference(_referenceNow: Date): ConversationEventRecord | null {

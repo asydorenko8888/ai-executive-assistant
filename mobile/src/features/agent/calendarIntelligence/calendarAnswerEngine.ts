@@ -159,11 +159,29 @@ export function buildDeterministicCalendarAnswer(params: {
   if (intent === 'next_event') {
     const nextEvent = getNextEvent(normalized, day, params.referenceNow);
 
+    if (nextEvent) {
+      recordSearchedConversationEvent({
+        eventId: nextEvent.id,
+        title: nextEvent.title,
+        startISO: nextEvent.startISO,
+        endISO: nextEvent.endISO,
+      });
+    }
+
     return { intent, day, events: dayEvents, payload: { nextEvent } };
   }
 
   if (intent === 'last_event') {
     const lastEvent = getLastEvent(normalized, day);
+
+    if (lastEvent) {
+      recordSearchedConversationEvent({
+        eventId: lastEvent.id,
+        title: lastEvent.title,
+        startISO: lastEvent.startISO,
+        endISO: lastEvent.endISO,
+      });
+    }
 
     return { intent, day, events: dayEvents, payload: { lastEvent } };
   }

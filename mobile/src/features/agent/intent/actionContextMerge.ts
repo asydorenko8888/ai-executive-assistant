@@ -3,6 +3,7 @@ import { isCalendarConversationAwaitingInput } from '@/src/features/agent/calend
 import { isCalendarExactTimeReadQuery } from '@/src/features/agent/calendarIntelligence/calendarExactTimeReadDetection';
 import { isNewCalendarCommandMessage } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
+import { isPostActionAcknowledgmentTurn } from '@/src/features/agent/conversation/postActionAcknowledgmentReply';
 import { tryMergePendingCalendarDeleteReply } from '@/src/features/agent/calendar/calendarDeletePendingContext';
 import { tryMergePendingCalendarUpdateReply } from '@/src/features/agent/calendar/calendarUpdatePendingContext';
 import {
@@ -10,6 +11,7 @@ import {
   getStoredMoveClarificationCandidates,
   resolveStoredMoveClarificationReply,
 } from '@/src/features/agent/calendar/calendarMoveClarificationState';
+import { hasPendingAlarmSelection } from '@/src/features/local-alarms/localAlarmPendingAction';
 import { isOperationalCalendarUpdateRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
 import {
   getPendingCalendarDeleteContext,
@@ -57,6 +59,23 @@ export function mergeActionContextFromHistory(params: {
   referenceNow: Date;
 }) {
   const normalized = params.transcript.trim();
+
+  if (isPostActionAcknowledgmentTurn({ transcript: normalized, referenceNow: params.referenceNow })) {
+    return {
+      mergedTranscript: normalized,
+      usedContext: false,
+      contextSource: null,
+    };
+  }
+
+  if (hasPendingAlarmSelection()) {
+    return {
+      mergedTranscript: normalized,
+      usedContext: false,
+      contextSource: 'pending_alarm_selection' as const,
+    };
+  }
+
   const pendingUpdateForGate = getPendingCalendarUpdateContext();
   const pendingDeleteForGate = getPendingCalendarDeleteContext();
   const storedMoveCandidates = getStoredMoveClarificationCandidates();

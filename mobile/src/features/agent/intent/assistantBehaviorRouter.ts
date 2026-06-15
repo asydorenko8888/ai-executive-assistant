@@ -17,6 +17,9 @@ import {
 } from '@/src/features/agent/calendar/calendarConversationState';
 import { isNewCalendarCommandMessage, isAwaitingEventDisambiguationSelectionReply } from '@/src/features/agent/calendar/calendarPendingReplyClassifier';
 import { isBareCalendarShortReply } from '@/src/features/agent/calendar/calendarShortReply';
+import {
+  isPostActionAcknowledgmentTurn,
+} from '@/src/features/agent/conversation/postActionAcknowledgmentReply';
 import { getPendingCalendarConflictContext } from '@/src/features/agent/execution/calendarExecutionSession';
 import { isCalendarCreateByTitleTimePattern } from '@/src/features/agent/calendar/calendarCreateByTitleTime';
 import { isOperationalCalendarWriteRequest } from '@/src/features/agent/intent/operationalCalendarWriteDetection';
@@ -24,6 +27,10 @@ import {
   isLocalAlarmIntent,
   shouldRouteToLocalAlarmWorkflow,
 } from '@/src/features/local-alarms/localAlarmClassification';
+import { hasPendingAlarmSelection } from '@/src/features/local-alarms/localAlarmPendingAction';
+import {
+  shouldBlockLocalAlarmRoutingForContextFollowUp,
+} from '@/src/features/agent/conversation/activeConversationalReference';
 import { isLocalReminderIntent } from '@/src/features/local-reminders/localReminderClassification';
 import type { VoiceLanguageCode } from '@/src/features/chat/services/voiceLanguage';
 
@@ -154,9 +161,47 @@ export function resolveAssistantBehavior(params: {
   });
   const actionTranscript = contextMerge.mergedTranscript;
 
+  if (isPostActionAcknowledgmentTurn({ transcript: params.transcript, referenceNow: params.referenceNow })) {
+    const route: AssistantBehaviorRoute = {
+      requiredFields: [],
+      missingFields: [],
+      selectedTool: 'none',
+      actionTranscript: params.transcript.trim(),
+      clarificationReply: null,
+      blockEmotionalRouting: false,
+      blockCalendarMutation: true,
+      mode: 'COMPANION_MODE',
+      intent: 'post_action_acknowledgment',
+      reason: 'post_action_acknowledgment_no_tools',
+    };
+
+    logBehaviorRoute(route);
+    return route;
+  }
+
+  if (hasPendingAlarmSelection()) {
+    const route: AssistantBehaviorRoute = {
+      requiredFields: [],
+      missingFields: [],
+      selectedTool: 'create_reminder',
+      actionTranscript,
+      clarificationReply: null,
+      blockEmotionalRouting: true,
+      blockCalendarMutation: true,
+      mode: 'ACTION_MODE',
+      intent: 'local_alarm_selection',
+      reason: 'pending_alarm_selection_preempts_calendar',
+    };
+
+    logBehaviorRoute(route);
+    return route;
+  }
+
   if (
-    shouldRouteToLocalAlarmWorkflow(params.transcript) ||
-    shouldRouteToLocalAlarmWorkflow(actionTranscript)
+    !shouldBlockLocalAlarmRoutingForContextFollowUp(params.transcript) &&
+    !shouldBlockLocalAlarmRoutingForContextFollowUp(actionTranscript) &&
+    (shouldRouteToLocalAlarmWorkflow(params.transcript) ||
+      shouldRouteToLocalAlarmWorkflow(actionTranscript))
   ) {
     const route: AssistantBehaviorRoute = {
       requiredFields: [],
@@ -199,6 +244,7 @@ export function resolveAssistantBehavior(params: {
   }
 
   const explicitAction =
+    !isPostActionAcknowledgmentTurn({ transcript: params.transcript, referenceNow: params.referenceNow }) &&
     !isCalendarReadOnlyQuery(params.transcript) &&
     (hasExplicitActionVerb(actionTranscript) ||
       contextMerge.contextSource === 'clarification_followup' ||

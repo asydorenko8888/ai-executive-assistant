@@ -2,6 +2,12 @@ import {
   classifyLocalAlarmIntentKind,
   classifyLocalAlarmQueryVariant,
 } from '@/src/features/local-alarms/localAlarmClassification';
+import {
+  getReferencedLocalAlarmId,
+  needsContextualDomainResolution,
+  resolvePronounTargetDomain,
+  transcriptHasConversationalPronounReference,
+} from '@/src/features/agent/conversation/activeConversationalReference';
 import { normalizeAlarmTimePhrase } from '@/src/features/local-alarms/localAlarmTimeMatch';
 import type { ParsedLocalAlarmIntent } from '@/src/features/local-alarms/types';
 import {
@@ -14,11 +20,24 @@ function normalizeTranscript(transcript: string) {
 }
 
 function extractCancelTimeSelector(transcript: string) {
-  const match = transcript.match(
+  const explicitMatch = transcript.match(
     /(?:удали(?:ть)?\s+будильник|видали(?:ти)?\s+будильник|отмени(?:ть)?\s+будильник|убери(?:ть)?\s+будильник|cancel\s+(?:the\s+)?alarm|delete\s+(?:the\s+)?alarm)(?:\s+(.+))?/iu,
   );
 
-  const remainder = match?.[1]?.trim().replace(/[.!?]+$/g, '');
+  if (explicitMatch) {
+    const remainder = explicitMatch[1]?.trim().replace(/[.!?]+$/g, '');
+    return remainder ? normalizeAlarmTimePhrase(remainder) : undefined;
+  }
+
+  const pronounMatch = transcript.match(
+    /(?:удали(?:ть)?|отмени(?:ть)?|убери(?:ть)?|видали(?:ти)?|скасуй(?:ти)?|cancel|delete|remove)\s+(?:его|её|ее|it|this|that)(?:\s+(.+))?/iu,
+  );
+
+  if (!pronounMatch) {
+    return undefined;
+  }
+
+  const remainder = pronounMatch[1]?.trim().replace(/[.!?]+$/g, '');
 
   return remainder ? normalizeAlarmTimePhrase(remainder) : undefined;
 }
@@ -283,10 +302,16 @@ export function parseLocalAlarmIntent(
   }
 
   if (intentKind === 'delete') {
+    const timeSelector = extractCancelTimeSelector(normalized);
+    const routing =
+      needsContextualDomainResolution(normalized) ? resolvePronounTargetDomain(normalized) : null;
+
     return {
       kind: 'cancel',
       sourceTranscript: normalized,
-      timeSelector: extractCancelTimeSelector(normalized),
+      timeSelector,
+      referencedAlarmId:
+        routing?.selectedDomain === 'local_alarm' ? getReferencedLocalAlarmId() ?? undefined : undefined,
     };
   }
 
@@ -297,12 +322,17 @@ export function parseLocalAlarmIntent(
       return null;
     }
 
+    const routing =
+      needsContextualDomainResolution(normalized) ? resolvePronounTargetDomain(normalized) : null;
+
     return {
       kind: 'reschedule',
       sourceTranscript: normalized,
       targetTime: parsed.targetTime,
       sourceTimeSelector: parsed.sourceTimeSelector,
       relativeDeltaMs: parsed.relativeDeltaMs,
+      referencedAlarmId:
+        routing?.selectedDomain === 'local_alarm' ? getReferencedLocalAlarmId() ?? undefined : undefined,
     };
   }
 

@@ -37,6 +37,7 @@ export type LocalAlarmCancelIntent = {
   kind: 'cancel';
   sourceTranscript: string;
   timeSelector?: string;
+  referencedAlarmId?: string;
 };
 
 export type LocalAlarmRescheduleIntent = {
@@ -45,6 +46,7 @@ export type LocalAlarmRescheduleIntent = {
   targetTime?: Date;
   sourceTimeSelector?: string;
   relativeDeltaMs?: number;
+  referencedAlarmId?: string;
 };
 
 export type ParsedLocalAlarmIntent =

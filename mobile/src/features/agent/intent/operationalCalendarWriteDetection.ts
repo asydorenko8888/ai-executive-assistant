@@ -18,6 +18,12 @@ import {
   containsLocalAlarmKeyword,
   isLocalAlarmIntent,
 } from '@/src/features/local-alarms/localAlarmClassification';
+import {
+  shouldRoutePronounToLocalAlarm,
+  shouldRoutePronounToCalendar,
+  needsContextualDomainResolution,
+  resolvePronounTargetDomain,
+} from '@/src/features/agent/conversation/activeConversationalReference';
 import { parseCalendarDayPeriodMinutes } from '@/src/features/agent/calendar/calendarReschedulePeriods';
 
 function isExactTimeReadQuery(transcript: string) {
@@ -96,6 +102,18 @@ export function isOperationalCalendarDeleteRequest(transcript: string) {
     return false;
   }
 
+  if (shouldRoutePronounToLocalAlarm(normalized)) {
+    return false;
+  }
+
+  if (
+    needsContextualDomainResolution(normalized) &&
+    DELETE_WRITE_VERBS.test(normalized) &&
+    resolvePronounTargetDomain(normalized).selectedDomain === 'calendar_event'
+  ) {
+    return true;
+  }
+
   if (DELETE_VERB_AT_START.test(normalized)) {
     return true;
   }
@@ -123,6 +141,10 @@ export function isOperationalCalendarUpdateRequest(transcript: string) {
 
   if (isLocalAlarmIntent(normalized) || containsLocalAlarmDomain(normalized)) {
     return false;
+  }
+
+  if (shouldRoutePronounToCalendar(normalized)) {
+    return true;
   }
 
   if (isBareRelativeRescheduleRequest(normalized)) {
